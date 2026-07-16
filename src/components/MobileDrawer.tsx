@@ -115,7 +115,11 @@ export default function MobileDrawer({
         {/* Nav links */}
         <nav className="flex-1 overflow-y-auto py-2">
           {links.map((l) => {
-            const active = pathname === l.href || (l.href !== "/dashboard" && pathname?.startsWith(l.href));
+            const p = pathname ?? "";
+            const active =
+              l.href === "/dashboard"
+                ? p === "/dashboard" || p === "/"
+                : p === l.href || p.startsWith(`${l.href}/`);
             return (
               <Link
                 key={l.href}

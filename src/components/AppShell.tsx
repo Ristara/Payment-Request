@@ -1,6 +1,7 @@
 import Link from "next/link";
 import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
 import ProfileMenu from "@/components/ProfileMenu";
+import SidebarNav from "@/components/SidebarNav";
 
 export type SidebarLink = {
   href: string;
@@ -64,24 +65,7 @@ export default function AppShell({
         >
           <span className="text-lg font-bold">R</span>
         </Link>
-        <nav className="flex flex-1 flex-col items-center gap-1">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className="group relative flex w-16 flex-col items-center justify-center gap-1 rounded-lg py-2 text-slate-400 hover:bg-slate-800 hover:text-white"
-              title={l.label}
-            >
-              {l.icon}
-              <span className="text-[10px] font-medium leading-tight">{l.label}</span>
-              {typeof l.badge === "number" && l.badge > 0 && (
-                <span className="absolute right-1 top-1 rounded-full bg-red-500 px-1.5 text-[9px] font-bold text-white">
-                  {l.badge}
-                </span>
-              )}
-            </Link>
-          ))}
-        </nav>
+        <SidebarNav links={links} />
 
         {/* Switch-view CTA at the bottom of the sidebar */}
         {switchView && (

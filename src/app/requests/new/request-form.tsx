@@ -2,6 +2,7 @@
 
 import { useActionState, useMemo, useState } from "react";
 import { createRequest } from "@/app/requests/actions";
+import Combobox, { type ComboOption } from "@/components/Combobox";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
 type Outlet = { id: string; code: string; name: string };
@@ -54,6 +55,16 @@ export default function RequestForm({
     return m;
   }, [coaAccounts]);
 
+  const coaOptions = useMemo<ComboOption[]>(
+    () =>
+      coaAccounts.map((c) => ({
+        value: c.id,
+        label: c.subcategory,
+        hint: `${c.category} · ${c.coa}`,
+      })),
+    [coaAccounts],
+  );
+
   function updateLine(idx: number, patch: Partial<LineRow>) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
@@ -93,22 +104,21 @@ export default function RequestForm({
       {/* Vendor */}
       <section>
         <SectionTitle>Vendor</SectionTitle>
-        <select
-          name="vendor_id"
-          value={vendorId}
-          onChange={(e) => setVendorId(e.target.value)}
-          required
-          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          <option value="" disabled>
-            Pick a vendor…
-          </option>
-          {vendors.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name} {v.status === "pending" ? "(pending approval)" : ""}
-            </option>
-          ))}
-        </select>
+        <div className="mt-2">
+          <Combobox
+            name="vendor_id"
+            required
+            value={vendorId}
+            onChange={setVendorId}
+            placeholder="Search vendor by name or GSTIN…"
+            ariaLabel="Vendor"
+            options={vendors.map<ComboOption>((v) => ({
+              value: v.id,
+              label: v.status === "pending" ? `${v.name} (pending approval)` : v.name,
+              hint: v.gstin ?? undefined,
+            }))}
+          />
+        </div>
         {selectedVendor?.status === "pending" && (
           <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
             This vendor is still being verified by Accounts. You can submit, but payment
@@ -206,19 +216,14 @@ export default function RequestForm({
                 return (
                   <tr key={line.key} className="border-b border-zinc-100 align-top dark:border-zinc-800/60">
                     <td className="px-1 py-2">
-                      <select
+                      <Combobox
+                        size="sm"
                         value={line.coa_account_id}
-                        onChange={(e) => updateLine(idx, { coa_account_id: e.target.value })}
-                        required
-                        className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                      >
-                        <option value="" disabled>Pick subcategory…</option>
-                        {coaAccounts.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.subcategory}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => updateLine(idx, { coa_account_id: v })}
+                        placeholder="Search subcategory…"
+                        ariaLabel="Subcategory"
+                        options={coaOptions}
+                      />
                       {coa && (
                         <p className="mt-1 text-[10px] text-zinc-500">
                           {coa.category} · {coa.coa}

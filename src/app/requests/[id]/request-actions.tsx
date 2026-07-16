@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
+import Combobox, { type ComboOption } from "@/components/Combobox";
 import {
   approveRequest,
   rejectRequest,
@@ -49,7 +50,17 @@ export default function RequestActions({
 
   const [openBox, setOpenBox] = useState<null | "reject" | "return" | "cancel" | "coa" | "bank" | "pay" | "invoice">(null);
   const [selectedLineId, setSelectedLineId] = useState<string>(lineItems[0]?.id ?? "");
-  const selectedLine = lineItems.find((l) => l.id === selectedLineId);
+  const [newCoaId, setNewCoaId] = useState<string>(lineItems[0]?.coa_account_id ?? "");
+
+  const coaOptions = useMemo<ComboOption[]>(
+    () =>
+      coaHeads.map((c) => ({
+        value: c.id,
+        label: c.subcategory,
+        hint: `${c.category} · ${c.coa}`,
+      })),
+    [coaHeads],
+  );
 
   const canApprove = (isApprover || isAdmin) && status === "pending_approval" && vendorStatus === "approved";
   const canRejectReturn = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
@@ -176,11 +187,15 @@ export default function RequestActions({
           <input type="hidden" name="request_id" value={requestId} />
           <input type="hidden" name="line_id" value={selectedLineId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="text-xs text-zinc-500">
-              Line
+            <div>
+              <label className="text-xs text-zinc-500">Line</label>
               <select
                 value={selectedLineId}
-                onChange={(e) => setSelectedLineId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedLineId(e.target.value);
+                  const target = lineItems.find((l) => l.id === e.target.value);
+                  setNewCoaId(target?.coa_account_id ?? "");
+                }}
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
               >
                 {lineItems.map((l) => (
@@ -189,32 +204,30 @@ export default function RequestActions({
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="text-xs text-zinc-500">
-              New subcategory
-              <select
-                name="coa_account_id"
-                required
-                defaultValue={selectedLine?.coa_account_id ?? ""}
-                key={selectedLineId}
-                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                {coaHeads.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.subcategory} — {c.category}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-zinc-500">
-              Reason
+            </div>
+            <div>
+              <label className="text-xs text-zinc-500">New subcategory</label>
+              <div className="mt-1">
+                <Combobox
+                  name="coa_account_id"
+                  required
+                  value={newCoaId}
+                  onChange={setNewCoaId}
+                  placeholder="Search subcategory…"
+                  ariaLabel="New subcategory"
+                  options={coaOptions}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-500">Reason</label>
               <input
                 name="reason"
                 required
                 placeholder="Why the change?"
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
               />
-            </label>
+            </div>
           </div>
           <div className="mt-3 flex justify-end">
             <button disabled={coaPending} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
