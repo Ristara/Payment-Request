@@ -79,13 +79,18 @@ export default function VendorForm() {
         </div>
         <Field label="PAN" name="pan" required placeholder="AAAAA0000A" mono />
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Bank account number" name="bank_account_number" required mono />
-        <Field label="IFSC" name="bank_ifsc" required placeholder="HDFC0001234" mono />
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Bank name (optional)" name="bank_name" placeholder="HDFC Bank" />
-        <Field label="Branch (optional)" name="bank_branch" placeholder="Koramangala" />
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Bank details (optional — Accounts will add when they approve)
+        </p>
+        <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Bank account number" name="bank_account_number" mono />
+          <Field label="IFSC" name="bank_ifsc" placeholder="HDFC0001234" mono />
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Bank name" name="bank_name" placeholder="HDFC Bank" />
+          <Field label="Branch" name="bank_branch" placeholder="Koramangala" />
+        </div>
       </div>
       <div>
         <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">

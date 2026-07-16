@@ -4,15 +4,15 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { VENDOR_STATUS_LABEL } from "@/lib/routing";
-import { approveVendor, rejectVendor } from "@/app/vendors/actions";
+import ApprovalPanel from "./approval-panel";
 
 type VendorRow = {
   id: string;
   name: string;
   gstin: string | null;
   pan: string;
-  bank_account_number: string;
-  bank_ifsc: string;
+  bank_account_number: string | null;
+  bank_ifsc: string | null;
   bank_name: string | null;
   bank_branch: string | null;
   cancelled_cheque_path: string | null;
@@ -84,10 +84,18 @@ export default async function VendorDetailPage({
           <Row label="PAN" value={v.pan} mono />
         </Card>
         <Card title="Bank">
-          <Row label="Account #" value={v.bank_account_number} mono />
-          <Row label="IFSC" value={v.bank_ifsc} mono />
-          {v.bank_name && <Row label="Bank" value={v.bank_name} />}
-          {v.bank_branch && <Row label="Branch" value={v.bank_branch} />}
+          {v.bank_account_number || v.bank_ifsc ? (
+            <>
+              <Row label="Account #" value={v.bank_account_number ?? "—"} mono={!!v.bank_account_number} />
+              <Row label="IFSC" value={v.bank_ifsc ?? "—"} mono={!!v.bank_ifsc} />
+              {v.bank_name && <Row label="Bank" value={v.bank_name} />}
+              {v.bank_branch && <Row label="Branch" value={v.bank_branch} />}
+            </>
+          ) : (
+            <p className="text-sm italic text-amber-700 dark:text-amber-300">
+              Bank details pending. {canApprove ? "Fill them in below to approve." : "Accounts will add these when they approve."}
+            </p>
+          )}
         </Card>
       </section>
 
@@ -123,34 +131,10 @@ export default async function VendorDetailPage({
       )}
 
       {canApprove && v.status === "pending" && (
-        <section className="mt-8 rounded-2xl border border-indigo-200 bg-indigo-50 p-6 dark:border-indigo-900 dark:bg-indigo-950/40">
-          <h2 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
-            Verify this vendor
-          </h2>
-          <p className="mt-1 text-sm text-indigo-900 dark:text-indigo-200">
-            Check GSTIN + bank details + cheque match. Then approve or reject.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <form action={approveVendor}>
-              <input type="hidden" name="id" value={v.id} />
-              <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
-                Approve
-              </button>
-            </form>
-            <form action={rejectVendor} className="flex flex-1 gap-2">
-              <input type="hidden" name="id" value={v.id} />
-              <input
-                name="reason"
-                required
-                placeholder="Reason for rejection"
-                className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-              />
-              <button className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
-                Reject
-              </button>
-            </form>
-          </div>
-        </section>
+        <ApprovalPanel
+          vendorId={v.id}
+          hasBank={!!(v.bank_account_number && v.bank_ifsc)}
+        />
       )}
     </div>
   );

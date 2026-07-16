@@ -37,7 +37,7 @@ type ReqRow = {
   return_reason: string | null;
   created_at: string;
   submitter: { full_name: string; email: string } | null;
-  vendor: { name: string; gstin: string | null; status: string; bank_account_number: string; bank_ifsc: string } | null;
+  vendor: { name: string; gstin: string | null; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
   coa_account: { code: number; subcategory: string; category: string; coa: string } | null;
   approver: { full_name: string } | null;
   outlets: { outlet: { name: string; code: string } | null }[];

@@ -27,8 +27,10 @@ export async function createVendor(
   const gstinRaw = String(formData.get("gstin") ?? "").trim().toUpperCase();
   const gstin = is_gst_registered ? gstinRaw : null;
   const pan = String(formData.get("pan") ?? "").trim().toUpperCase();
-  const bank_account_number = String(formData.get("bank_account_number") ?? "").trim();
-  const bank_ifsc = String(formData.get("bank_ifsc") ?? "").trim().toUpperCase();
+  const bank_account_number_raw = String(formData.get("bank_account_number") ?? "").trim();
+  const bank_ifsc_raw = String(formData.get("bank_ifsc") ?? "").trim().toUpperCase();
+  const bank_account_number = bank_account_number_raw || null;
+  const bank_ifsc = bank_ifsc_raw || null;
   const bank_name = String(formData.get("bank_name") ?? "").trim() || null;
   const bank_branch = String(formData.get("bank_branch") ?? "").trim() || null;
   const cheque = formData.get("cancelled_cheque");
@@ -38,10 +40,14 @@ export async function createVendor(
     return { error: "GSTIN doesn't look right. Format: 22AAAAA0000A1Z5." };
   }
   if (!PAN_RE.test(pan)) return { error: "PAN doesn't look right. Format: AAAAA0000A." };
-  if (!bank_account_number || bank_account_number.length < 6) {
+  // Bank details are optional at creation — Accounts fills them in at
+  // approval time. If they're provided though, they must be valid.
+  if (bank_account_number && bank_account_number.length < 6) {
     return { error: "Bank account number looks too short." };
   }
-  if (!IFSC_RE.test(bank_ifsc)) return { error: "IFSC doesn't look right. Format: HDFC0001234." };
+  if (bank_ifsc && !IFSC_RE.test(bank_ifsc)) {
+    return { error: "IFSC doesn't look right. Format: HDFC0001234." };
+  }
 
   // Insert vendor row first (RLS lets requester insert when submitted_by = self)
   const { data: inserted, error: insertErr } = await supabase
@@ -114,25 +120,61 @@ export async function createVendor(
   redirect(`/vendors/${vendorId}`);
 }
 
-export async function approveVendor(formData: FormData): Promise<void> {
+export type ApproveState = { error?: string; info?: string } | undefined;
+
+export async function approveVendor(
+  _prev: ApproveState,
+  formData: FormData,
+): Promise<ApproveState> {
   const id = String(formData.get("id") ?? "");
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user || !id) return;
+  if (!user || !id) return { error: "Not signed in." };
 
-  await supabase
+  // Load current vendor bank details.
+  const { data: vendor } = await supabase
     .from("vendors")
-    .update({
-      status: "approved",
-      verified_by: user.id,
-      verified_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+    .select("bank_account_number, bank_ifsc")
+    .eq("id", id)
+    .maybeSingle();
+  if (!vendor) return { error: "Vendor not found." };
+
+  // If bank details aren't already on the vendor, accept them from the
+  // approval form. They're required to approve.
+  const providedAcct = String(formData.get("bank_account_number") ?? "").trim();
+  const providedIfsc = String(formData.get("bank_ifsc") ?? "").trim().toUpperCase();
+  const providedName = String(formData.get("bank_name") ?? "").trim() || null;
+  const providedBranch = String(formData.get("bank_branch") ?? "").trim() || null;
+
+  const finalAcct = vendor.bank_account_number ?? providedAcct;
+  const finalIfsc = vendor.bank_ifsc ?? providedIfsc;
+
+  if (!finalAcct || finalAcct.length < 6) {
+    return { error: "Bank account number is required to approve." };
+  }
+  if (!finalIfsc || !IFSC_RE.test(finalIfsc)) {
+    return { error: "A valid IFSC is required to approve." };
+  }
+
+  const update: Record<string, unknown> = {
+    status: "approved",
+    verified_by: user.id,
+    verified_at: new Date().toISOString(),
+  };
+  // Only overwrite bank fields if they were empty and the approver supplied them.
+  if (!vendor.bank_account_number && providedAcct) update.bank_account_number = providedAcct;
+  if (!vendor.bank_ifsc && providedIfsc) update.bank_ifsc = providedIfsc;
+  if (providedName) update.bank_name = providedName;
+  if (providedBranch) update.bank_branch = providedBranch;
+
+  const { error } = await supabase.from("vendors").update(update).eq("id", id);
+  if (error) return { error: error.message };
 
   revalidatePath("/vendors");
   revalidatePath(`/vendors/${id}`);
+  return { info: "Approved." };
 }
 
 export async function rejectVendor(formData: FormData): Promise<void> {
