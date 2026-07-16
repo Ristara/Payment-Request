@@ -8,10 +8,12 @@ export default function ProfileMenu({
   userName,
   userEmail,
   isAdmin = false,
+  switchView,
 }: {
   userName?: string;
   userEmail?: string;
   isAdmin?: boolean;
+  switchView?: { href: string; label: string; variant?: "admin" | "main" };
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -76,7 +78,21 @@ export default function ProfileMenu({
               <BellIcon />
               Notifications
             </Link>
-            {isAdmin && (
+            {switchView && (
+              <Link
+                href={switchView.href}
+                onClick={() => setOpen(false)}
+                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium ${
+                  switchView.variant === "admin"
+                    ? "text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"
+                    : "text-indigo-700 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
+                }`}
+              >
+                <SwitchIcon />
+                {switchView.label}
+              </Link>
+            )}
+            {isAdmin && !switchView && (
               <Link
                 href="/admin"
                 onClick={() => setOpen(false)}
@@ -116,6 +132,13 @@ function ShieldIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3z" />
+    </svg>
+  );
+}
+function SwitchIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 16l-4-4 4-4M3 12h13M17 8l4 4-4 4M21 12H8" />
     </svg>
   );
 }

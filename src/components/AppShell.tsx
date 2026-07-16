@@ -121,14 +121,13 @@ export default function AppShell({
             </div>
           </div>
 
-          {/* Mobile page title */}
-          {pageTitle && (
-            <h1 className="flex-1 truncate text-base font-semibold text-zinc-900 sm:hidden dark:text-zinc-100">
-              {pageTitle}
-            </h1>
-          )}
+          {/* Mobile page title (or empty spacer if no title, so the right
+              group is pushed to the far edge instead of clumping left) */}
+          <h1 className="flex-1 truncate text-base font-semibold text-zinc-900 sm:hidden dark:text-zinc-100">
+            {pageTitle ?? ""}
+          </h1>
 
-          <div className="flex items-center gap-2 text-right sm:text-left">
+          <div className="ml-auto flex items-center gap-2 text-right sm:ml-0 sm:text-left">
             <div className="hidden sm:block">
               <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                 {brand}
@@ -150,11 +149,11 @@ export default function AppShell({
               )}
             </Link>
             <div className="hidden sm:block">
-              <ProfileMenu userName={userName} userEmail={userEmail} isAdmin={showAdmin} />
+              <ProfileMenu userName={userName} userEmail={userEmail} isAdmin={showAdmin} switchView={switchView} />
             </div>
             {/* Mobile: still show avatar but as trigger for profile menu */}
             <div className="sm:hidden">
-              <ProfileMenu userName={userName} userEmail={userEmail} isAdmin={showAdmin} />
+              <ProfileMenu userName={userName} userEmail={userEmail} isAdmin={showAdmin} switchView={switchView} />
             </div>
           </div>
         </div>
