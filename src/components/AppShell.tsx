@@ -9,6 +9,14 @@ export type SidebarLink = {
   badge?: number;
 };
 
+/** Optional "switch view" pill at the bottom-left of the sidebar. */
+export type SwitchViewCta = {
+  href: string;
+  label: string;      // e.g. "Switch to Admin View" / "Switch to My View"
+  short: string;      // sidebar-friendly short label (e.g. "Admin", "My view")
+  variant?: "admin" | "main";
+};
+
 /**
  * Zoho-style app shell: dark left sidebar (desktop) with icon-first nav,
  * hamburger + slide-in drawer (mobile), top bar with search + user + notifications.
@@ -20,6 +28,9 @@ export default function AppShell({
   showAdmin,
   unreadCount = 0,
   pageTitle,
+  switchView,
+  brand = "Ristara Foods Pvt Ltd",
+  variant = "main",
   children,
 }: {
   links: SidebarLink[];
@@ -28,6 +39,9 @@ export default function AppShell({
   showAdmin?: boolean;
   unreadCount?: number;
   pageTitle?: string;
+  switchView?: SwitchViewCta;
+  brand?: string;
+  variant?: "main" | "admin";
   children: React.ReactNode;
 }) {
   const drawerLinks: DrawerLink[] = links.map((l) => ({
@@ -37,13 +51,15 @@ export default function AppShell({
     badge: l.badge,
   }));
 
+  const brandBg = variant === "admin" ? "bg-amber-600" : "bg-indigo-600";
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col items-center gap-1 border-r border-slate-800 bg-slate-900 py-4 sm:flex">
         <Link
           href="/dashboard"
-          className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600 text-white"
+          className={`mb-2 flex h-10 w-10 items-center justify-center rounded-lg text-white ${brandBg}`}
           title="Home"
         >
           <span className="text-lg font-bold">R</span>
@@ -66,14 +82,18 @@ export default function AppShell({
             </Link>
           ))}
         </nav>
-        {showAdmin && (
+
+        {/* Switch-view CTA at the bottom of the sidebar */}
+        {switchView && (
           <Link
-            href="/admin"
-            className="flex h-11 w-11 flex-col items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white"
-            title="Admin"
+            href={switchView.href}
+            className={`mt-auto flex h-12 w-12 flex-col items-center justify-center rounded-lg text-white shadow-sm ${
+              switchView.variant === "admin" ? "bg-amber-600 hover:bg-amber-700" : "bg-indigo-600 hover:bg-indigo-700"
+            }`}
+            title={switchView.label}
           >
-            <AdminIcon />
-            <span className="mt-0.5 text-[9px] font-medium">Admin</span>
+            <SwitchIcon />
+            <span className="mt-0.5 text-[9px] font-semibold leading-tight">{switchView.short}</span>
           </Link>
         )}
       </aside>
@@ -111,9 +131,11 @@ export default function AppShell({
           <div className="flex items-center gap-2 text-right sm:text-left">
             <div className="hidden sm:block">
               <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Ristara Foods Pvt Ltd
+                {brand}
               </p>
-              <p className="text-[11px] text-zinc-500">Payment Requests</p>
+              <p className="text-[11px] text-zinc-500">
+                {variant === "admin" ? "Admin View" : "Payment Requests"}
+              </p>
             </div>
             <Link
               href="/notifications"
@@ -182,11 +204,13 @@ function BellIcon() {
     </svg>
   );
 }
-function AdminIcon() {
+function SwitchIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 22a8 8 0 0 1 16 0" strokeLinecap="round" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 16l-4-4 4-4" />
+      <path d="M3 12h13" />
+      <path d="M17 8l4 4-4 4" />
+      <path d="M21 12H8" />
     </svg>
   );
 }

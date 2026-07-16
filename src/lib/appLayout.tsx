@@ -69,6 +69,12 @@ export default async function AppLayoutShell({
       userEmail={p?.email}
       unreadCount={unread.count ?? 0}
       pageTitle={pageTitle}
+      switchView={isAdmin ? {
+        href: "/admin",
+        label: "Switch to Admin View",
+        short: "Admin",
+        variant: "admin",
+      } : undefined}
     >
       {children}
     </AppShell>

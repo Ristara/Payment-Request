@@ -24,6 +24,8 @@ export default function MobileDrawer({
   isAdmin,
   brand = "Ristara Foods Pvt Ltd",
   role = "Payment Requests",
+  switchView,
+  variant = "main",
 }: {
   links: DrawerLink[];
   userName?: string;
@@ -31,6 +33,8 @@ export default function MobileDrawer({
   isAdmin?: boolean;
   brand?: string;
   role?: string;
+  switchView?: { href: string; label: string; variant?: "admin" | "main" };
+  variant?: "main" | "admin";
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -137,28 +141,25 @@ export default function MobileDrawer({
               </Link>
             );
           })}
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className={`mx-3 my-0.5 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm ${
-                pathname?.startsWith("/admin")
-                  ? "bg-indigo-600 font-medium text-white"
-                  : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              }`}
-            >
-              <span className={pathname?.startsWith("/admin") ? "text-white" : "text-zinc-500"}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M4 22a8 8 0 0 1 16 0" strokeLinecap="round" />
-                </svg>
-              </span>
-              <span className="flex-1">Admin</span>
-            </Link>
-          )}
         </nav>
 
-        {/* Sign out */}
-        <div className="border-t border-zinc-100 p-3 dark:border-zinc-800">
+        {/* Switch-view CTA + Sign out */}
+        <div className="border-t border-zinc-100 p-3 dark:border-zinc-800 space-y-1">
+          {switchView && (
+            <Link
+              href={switchView.href}
+              className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-white ${
+                switchView.variant === "admin"
+                  ? "bg-amber-600 hover:bg-amber-700"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 16l-4-4 4-4M3 12h13M17 8l4 4-4 4M21 12H8" />
+              </svg>
+              {switchView.label}
+            </Link>
+          )}
           <form action={signOut}>
             <button
               type="submit"
