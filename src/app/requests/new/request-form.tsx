@@ -35,7 +35,7 @@ export default function RequestForm({
   const [materialPct, setMaterialPct] = useState("");
   const [servicePct, setServicePct] = useState("");
   const [vendorId, setVendorId] = useState("");
-  const [pickedOutlets, setPickedOutlets] = useState<string[]>([]);
+  const [outletId, setOutletId] = useState("");
   const [poNa, setPoNa] = useState(false);
 
   const filteredSubs = useMemo(
@@ -65,10 +65,6 @@ export default function RequestForm({
   function onAmountChange(v: string) {
     setAmount(v);
     setPercent(""); // clear % if user typed a direct amount
-  }
-
-  function toggleOutlet(id: string) {
-    setPickedOutlets((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   const balance = (() => {
@@ -116,36 +112,30 @@ export default function RequestForm({
         )}
       </section>
 
-      {/* Outlets */}
+      {/* Outlet — single select */}
       <section>
-        <SectionTitle>Outlet(s)</SectionTitle>
-        <p className="text-xs text-zinc-500">Pick one or more outlets this payment applies to.</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {outlets.map((o) => {
-            const on = pickedOutlets.includes(o.id);
-            return (
-              <label
-                key={o.id}
-                className={`cursor-pointer rounded-md border px-3 py-1.5 text-xs ${
-                  on
-                    ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200"
-                    : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  checked={on}
-                  onChange={() => toggleOutlet(o.id)}
-                />
-                {o.name}
-              </label>
-            );
-          })}
-        </div>
-        {pickedOutlets.map((id) => (
-          <input key={id} type="hidden" name="outlet_ids" value={id} />
-        ))}
+        <SectionTitle>Outlet</SectionTitle>
+        <select
+          name="outlet_ids"
+          value={outletId}
+          onChange={(e) => setOutletId(e.target.value)}
+          required
+          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <option value="" disabled>
+            Pick an outlet…
+          </option>
+          {outlets.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        {outlets.length === 0 && (
+          <p className="mt-2 text-xs text-zinc-500">
+            No outlets yet. Ask your admin to add one.
+          </p>
+        )}
       </section>
 
       {/* PO + Invoice ref */}
