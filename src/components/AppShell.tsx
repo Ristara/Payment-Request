@@ -97,12 +97,14 @@ export default function AppShell({
             </div>
             <Link
               href="/notifications"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               title="Notifications"
             >
               <BellIcon />
               {unreadCount > 0 && (
-                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-zinc-900" />
+                <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-2 ring-white dark:ring-zinc-900">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
               )}
             </Link>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200" title={userEmail}>
@@ -157,9 +159,21 @@ function SearchIcon() {
   );
 }
 function BellIcon() {
+  // Zoho-style bell — cleaner curves, slightly heavier stroke, has the
+  // little clapper at the bottom.
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-zinc-600 dark:text-zinc-300">
-      <path d="M15 17h5l-1.4-2A7 7 0 0 0 12 3a7 7 0 0 0-6.6 12L4 17h5m6 0v1a3 3 0 0 1-6 0v-1" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 8a6 6 0 0 1 12 0c0 4.418 1.5 6 2.5 7H3.5C4.5 14 6 12.418 6 8z" />
+      <path d="M10.5 21a1.7 1.7 0 0 0 3 0" />
     </svg>
   );
 }
