@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signOut } from "@/app/(auth)/actions";
+import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
 
 export type SidebarLink = {
   href: string;
@@ -9,8 +10,8 @@ export type SidebarLink = {
 };
 
 /**
- * Zoho-style app shell: dark left sidebar with icon-first nav, top bar
- * with search + user + notifications, and a light body.
+ * Zoho-style app shell: dark left sidebar (desktop) with icon-first nav,
+ * hamburger + slide-in drawer (mobile), top bar with search + user + notifications.
  */
 export default function AppShell({
   links,
@@ -29,9 +30,16 @@ export default function AppShell({
   pageTitle?: string;
   children: React.ReactNode;
 }) {
+  const drawerLinks: DrawerLink[] = links.map((l) => ({
+    href: l.href,
+    label: l.label === "My" ? "My requests" : l.label === "Raise" ? "Raise request" : l.label === "Approve" ? "Approvals" : l.label === "Accts" ? "Accounts" : l.label === "Vendor" ? "Vendors" : l.label,
+    icon: l.icon,
+    badge: l.badge,
+  }));
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      {/* Sidebar */}
+      {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col items-center gap-1 border-r border-slate-800 bg-slate-900 py-4 sm:flex">
         <Link
           href="/dashboard"
@@ -72,7 +80,16 @@ export default function AppShell({
 
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-16 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-3 px-4 py-3 sm:gap-6 sm:px-6">
+        <div className="flex items-center gap-2 px-3 py-3 sm:gap-6 sm:px-6">
+          {/* Mobile hamburger + drawer */}
+          <MobileDrawer
+            links={drawerLinks}
+            userName={userName}
+            userEmail={userEmail}
+            isAdmin={showAdmin}
+          />
+
+          {/* Desktop search */}
           <div className="hidden flex-1 sm:block">
             <div className="relative max-w-lg">
               <SearchIcon />
@@ -83,11 +100,14 @@ export default function AppShell({
               />
             </div>
           </div>
+
+          {/* Mobile page title */}
           {pageTitle && (
             <h1 className="flex-1 truncate text-base font-semibold text-zinc-900 sm:hidden dark:text-zinc-100">
               {pageTitle}
             </h1>
           )}
+
           <div className="flex items-center gap-2 text-right sm:text-left">
             <div className="hidden sm:block">
               <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
@@ -107,13 +127,13 @@ export default function AppShell({
                 </span>
               )}
             </Link>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200" title={userEmail}>
+            <div className="hidden h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700 sm:flex dark:bg-indigo-900 dark:text-indigo-200" title={userEmail}>
               {(userName ?? userEmail ?? "?").slice(0, 1).toUpperCase()}
             </div>
-            <form action={signOut}>
+            <form action={signOut} className="hidden sm:block">
               <button
                 type="submit"
-                className="hidden rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 sm:block dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 Sign out
               </button>
@@ -121,19 +141,6 @@ export default function AppShell({
           </div>
         </div>
       </header>
-
-      {/* Mobile sidebar drawer trigger */}
-      <div className="sticky top-[57px] z-10 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 bg-white px-3 py-2 sm:hidden dark:border-zinc-800 dark:bg-zinc-900">
-        {links.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className="flex flex-col items-center justify-center rounded-md px-3 py-1 text-[10px] font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          >
-            {l.label}
-          </Link>
-        ))}
-      </div>
 
       {/* Main content */}
       <main className="sm:pl-16">
@@ -159,8 +166,6 @@ function SearchIcon() {
   );
 }
 function BellIcon() {
-  // Zoho-style bell — cleaner curves, slightly heavier stroke, has the
-  // little clapper at the bottom.
   return (
     <svg
       width="20"
