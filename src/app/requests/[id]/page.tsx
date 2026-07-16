@@ -25,9 +25,7 @@ type ReqRow = {
   payment_due_date: string;
   date_of_work_completion: string | null;
   tentative_invoice_date: string | null;
-  category_id: string;
-  subcategory_id: string;
-  coa_head_id: string;
+  coa_account_id: string;
   supply_composition: string;
   material_percentage: number | null;
   service_percentage: number | null;
@@ -40,9 +38,7 @@ type ReqRow = {
   created_at: string;
   submitter: { full_name: string; email: string } | null;
   vendor: { name: string; gstin: string | null; status: string; bank_account_number: string; bank_ifsc: string } | null;
-  category: { name: string } | null;
-  subcategory: { name: string } | null;
-  coa: { code: string; name: string } | null;
+  coa_account: { code: number; subcategory: string; category: string; coa: string } | null;
   approver: { full_name: string } | null;
   outlets: { outlet: { name: string; code: string } | null }[];
 };
@@ -65,14 +61,12 @@ export default async function RequestDetailPage({
        po_not_applicable_reason, invoice_reference, total_bill_value,
        payment_amount, payment_percentage, previous_payments, balance_payable,
        payment_due_date, date_of_work_completion, tentative_invoice_date,
-       category_id, subcategory_id, coa_head_id, supply_composition,
+       coa_account_id, supply_composition,
        material_percentage, service_percentage, purpose, cost_centre,
        submitted_at, approved_at, rejection_reason, return_reason, created_at,
        submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
        vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
-       category:expense_categories(name),
-       subcategory:expense_subcategories(name),
-       coa:coa_heads(code, name),
+       coa_account:coa_accounts(code, subcategory, category, coa),
        approver:profiles!payment_requests_approver_id_fkey(full_name),
        outlets:request_outlets(outlet:outlets(name, code))`,
     )
@@ -109,7 +103,7 @@ export default async function RequestDetailPage({
       )
       .eq("request_id", id)
       .order("created_at"),
-    supabase.from("coa_heads").select("id, code, name").eq("is_active", true).order("name"),
+    supabase.from("coa_accounts").select("id, code, subcategory, category, coa").eq("is_active", true).order("subcategory"),
     supabase.from("profiles").select("id, full_name, email").eq("is_active", true).order("full_name"),
   ]);
 
@@ -215,7 +209,7 @@ export default async function RequestDetailPage({
     attachments: commentAttsByComment.get(c.id) ?? [],
   }));
 
-  const coaHeads = (coaRes.data ?? []) as { id: string; code: string; name: string }[];
+  const coaHeads = (coaRes.data ?? []) as { id: string; code: number; subcategory: string; category: string; coa: string }[];
   const mentionCandidates = ((mentionCandRes.data ?? []) as {
     id: string;
     full_name: string;
@@ -280,7 +274,7 @@ export default async function RequestDetailPage({
           isAccounts={isAccounts}
           isAdmin={isAdmin}
           coaHeads={coaHeads}
-          currentCoaId={req.coa_head_id}
+          currentCoaId={req.coa_account_id}
         />
       </div>
 
@@ -315,16 +309,10 @@ export default async function RequestDetailPage({
           {/* Classification */}
           <Card title="Classification">
             <Grid>
-              <Row label="Category" value={req.category?.name ?? "—"} />
-              <Row label="Subcategory" value={req.subcategory?.name ?? "—"} />
-              <Row
-                label="COA head"
-                value={
-                  req.coa
-                    ? `${req.coa.name} (${req.coa.code})`
-                    : "—"
-                }
-              />
+              <Row label="Subcategory" value={req.coa_account?.subcategory ?? "—"} />
+              <Row label="Category" value={req.coa_account?.category ?? "—"} />
+              <Row label="COA" value={req.coa_account?.coa ?? "—"} />
+              <Row label="Code" value={req.coa_account?.code != null ? String(req.coa_account.code) : "—"} mono />
               <Row label="Supply" value={SUPPLY_LABEL[req.supply_composition] ?? req.supply_composition} />
               {req.supply_composition === "mixed" && (
                 <>

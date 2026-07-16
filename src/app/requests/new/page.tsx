@@ -1,23 +1,21 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
-import { getActiveOutlets, getActiveCategories, getActiveSubcategories, getActiveCoaHeads } from "@/lib/masters";
+import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
 import RequestForm from "./request-form";
 
 export default async function NewRequestPage() {
   await requireUser();
   const supabase = await createClient();
 
-  const [vendorsRes, outlets, categories, subcategories, coa] = await Promise.all([
+  const [vendorsRes, outlets, coaAccounts] = await Promise.all([
     supabase
       .from("vendors")
       .select("id, name, gstin, status")
       .in("status", ["approved", "pending"])
       .order("name"),
     getActiveOutlets(),
-    getActiveCategories(),
-    getActiveSubcategories(),
-    getActiveCoaHeads(),
+    getActiveCoaAccounts(),
   ]);
   const vendors = { data: vendorsRes.data };
 
@@ -37,9 +35,7 @@ export default async function NewRequestPage() {
         <RequestForm
           vendors={(vendors.data ?? []) as { id: string; name: string; gstin: string | null; status: string }[]}
           outlets={outlets as { id: string; code: string; name: string }[]}
-          categories={categories as { id: string; name: string }[]}
-          subcategories={subcategories as { id: string; name: string; category_id: string; default_coa_head_id: string }[]}
-          coa={coa as { id: string; code: string; name: string }[]}
+          coaAccounts={coaAccounts as { id: string; code: number; subcategory: string; category: string; coa: string }[]}
         />
       </div>
     </div>

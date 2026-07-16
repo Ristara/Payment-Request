@@ -13,7 +13,7 @@ import {
   closeRequest,
 } from "@/app/requests/actions";
 
-type Coa = { id: string; code: string; name: string };
+type Coa = { id: string; code: number; subcategory: string; category: string; coa: string };
 
 export default function RequestActions({
   requestId,
@@ -173,14 +173,14 @@ export default function RequestActions({
           <input type="hidden" name="request_id" value={requestId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <select
-              name="new_coa_head_id"
+              name="new_coa_account_id"
               required
               defaultValue={currentCoaId}
               className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
             >
               {coaHeads.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({c.code})
+                  {c.subcategory} — {c.category} ({c.code})
                 </option>
               ))}
             </select>

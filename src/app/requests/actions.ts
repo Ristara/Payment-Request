@@ -38,8 +38,7 @@ export async function createRequest(
     String(formData.get("date_of_work_completion") ?? "") || null;
   const tentative_invoice_date =
     String(formData.get("tentative_invoice_date") ?? "") || null;
-  const category_id = String(formData.get("category_id") ?? "");
-  const subcategory_id = String(formData.get("subcategory_id") ?? "");
+  const coa_account_id = String(formData.get("coa_account_id") ?? "");
   const supply_composition = String(formData.get("supply_composition") ?? "") as
     | "material"
     | "service"
@@ -63,8 +62,7 @@ export async function createRequest(
     return { error: "Payment amount + previous payments can't exceed total bill." };
   }
   if (!payment_due_date) return { error: "Payment due date is required." };
-  if (!category_id) return { error: "Pick a category." };
-  if (!subcategory_id) return { error: "Pick a subcategory." };
+  if (!coa_account_id) return { error: "Pick a subcategory (Chart of Accounts)." };
   if (!supply_composition) return { error: "Pick supply composition." };
   if (supply_composition === "mixed") {
     if (material_percentage == null || service_percentage == null) {
@@ -76,14 +74,13 @@ export async function createRequest(
   }
   if (!purpose) return { error: "Purpose / description is required." };
 
-  // Auto-fill COA head from subcategory's default
-  const { data: sub } = await supabase
-    .from("expense_subcategories")
-    .select("default_coa_head_id")
-    .eq("id", subcategory_id)
+  // Verify the selected COA account exists.
+  const { data: coaRow } = await supabase
+    .from("coa_accounts")
+    .select("id")
+    .eq("id", coa_account_id)
     .single();
-  if (!sub) return { error: "Subcategory not found." };
-  const coa_head_id = sub.default_coa_head_id as string;
+  if (!coaRow) return { error: "Selected COA account not found." };
 
   // Verify vendor is approved
   const { data: vendor } = await supabase
@@ -127,9 +124,7 @@ export async function createRequest(
       payment_due_date,
       date_of_work_completion,
       tentative_invoice_date,
-      category_id,
-      subcategory_id,
-      coa_head_id,
+      coa_account_id,
       supply_composition,
       material_percentage,
       service_percentage,
@@ -392,7 +387,7 @@ export async function overrideCoa(
   formData: FormData,
 ): Promise<RequestState> {
   const requestId = String(formData.get("request_id") ?? "");
-  const newCoaId = String(formData.get("new_coa_head_id") ?? "");
+  const newCoaId = String(formData.get("new_coa_account_id") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
   if (!requestId || !newCoaId || !reason) return { error: "New COA + reason required." };
 
@@ -403,20 +398,20 @@ export async function overrideCoa(
 
   const { data: req } = await supabase
     .from("payment_requests")
-    .select("coa_head_id")
+    .select("coa_account_id")
     .eq("id", requestId)
     .single();
   if (!req) return { error: "Request not found." };
 
-  const old_coa_head_id = req.coa_head_id as string;
-  if (old_coa_head_id === newCoaId) return { info: "COA unchanged." };
+  const old_coa_account_id = req.coa_account_id as string;
+  if (old_coa_account_id === newCoaId) return { info: "COA unchanged." };
 
-  await supabase.from("payment_requests").update({ coa_head_id: newCoaId }).eq("id", requestId);
+  await supabase.from("payment_requests").update({ coa_account_id: newCoaId }).eq("id", requestId);
   await admin.from("coa_override_log").insert({
     request_id: requestId,
     actor_id: user.id,
-    old_coa_head_id,
-    new_coa_head_id: newCoaId,
+    old_coa_account_id,
+    new_coa_account_id: newCoaId,
     reason,
   });
 

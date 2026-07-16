@@ -5,22 +5,16 @@ import { createRequest } from "@/app/requests/actions";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
 type Outlet = { id: string; code: string; name: string };
-type Category = { id: string; name: string };
-type Subcategory = { id: string; name: string; category_id: string; default_coa_head_id: string };
-type Coa = { id: string; code: string; name: string };
+type CoaAccount = { id: string; code: number; subcategory: string; category: string; coa: string };
 
 export default function RequestForm({
   vendors,
   outlets,
-  categories,
-  subcategories,
-  coa,
+  coaAccounts,
 }: {
   vendors: Vendor[];
   outlets: Outlet[];
-  categories: Category[];
-  subcategories: Subcategory[];
-  coa: Coa[];
+  coaAccounts: CoaAccount[];
 }) {
   const [state, formAction, pending] = useActionState(createRequest, undefined);
 
@@ -29,8 +23,7 @@ export default function RequestForm({
   const [prevPayments, setPrevPayments] = useState("");
   const [percent, setPercent] = useState("");
   const [amount, setAmount] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [subcategoryId, setSubcategoryId] = useState("");
+  const [coaAccountId, setCoaAccountId] = useState("");
   const [supply, setSupply] = useState<"material" | "service" | "mixed" | "">("");
   const [materialPct, setMaterialPct] = useState("");
   const [servicePct, setServicePct] = useState("");
@@ -38,15 +31,10 @@ export default function RequestForm({
   const [outletId, setOutletId] = useState("");
   const [poNa, setPoNa] = useState(false);
 
-  const filteredSubs = useMemo(
-    () => subcategories.filter((s) => s.category_id === categoryId),
-    [subcategories, categoryId],
+  const selectedCoa = useMemo(
+    () => coaAccounts.find((c) => c.id === coaAccountId),
+    [coaAccountId, coaAccounts],
   );
-  const currentCoaId = useMemo(() => {
-    const sub = subcategories.find((s) => s.id === subcategoryId);
-    return sub?.default_coa_head_id ?? "";
-  }, [subcategoryId, subcategories]);
-  const currentCoa = coa.find((c) => c.id === currentCoaId);
   const selectedVendor = vendors.find((v) => v.id === vendorId);
 
   // Auto-calc from % or explicit amount
@@ -263,45 +251,43 @@ export default function RequestForm({
         </div>
       </section>
 
-      {/* Category + Subcategory + auto COA */}
+      {/* Subcategory (Category + COA + code auto-fill from it) */}
       <section>
         <SectionTitle>Classification</SectionTitle>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <select
-            name="category_id"
-            required
-            value={categoryId}
-            onChange={(e) => {
-              setCategoryId(e.target.value);
-              setSubcategoryId("");
-            }}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <option value="" disabled>Category…</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <select
-            name="subcategory_id"
-            required
-            value={subcategoryId}
-            onChange={(e) => setSubcategoryId(e.target.value)}
-            disabled={!categoryId}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <option value="" disabled>Subcategory…</option>
-            {filteredSubs.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-          <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <p className="text-[10px] uppercase tracking-wide text-zinc-500">COA head</p>
-            <p className="mt-0.5 text-xs text-zinc-800 dark:text-zinc-200">
-              {currentCoa ? `${currentCoa.name} (${currentCoa.code})` : "Auto-fills from subcategory"}
-            </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Pick a subcategory. The category, COA, and code fill in automatically.
+        </p>
+        <select
+          name="coa_account_id"
+          required
+          value={coaAccountId}
+          onChange={(e) => setCoaAccountId(e.target.value)}
+          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <option value="" disabled>Pick a subcategory…</option>
+          {coaAccounts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.subcategory} — {c.category} ({c.code})
+            </option>
+          ))}
+        </select>
+
+        {selectedCoa && (
+          <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm sm:grid-cols-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">Category</p>
+              <p className="mt-0.5 text-xs text-zinc-800 dark:text-zinc-200">{selectedCoa.category}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">COA</p>
+              <p className="mt-0.5 text-xs text-zinc-800 dark:text-zinc-200">{selectedCoa.coa}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">Code</p>
+              <p className="mt-0.5 font-mono text-xs text-zinc-800 dark:text-zinc-200">{selectedCoa.code}</p>
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
       {/* Supply composition */}

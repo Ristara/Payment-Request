@@ -8,9 +8,7 @@ type Row = {
   payment_amount: number;
   created_at: string;
   vendor: { name: string } | null;
-  category: { name: string } | null;
-  subcategory: { name: string } | null;
-  coa: { code: string; name: string } | null;
+  coa_account: { code: number; subcategory: string; category: string; coa: string } | null;
   outlets: { outlet: { name: string } | null }[];
 };
 
@@ -27,9 +25,7 @@ export default async function SpendReportPage({
     .select(
       `id, request_number, status, payment_amount, created_at,
        vendor:vendors(name),
-       category:expense_categories(name),
-       subcategory:expense_subcategories(name),
-       coa:coa_heads(code, name),
+       coa_account:coa_accounts(code, subcategory, category, coa),
        outlets:request_outlets(outlet:outlets(name))`,
     )
     .not("status", "in", "(draft,rejected,cancelled)");
@@ -46,13 +42,13 @@ export default async function SpendReportPage({
     let key = "—";
     let label = "—";
     if (groupBy === "coa") {
-      key = r.coa?.code ?? "—";
-      label = r.coa?.name ?? "—";
+      key = r.coa_account?.coa ?? "—";
+      label = r.coa_account?.coa ?? "—";
     } else if (groupBy === "vendor") {
       key = r.vendor?.name ?? "—";
       label = key;
     } else if (groupBy === "category") {
-      key = r.category?.name ?? "—";
+      key = r.coa_account?.category ?? "—";
       label = key;
     } else if (groupBy === "outlet") {
       key = r.outlets.map((o) => o.outlet?.name ?? "").filter(Boolean).join(", ") || "—";

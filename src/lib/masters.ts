@@ -2,21 +2,14 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cached, CACHE_TAGS, CACHE_TTL } from "@/lib/cache";
 
-/**
- * Cached master-data lookups. These change rarely (admin edits categories /
- * outlets maybe once a week) so we cache them aggressively and revalidate
- * only when the admin console mutates them.
- *
- * Uses the admin client so RLS doesn't interfere with the cache — masters
- * are readable by all authenticated users anyway, so this is safe.
- */
+/** Cached master-data lookups. */
 
 export const getOutlets = cached(
   async () => {
     const admin = createAdminClient();
     const { data } = await admin
       .from("outlets")
-      .select("id, code, name, cost_centre, is_active")
+      .select("id, code, name, is_active")
       .order("name");
     return data ?? [];
   },
@@ -38,83 +31,31 @@ export const getActiveOutlets = cached(
   { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
 );
 
-export const getCategories = cached(
+/** Full COA table (all rows). */
+export const getCoaAccounts = cached(
   async () => {
     const admin = createAdminClient();
     const { data } = await admin
-      .from("expense_categories")
-      .select("id, name, is_active")
-      .order("name");
+      .from("coa_accounts")
+      .select("id, code, subcategory, category, coa, is_active")
+      .order("code");
     return data ?? [];
   },
-  ["categories"],
+  ["coa-accounts"],
   { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
 );
 
-export const getActiveCategories = cached(
+/** Only active COA accounts — used to populate submitter dropdown. */
+export const getActiveCoaAccounts = cached(
   async () => {
     const admin = createAdminClient();
     const { data } = await admin
-      .from("expense_categories")
-      .select("id, name")
+      .from("coa_accounts")
+      .select("id, code, subcategory, category, coa")
       .eq("is_active", true)
-      .order("name");
+      .order("subcategory");
     return data ?? [];
   },
-  ["categories-active"],
-  { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
-);
-
-export const getSubcategories = cached(
-  async () => {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("expense_subcategories")
-      .select("id, name, category_id, default_coa_head_id, is_active, coa_heads(name, code)")
-      .order("name");
-    return data ?? [];
-  },
-  ["subcategories"],
-  { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
-);
-
-export const getActiveSubcategories = cached(
-  async () => {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("expense_subcategories")
-      .select("id, name, category_id, default_coa_head_id")
-      .eq("is_active", true)
-      .order("name");
-    return data ?? [];
-  },
-  ["subcategories-active"],
-  { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
-);
-
-export const getCoaHeads = cached(
-  async () => {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("coa_heads")
-      .select("id, code, name, is_active")
-      .order("name");
-    return data ?? [];
-  },
-  ["coa-heads"],
-  { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
-);
-
-export const getActiveCoaHeads = cached(
-  async () => {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("coa_heads")
-      .select("id, code, name")
-      .eq("is_active", true)
-      .order("name");
-    return data ?? [];
-  },
-  ["coa-heads-active"],
+  ["coa-accounts-active"],
   { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
 );

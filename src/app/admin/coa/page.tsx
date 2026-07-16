@@ -1,22 +1,21 @@
-import { createClient } from "@/lib/supabase/server";
+import { getCoaAccounts } from "@/lib/masters";
 import CoaForm from "./coa-form";
 
 export default async function CoaPage() {
-  const supabase = await createClient();
-  const { data: coa } = await supabase
-    .from("coa_heads")
-    .select("id, code, name, is_active")
-    .order("name");
-
+  const rows = await getCoaAccounts();
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">COA Heads</h1>
+      <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">
+        Chart of Accounts
+      </h1>
       <p className="mt-1 text-sm text-zinc-500">
-        Ledger accounts your P&amp;L rolls up to. Every subcategory maps to one COA head as its default.
+        One row per selectable account. Requesters pick a <em>subcategory</em>; the
+        category and COA auto-fill. Codes are auto-generated in sequence and
+        can&apos;t be edited.
       </p>
 
-      <div className="mt-8">
-        <CoaForm coa={coa ?? []} />
+      <div className="mt-6">
+        <CoaForm rows={rows} />
       </div>
     </div>
   );
