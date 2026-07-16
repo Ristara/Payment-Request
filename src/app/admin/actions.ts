@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { invalidateMasters } from "@/lib/cache";
 
 export type ActionState = { error?: string; info?: string } | undefined;
 
@@ -23,6 +24,7 @@ export async function createOutlet(
   const { error } = await supabase.from("outlets").insert({ code, name, cost_centre });
   if (error) return { error: error.message };
 
+  invalidateMasters();
   revalidatePath("/admin/outlets");
   revalidatePath("/admin");
   return { info: `Added ${name}.` };
@@ -33,6 +35,7 @@ export async function toggleOutletActive(formData: FormData): Promise<void> {
   const is_active = formData.get("is_active") === "true";
   const supabase = await createClient();
   await supabase.from("outlets").update({ is_active }).eq("id", id);
+  invalidateMasters();
   revalidatePath("/admin/outlets");
 }
 
@@ -50,6 +53,7 @@ export async function createCoaHead(
   const supabase = await createClient();
   const { error } = await supabase.from("coa_heads").insert({ code, name });
   if (error) return { error: error.message };
+  invalidateMasters();
   revalidatePath("/admin/coa");
   revalidatePath("/admin");
   return { info: `Added ${name}.` };
@@ -60,6 +64,7 @@ export async function toggleCoaActive(formData: FormData): Promise<void> {
   const is_active = formData.get("is_active") === "true";
   const supabase = await createClient();
   await supabase.from("coa_heads").update({ is_active }).eq("id", id);
+  invalidateMasters();
   revalidatePath("/admin/coa");
 }
 
@@ -76,6 +81,7 @@ export async function createCategory(
   const supabase = await createClient();
   const { error } = await supabase.from("expense_categories").insert({ name });
   if (error) return { error: error.message };
+  invalidateMasters();
   revalidatePath("/admin/categories");
   revalidatePath("/admin");
   return { info: `Added ${name}.` };
@@ -96,6 +102,7 @@ export async function createSubcategory(
     .from("expense_subcategories")
     .insert({ category_id, name, default_coa_head_id });
   if (error) return { error: error.message };
+  invalidateMasters();
   revalidatePath("/admin/categories");
   revalidatePath("/admin");
   return { info: `Added ${name}.` };
