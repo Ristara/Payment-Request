@@ -39,7 +39,7 @@ export async function createRequest(
   const tentative_invoice_date =
     String(formData.get("tentative_invoice_date") ?? "") || null;
   const linesRaw = String(formData.get("line_items") ?? "[]");
-  type LineIn = { coa_account_id: string; description?: string; quantity: number; rate: number };
+  type LineIn = { coa_account_id: string; quantity: number; rate: number };
   let lines: LineIn[] = [];
   try {
     lines = JSON.parse(linesRaw) as LineIn[];
@@ -172,7 +172,6 @@ export async function createRequest(
     lines.map((l, idx) => ({
       request_id: requestId,
       coa_account_id: l.coa_account_id,
-      description: l.description?.trim() || null,
       quantity: l.quantity,
       rate: l.rate,
       sort_order: idx,

@@ -53,37 +53,48 @@ export default function AppShell({
   }));
 
   const brandBg = variant === "admin" ? "bg-amber-600" : "bg-indigo-600";
+  const switchBg =
+    switchView?.variant === "admin"
+      ? "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+      : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200";
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-20 flex-col items-center gap-1 border-r border-slate-800 bg-slate-900 py-4 sm:flex">
+      {/* Desktop sidebar — Zoho Expense style: light bg, wide, icon+label rows */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-slate-200 bg-white sm:flex dark:border-slate-800 dark:bg-slate-950">
+        {/* Brand */}
         <Link
           href="/dashboard"
-          className={`mb-2 flex h-11 w-11 items-center justify-center rounded-lg text-white ${brandBg}`}
+          className="flex h-14 items-center gap-2 border-b border-slate-100 px-4 dark:border-slate-800"
           title="Home"
         >
-          <span className="text-lg font-bold">R</span>
+          <span className={`flex h-8 w-8 items-center justify-center rounded-md text-sm font-bold text-white ${brandBg}`}>
+            R
+          </span>
+          <span className="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            {variant === "admin" ? "Admin" : "Payments"}
+          </span>
         </Link>
+
         <SidebarNav links={links} />
 
-        {/* Switch-view CTA at the bottom of the sidebar */}
+        {/* Switch-view CTA at the bottom */}
         {switchView && (
-          <Link
-            href={switchView.href}
-            className={`mt-auto flex w-16 flex-col items-center justify-center gap-1 rounded-lg py-2 text-white shadow-sm ${
-              switchView.variant === "admin" ? "bg-amber-600 hover:bg-amber-700" : "bg-indigo-600 hover:bg-indigo-700"
-            }`}
-            title={switchView.label}
-          >
-            <SwitchIcon />
-            <span className="text-[10px] font-semibold leading-tight">{switchView.short}</span>
-          </Link>
+          <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+            <Link
+              href={switchView.href}
+              className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${switchBg}`}
+              title={switchView.label}
+            >
+              <SwitchIcon />
+              <span className="truncate">{switchView.label}</span>
+            </Link>
+          </div>
         )}
       </aside>
 
       {/* Top bar */}
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-20 dark:border-zinc-800 dark:bg-zinc-900">
+      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-56 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center gap-2 px-3 py-3 sm:gap-6 sm:px-6">
           {/* Mobile hamburger + drawer */}
           <MobileDrawer
@@ -144,7 +155,7 @@ export default function AppShell({
       </header>
 
       {/* Main content */}
-      <main className="sm:pl-20">
+      <main className="sm:pl-56">
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</div>
       </main>
     </div>

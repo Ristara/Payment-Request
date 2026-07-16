@@ -329,12 +329,12 @@ export default async function RequestDetailPage({
 
           {/* Line items */}
           <Card title={`Line items (${lineItems.length})`}>
-            <div className="-mx-1 overflow-x-auto">
-              <table className="min-w-full text-sm">
+            {/* Desktop table */}
+            <div className="hidden sm:block">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
                     <th className="px-2 py-2 font-medium">Subcategory</th>
-                    <th className="px-2 py-2 font-medium">Description</th>
                     <th className="px-2 py-2 text-right font-medium">Qty</th>
                     <th className="px-2 py-2 text-right font-medium">Rate</th>
                     <th className="px-2 py-2 text-right font-medium">Amount</th>
@@ -351,9 +351,6 @@ export default async function RequestDetailPage({
                           {l.coa_account?.category} · {l.coa_account?.coa}
                         </div>
                       </td>
-                      <td className="px-2 py-2 text-zinc-700 dark:text-zinc-300">
-                        {l.description ?? "—"}
-                      </td>
                       <td className="px-2 py-2 text-right font-mono text-xs tabular-nums">{l.quantity}</td>
                       <td className="px-2 py-2 text-right font-mono text-xs tabular-nums">{formatINR(l.rate)}</td>
                       <td className="px-2 py-2 text-right font-mono text-xs tabular-nums font-semibold">
@@ -364,7 +361,7 @@ export default async function RequestDetailPage({
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={4} className="px-2 py-2 text-right text-xs uppercase tracking-wide text-zinc-500">
+                    <td colSpan={3} className="px-2 py-2 text-right text-xs uppercase tracking-wide text-zinc-500">
                       Total
                     </td>
                     <td className="px-2 py-2 text-right font-mono text-sm font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
@@ -373,6 +370,44 @@ export default async function RequestDetailPage({
                   </tr>
                 </tfoot>
               </table>
+            </div>
+
+            {/* Mobile stacked cards */}
+            <div className="space-y-2 sm:hidden">
+              {lineItems.map((l, idx) => (
+                <div
+                  key={l.id}
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+                        Line {idx + 1}
+                      </p>
+                      <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+                        {l.coa_account?.subcategory ?? "—"}
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        {l.coa_account?.category} · {l.coa_account?.coa}
+                      </p>
+                    </div>
+                    <p className="whitespace-nowrap font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                      {formatINR(l.amount)}
+                    </p>
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-500 tabular-nums">
+                    {l.quantity} × {formatINR(l.rate)}
+                  </p>
+                </div>
+              ))}
+              <div className="flex items-baseline justify-between rounded-lg bg-indigo-50 px-3 py-2 dark:bg-indigo-950/40">
+                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
+                  Total
+                </span>
+                <span className="font-mono text-base font-semibold tabular-nums text-indigo-900 dark:text-indigo-100">
+                  {formatINR(lineItems.reduce((s, l) => s + Number(l.amount), 0))}
+                </span>
+              </div>
             </div>
             <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
               <Grid>

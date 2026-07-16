@@ -11,7 +11,6 @@ type CoaAccount = { id: string; code: number; subcategory: string; category: str
 type LineRow = {
   key: string;
   coa_account_id: string;
-  description: string;
   quantity: string;
   rate: string;
 };
@@ -20,7 +19,6 @@ function newLine(): LineRow {
   return {
     key: Math.random().toString(36).slice(2),
     coa_account_id: "",
-    description: "",
     quantity: "1",
     rate: "",
   };
@@ -91,7 +89,6 @@ export default function RequestForm({
 
   const linesPayload = lines.map((l) => ({
     coa_account_id: l.coa_account_id,
-    description: l.description || undefined,
     quantity: Number(l.quantity) || 0,
     rate: Number(l.rate) || 0,
   }));
@@ -191,22 +188,22 @@ export default function RequestForm({
         </div>
       </section>
 
-      {/* Line items — Zoho Bills style */}
+      {/* Line items — Zoho Bills style. Desktop: table row. Mobile: stacked card. */}
       <section>
         <div className="flex items-baseline justify-between">
           <SectionTitle>Line items</SectionTitle>
-          <p className="text-xs text-zinc-500">Sum of lines = this payment amount.</p>
+          <p className="hidden text-xs text-zinc-500 sm:block">Sum of lines = this payment amount.</p>
         </div>
 
-        <div className="mt-3 overflow-x-auto">
-          <table className="min-w-full text-sm">
+        {/* Desktop table */}
+        <div className="mt-3 hidden sm:block">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                <th className="px-2 py-2 font-medium w-1/3">Subcategory</th>
-                <th className="px-2 py-2 font-medium">Description</th>
-                <th className="px-2 py-2 text-right font-medium w-20">Qty</th>
-                <th className="px-2 py-2 text-right font-medium w-28">Rate (₹)</th>
-                <th className="px-2 py-2 text-right font-medium w-28">Amount</th>
+                <th className="px-2 py-2 font-medium">Subcategory</th>
+                <th className="px-2 py-2 text-right font-medium w-24">Qty</th>
+                <th className="px-2 py-2 text-right font-medium w-32">Rate (₹)</th>
+                <th className="px-2 py-2 text-right font-medium w-32">Amount</th>
                 <th className="px-1 py-2 w-8" />
               </tr>
             </thead>
@@ -229,14 +226,6 @@ export default function RequestForm({
                           {coa.category} · {coa.coa}
                         </p>
                       )}
-                    </td>
-                    <td className="px-1 py-2">
-                      <input
-                        value={line.description}
-                        onChange={(e) => updateLine(idx, { description: e.target.value })}
-                        placeholder="Optional detail"
-                        className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                      />
                     </td>
                     <td className="px-1 py-2">
                       <input
@@ -281,7 +270,7 @@ export default function RequestForm({
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={4} className="px-2 pt-3 text-right text-xs uppercase tracking-wide text-zinc-500">
+                <td colSpan={3} className="px-2 pt-3 text-right text-xs uppercase tracking-wide text-zinc-500">
                   Total
                 </td>
                 <td className="px-2 pt-3 text-right font-mono text-sm font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
@@ -293,10 +282,108 @@ export default function RequestForm({
           </table>
         </div>
 
+        {/* Mobile stacked cards */}
+        <div className="mt-3 space-y-3 sm:hidden">
+          {lines.map((line, idx) => {
+            const coa = line.coa_account_id ? coaById.get(line.coa_account_id) : undefined;
+            return (
+              <div
+                key={line.key}
+                className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Line {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(idx)}
+                    disabled={lines.length === 1}
+                    aria-label="Remove line"
+                    className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-950/40"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="mt-2">
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    Subcategory
+                  </label>
+                  <div className="mt-1">
+                    <Combobox
+                      value={line.coa_account_id}
+                      onChange={(v) => updateLine(idx, { coa_account_id: v })}
+                      placeholder="Search subcategory…"
+                      ariaLabel="Subcategory"
+                      options={coaOptions}
+                    />
+                  </div>
+                  {coa && (
+                    <p className="mt-1 text-[10px] text-zinc-500">
+                      {coa.category} · {coa.coa}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                      Qty
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.001"
+                      min="0"
+                      value={line.quantity}
+                      onChange={(e) => updateLine(idx, { quantity: e.target.value })}
+                      required
+                      className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-right font-mono text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                      Rate (₹)
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      value={line.rate}
+                      onChange={(e) => updateLine(idx, { rate: e.target.value })}
+                      required
+                      placeholder="0.00"
+                      className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-right font-mono text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-baseline justify-between border-t border-zinc-200 pt-2 dark:border-zinc-800">
+                  <span className="text-[11px] uppercase tracking-wide text-zinc-500">Amount</span>
+                  <span className="font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    ₹{lineAmounts[idx].toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="flex items-baseline justify-between rounded-lg bg-indigo-50 px-3 py-2 dark:bg-indigo-950/40">
+            <span className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
+              Total
+            </span>
+            <span className="font-mono text-base font-semibold tabular-nums text-indigo-900 dark:text-indigo-100">
+              ₹{paymentAmount.toFixed(2)}
+            </span>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={addLine}
-          className="mt-3 rounded-md border border-dashed border-indigo-400 bg-indigo-50/50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300"
+          className="mt-3 w-full rounded-md border border-dashed border-indigo-400 bg-indigo-50/50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300"
         >
           + Add another line
         </button>

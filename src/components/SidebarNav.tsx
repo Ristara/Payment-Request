@@ -5,15 +5,14 @@ import { usePathname } from "next/navigation";
 import type { SidebarLink } from "@/components/AppShell";
 
 /**
- * Client-side sidebar nav list — knows the current pathname so it can
- * highlight the active item (Zoho Expense style: left accent bar, filled
- * background, white text).
+ * Zoho Expense-style sidebar nav — horizontal row per link, active row
+ * gets a rounded light-indigo pill with indigo icon + text.
  */
 export default function SidebarNav({ links }: { links: SidebarLink[] }) {
   const pathname = usePathname() ?? "";
 
   return (
-    <nav className="flex flex-1 flex-col items-center gap-1">
+    <nav className="flex-1 overflow-y-auto py-2">
       {links.map((l) => {
         const active = isActive(pathname, l.href);
         return (
@@ -21,25 +20,26 @@ export default function SidebarNav({ links }: { links: SidebarLink[] }) {
             key={l.href}
             href={l.href}
             aria-current={active ? "page" : undefined}
-            className={`group relative flex w-16 flex-col items-center justify-center gap-1 rounded-lg py-2 transition-colors ${
+            className={`mx-2 my-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
               active
-                ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:bg-slate-800/70 hover:text-white"
+                ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60"
             }`}
             title={l.label}
           >
-            {/* Left accent bar for the active item */}
-            {active && (
-              <span
-                aria-hidden="true"
-                className="absolute -left-2 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-indigo-400"
-              />
-            )}
-            {l.icon}
-            <span className="text-[10px] font-medium leading-tight">{l.label}</span>
+            <span className={active ? "text-indigo-600 dark:text-indigo-300" : "text-slate-500 dark:text-slate-400"}>
+              {l.icon}
+            </span>
+            <span className="flex-1 truncate">{l.label}</span>
             {typeof l.badge === "number" && l.badge > 0 && (
-              <span className="absolute right-1 top-1 rounded-full bg-red-500 px-1.5 text-[9px] font-bold text-white">
-                {l.badge}
+              <span
+                className={`rounded-full px-1.5 text-[10px] font-semibold ${
+                  active
+                    ? "bg-indigo-600 text-white"
+                    : "bg-red-500 text-white"
+                }`}
+              >
+                {l.badge > 99 ? "99+" : l.badge}
               </span>
             )}
           </Link>
@@ -49,11 +49,6 @@ export default function SidebarNav({ links }: { links: SidebarLink[] }) {
   );
 }
 
-/**
- * Active when pathname exactly matches the link, or is a sub-route.
- * Special case: only /dashboard itself counts as active for the Home link
- * (otherwise every page would match "/").
- */
 function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard" || pathname === "/";
   if (pathname === href) return true;
