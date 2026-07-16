@@ -149,14 +149,14 @@ export async function deleteCoaAccount(
   const supabase = await createClient();
   const admin = createAdminClient();
 
-  // Block delete if any payment_requests reference this account.
+  // Block delete if any request line items reference this account.
   const { count } = await admin
-    .from("payment_requests")
+    .from("request_line_items")
     .select("id", { count: "exact", head: true })
     .eq("coa_account_id", id);
   if ((count ?? 0) > 0) {
     return {
-      error: `Cannot delete — ${count} payment request${count === 1 ? " uses" : "s use"} this account. Deactivate it instead.`,
+      error: `Cannot delete — ${count} line item${count === 1 ? " uses" : "s use"} this account. Deactivate it instead.`,
     };
   }
 

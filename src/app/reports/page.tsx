@@ -1,15 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { formatINR } from "@/lib/types";
 
-type Row = {
+type LineRow = {
   id: string;
-  request_number: string;
-  status: string;
-  payment_amount: number;
-  created_at: string;
-  vendor: { name: string } | null;
-  coa_account: { code: number; subcategory: string; category: string; coa: string } | null;
-  outlets: { outlet: { name: string } | null }[];
+  amount: number;
+  coa_account: { subcategory: string; category: string; coa: string } | null;
+  request: {
+    id: string;
+    request_number: string;
+    status: string;
+    created_at: string;
+    vendor: { name: string } | null;
+    outlets: { outlet: { name: string } | null }[];
+  } | null;
 };
 
 export default async function SpendReportPage({
@@ -21,46 +24,52 @@ export default async function SpendReportPage({
   const supabase = await createClient();
 
   let query = supabase
-    .from("payment_requests")
+    .from("request_line_items")
     .select(
-      `id, request_number, status, payment_amount, created_at,
-       vendor:vendors(name),
-       coa_account:coa_accounts(code, subcategory, category, coa),
-       outlets:request_outlets(outlet:outlets(name))`,
+      `id, amount,
+       coa_account:coa_accounts(subcategory, category, coa),
+       request:payment_requests!inner(id, request_number, status, created_at,
+         vendor:vendors(name),
+         outlets:request_outlets(outlet:outlets(name)))`,
     )
-    .not("status", "in", "(draft,rejected,cancelled)");
+    .not("request.status", "in", "(draft,rejected,cancelled)");
 
-  if (from) query = query.gte("created_at", from);
-  if (to) query = query.lte("created_at", `${to}T23:59:59`);
+  if (from) query = query.gte("request.created_at", from);
+  if (to) query = query.lte("request.created_at", `${to}T23:59:59`);
 
-  const { data } = await query.order("created_at", { ascending: false });
-  const rows = (data ?? []) as unknown as Row[];
+  const { data } = await query.order("id");
+  const lines = ((data ?? []) as unknown as LineRow[]).filter((l) => l.request);
 
   // Aggregate
-  const buckets = new Map<string, { label: string; count: number; total: number }>();
-  for (const r of rows) {
+  const buckets = new Map<string, { label: string; count: number; total: number; requestIds: Set<string> }>();
+  for (const l of lines) {
     let key = "—";
     let label = "—";
     if (groupBy === "coa") {
-      key = r.coa_account?.coa ?? "—";
-      label = r.coa_account?.coa ?? "—";
+      key = l.coa_account?.coa ?? "—";
+      label = l.coa_account?.coa ?? "—";
+    } else if (groupBy === "subcategory") {
+      key = l.coa_account?.subcategory ?? "—";
+      label = key;
     } else if (groupBy === "vendor") {
-      key = r.vendor?.name ?? "—";
+      key = l.request?.vendor?.name ?? "—";
       label = key;
     } else if (groupBy === "category") {
-      key = r.coa_account?.category ?? "—";
+      key = l.coa_account?.category ?? "—";
       label = key;
     } else if (groupBy === "outlet") {
-      key = r.outlets.map((o) => o.outlet?.name ?? "").filter(Boolean).join(", ") || "—";
+      key = l.request?.outlets.map((o) => o.outlet?.name ?? "").filter(Boolean).join(", ") || "—";
       label = key;
     }
-    const cur = buckets.get(key) ?? { label, count: 0, total: 0 };
-    cur.count += 1;
-    cur.total += Number(r.payment_amount);
+    const cur = buckets.get(key) ?? { label, count: 0, total: 0, requestIds: new Set<string>() };
+    cur.total += Number(l.amount);
+    if (l.request) cur.requestIds.add(l.request.id);
+    cur.count = cur.requestIds.size;
     buckets.set(key, cur);
   }
   const sorted = [...buckets.entries()].sort((a, b) => b[1].total - a[1].total);
-  const grandTotal = rows.reduce((sum, r) => sum + Number(r.payment_amount), 0);
+  const grandTotal = lines.reduce((sum, l) => sum + Number(l.amount), 0);
+  const uniqueRequests = new Set(lines.map((l) => l.request?.id).filter(Boolean)).size;
 
   return (
     <div>
@@ -68,7 +77,7 @@ export default async function SpendReportPage({
         <div>
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Spend report</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            All approved / paid / closed requests. Excludes drafts, rejected, cancelled.
+            Aggregated from request line items. Excludes drafts, rejected, cancelled.
           </p>
         </div>
       </div>
@@ -85,9 +94,10 @@ export default async function SpendReportPage({
         <div>
           <label className="block text-xs text-zinc-500">Group by</label>
           <select name="groupBy" defaultValue={groupBy} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <option value="subcategory">Subcategory</option>
+            <option value="category">Category</option>
             <option value="coa">COA head</option>
             <option value="vendor">Vendor</option>
-            <option value="category">Category</option>
             <option value="outlet">Outlet</option>
           </select>
         </div>
@@ -103,9 +113,9 @@ export default async function SpendReportPage({
             <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
               <tr>
                 <th className="px-5 py-3">
-                  {groupBy === "coa" ? "COA head" : groupBy === "vendor" ? "Vendor" : groupBy === "category" ? "Category" : "Outlet"}
+                  {groupBy === "coa" ? "COA head" : groupBy === "vendor" ? "Vendor" : groupBy === "category" ? "Category" : groupBy === "outlet" ? "Outlet" : "Subcategory"}
                 </th>
-                <th className="px-5 py-3 text-right">Count</th>
+                <th className="px-5 py-3 text-right">Requests</th>
                 <th className="px-5 py-3 text-right">Total</th>
                 <th className="px-5 py-3 text-right">% of total</th>
               </tr>
@@ -133,7 +143,7 @@ export default async function SpendReportPage({
             <tfoot>
               <tr className="border-t border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
                 <td className="px-5 py-3 text-xs font-semibold uppercase text-zinc-500">Total</td>
-                <td className="px-5 py-3 text-right font-semibold tabular-nums">{rows.length}</td>
+                <td className="px-5 py-3 text-right font-semibold tabular-nums">{uniqueRequests}</td>
                 <td className="px-5 py-3 text-right font-semibold tabular-nums">{formatINR(grandTotal)}</td>
                 <td className="px-5 py-3 text-right text-zinc-500">100%</td>
               </tr>
@@ -147,7 +157,7 @@ export default async function SpendReportPage({
           <p className="mt-3 text-3xl font-semibold text-zinc-900 dark:text-zinc-50 tabular-nums">
             {formatINR(grandTotal)}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">across {rows.length} request{rows.length === 1 ? "" : "s"}</p>
+          <p className="mt-1 text-xs text-zinc-500">across {uniqueRequests} request{uniqueRequests === 1 ? "" : "s"}</p>
         </aside>
       </div>
     </div>

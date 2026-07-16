@@ -38,7 +38,14 @@ export async function createRequest(
     String(formData.get("date_of_work_completion") ?? "") || null;
   const tentative_invoice_date =
     String(formData.get("tentative_invoice_date") ?? "") || null;
-  const coa_account_id = String(formData.get("coa_account_id") ?? "");
+  const linesRaw = String(formData.get("line_items") ?? "[]");
+  type LineIn = { coa_account_id: string; description?: string; quantity: number; rate: number };
+  let lines: LineIn[] = [];
+  try {
+    lines = JSON.parse(linesRaw) as LineIn[];
+  } catch {
+    return { error: "Invalid line items payload." };
+  }
   const supply_composition = String(formData.get("supply_composition") ?? "") as
     | "material"
     | "service"
@@ -62,7 +69,22 @@ export async function createRequest(
     return { error: "Payment amount + previous payments can't exceed total bill." };
   }
   if (!payment_due_date) return { error: "Payment due date is required." };
-  if (!coa_account_id) return { error: "Pick a subcategory (Chart of Accounts)." };
+  if (lines.length === 0) return { error: "Add at least one line item." };
+  const badLine = lines.findIndex(
+    (l) => !l.coa_account_id || !(l.quantity > 0) || !(l.rate >= 0),
+  );
+  if (badLine !== -1) {
+    return { error: `Line ${badLine + 1}: subcategory + quantity + rate all required.` };
+  }
+  const lineSum = lines.reduce(
+    (s, l) => s + Math.round(l.quantity * l.rate * 100) / 100,
+    0,
+  );
+  if (Math.abs(lineSum - payment_amount) > 0.01) {
+    return {
+      error: `Line items total ₹${lineSum.toFixed(2)} doesn't match payment amount ₹${payment_amount.toFixed(2)}.`,
+    };
+  }
   if (!supply_composition) return { error: "Pick supply composition." };
   if (supply_composition === "mixed") {
     if (material_percentage == null || service_percentage == null) {
@@ -74,13 +96,15 @@ export async function createRequest(
   }
   if (!purpose) return { error: "Purpose / description is required." };
 
-  // Verify the selected COA account exists.
-  const { data: coaRow } = await supabase
+  // Verify every referenced COA account exists (active or otherwise).
+  const uniqueCoaIds = Array.from(new Set(lines.map((l) => l.coa_account_id)));
+  const { data: coaMatches } = await supabase
     .from("coa_accounts")
     .select("id")
-    .eq("id", coa_account_id)
-    .single();
-  if (!coaRow) return { error: "Selected COA account not found." };
+    .in("id", uniqueCoaIds);
+  if ((coaMatches?.length ?? 0) !== uniqueCoaIds.length) {
+    return { error: "One or more selected accounts don't exist." };
+  }
 
   // Verify vendor is approved
   const { data: vendor } = await supabase
@@ -124,7 +148,6 @@ export async function createRequest(
       payment_due_date,
       date_of_work_completion,
       tentative_invoice_date,
-      coa_account_id,
       supply_composition,
       material_percentage,
       service_percentage,
@@ -142,6 +165,18 @@ export async function createRequest(
   // Insert outlets
   await supabase.from("request_outlets").insert(
     outlet_ids.map((outlet_id) => ({ request_id: requestId, outlet_id })),
+  );
+
+  // Insert line items
+  await supabase.from("request_line_items").insert(
+    lines.map((l, idx) => ({
+      request_id: requestId,
+      coa_account_id: l.coa_account_id,
+      description: l.description?.trim() || null,
+      quantity: l.quantity,
+      rate: l.rate,
+      sort_order: idx,
+    })),
   );
 
   // Status history entry
@@ -382,41 +417,45 @@ export async function cancelRequest(
 // Change COA on a request (Approver or Accounts)
 // ---------------------------------------------------------------------------
 
-export async function overrideCoa(
+export async function updateLineCoa(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  const lineId = String(formData.get("line_id") ?? "");
   const requestId = String(formData.get("request_id") ?? "");
-  const newCoaId = String(formData.get("new_coa_account_id") ?? "");
+  const newCoaId = String(formData.get("coa_account_id") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
-  if (!requestId || !newCoaId || !reason) return { error: "New COA + reason required." };
+  if (!lineId || !requestId || !newCoaId || !reason) {
+    return { error: "New account + reason required." };
+  }
 
   const supabase = await createClient();
   const admin = createAdminClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const { data: req } = await supabase
-    .from("payment_requests")
+  const { data: line } = await supabase
+    .from("request_line_items")
     .select("coa_account_id")
-    .eq("id", requestId)
+    .eq("id", lineId)
     .single();
-  if (!req) return { error: "Request not found." };
+  if (!line) return { error: "Line not found." };
+  if ((line.coa_account_id as string) === newCoaId) return { info: "Account unchanged." };
 
-  const old_coa_account_id = req.coa_account_id as string;
-  if (old_coa_account_id === newCoaId) return { info: "COA unchanged." };
+  const { error: upErr } = await supabase
+    .from("request_line_items")
+    .update({ coa_account_id: newCoaId })
+    .eq("id", lineId);
+  if (upErr) return { error: upErr.message };
 
-  await supabase.from("payment_requests").update({ coa_account_id: newCoaId }).eq("id", requestId);
   await admin.from("coa_override_log").insert({
     request_id: requestId,
     actor_id: user.id,
-    old_coa_account_id,
-    new_coa_account_id: newCoaId,
-    reason,
+    reason: `Line reclassified: ${reason}`,
   });
 
   revalidatePath(`/requests/${requestId}`);
-  return { info: "COA updated." };
+  return { info: "Line updated." };
 }
 
 // ---------------------------------------------------------------------------

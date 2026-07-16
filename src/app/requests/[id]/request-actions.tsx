@@ -6,7 +6,7 @@ import {
   rejectRequest,
   returnRequest,
   cancelRequest,
-  overrideCoa,
+  updateLineCoa,
   markBankUploaded,
   markPaid,
   uploadInvoice,
@@ -14,6 +14,7 @@ import {
 } from "@/app/requests/actions";
 
 type Coa = { id: string; code: number; subcategory: string; category: string; coa: string };
+type LineItem = { id: string; coa_account_id: string; label: string };
 
 export default function RequestActions({
   requestId,
@@ -24,7 +25,7 @@ export default function RequestActions({
   isAccounts,
   isAdmin,
   coaHeads,
-  currentCoaId,
+  lineItems,
 }: {
   requestId: string;
   status: string;
@@ -34,19 +35,21 @@ export default function RequestActions({
   isAccounts: boolean;
   isAdmin: boolean;
   coaHeads: Coa[];
-  currentCoaId: string;
+  lineItems: LineItem[];
 }) {
   const [approveState, approveAction, approvePending] = useActionState(approveRequest, undefined);
   const [rejectState, rejectAction, rejectPending] = useActionState(rejectRequest, undefined);
   const [returnState, returnAction, returnPending] = useActionState(returnRequest, undefined);
   const [cancelState, cancelAction, cancelPending] = useActionState(cancelRequest, undefined);
-  const [coaState, coaAction, coaPending] = useActionState(overrideCoa, undefined);
+  const [coaState, coaAction, coaPending] = useActionState(updateLineCoa, undefined);
   const [bankState, bankAction, bankPending] = useActionState(markBankUploaded, undefined);
   const [payState, payAction, payPending] = useActionState(markPaid, undefined);
   const [invState, invAction, invPending] = useActionState(uploadInvoice, undefined);
   const [closeState, closeAction, closePending] = useActionState(closeRequest, undefined);
 
   const [openBox, setOpenBox] = useState<null | "reject" | "return" | "cancel" | "coa" | "bank" | "pay" | "invoice">(null);
+  const [selectedLineId, setSelectedLineId] = useState<string>(lineItems[0]?.id ?? "");
+  const selectedLine = lineItems.find((l) => l.id === selectedLineId);
 
   const canApprove = (isApprover || isAdmin) && status === "pending_approval" && vendorStatus === "approved";
   const canRejectReturn = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
@@ -54,10 +57,10 @@ export default function RequestActions({
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = (isAccounts || isAdmin) && ["invoice_pending", "payment_processed"].includes(status);
-  const canOverrideCoa = (isApprover || isAccounts || isAdmin) && !["closed", "cancelled", "rejected"].includes(status);
+  const canReclassify = (isApprover || isAccounts || isAdmin) && lineItems.length > 0 && !["closed", "cancelled", "rejected"].includes(status);
   const canCancel = (isSubmitter || isAdmin) && !["closed", "cancelled", "rejected", "payment_processed"].includes(status);
 
-  if (!canApprove && !canRejectReturn && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canOverrideCoa && !canCancel) {
+  if (!canApprove && !canRejectReturn && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canReclassify && !canCancel) {
     return null;
   }
 
@@ -102,12 +105,12 @@ export default function RequestActions({
             </button>
           </>
         )}
-        {canOverrideCoa && (
+        {canReclassify && (
           <button
             onClick={() => setOpenBox(openBox === "coa" ? null : "coa")}
             className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            Change COA
+            Reclassify line
           </button>
         )}
         {canBankUpload && (
@@ -171,29 +174,51 @@ export default function RequestActions({
       {openBox === "coa" && (
         <form action={coaAction} className="mt-4 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <input type="hidden" name="request_id" value={requestId} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <select
-              name="new_coa_account_id"
-              required
-              defaultValue={currentCoaId}
-              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            >
-              {coaHeads.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.subcategory} — {c.category} ({c.code})
-                </option>
-              ))}
-            </select>
-            <input
-              name="reason"
-              required
-              placeholder="Reason for change…"
-              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            />
+          <input type="hidden" name="line_id" value={selectedLineId} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="text-xs text-zinc-500">
+              Line
+              <select
+                value={selectedLineId}
+                onChange={(e) => setSelectedLineId(e.target.value)}
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                {lineItems.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-zinc-500">
+              New subcategory
+              <select
+                name="coa_account_id"
+                required
+                defaultValue={selectedLine?.coa_account_id ?? ""}
+                key={selectedLineId}
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                {coaHeads.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.subcategory} — {c.category}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-zinc-500">
+              Reason
+              <input
+                name="reason"
+                required
+                placeholder="Why the change?"
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </label>
           </div>
           <div className="mt-3 flex justify-end">
             <button disabled={coaPending} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-              {coaPending ? "Saving…" : "Save COA"}
+              {coaPending ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

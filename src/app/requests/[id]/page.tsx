@@ -25,7 +25,6 @@ type ReqRow = {
   payment_due_date: string;
   date_of_work_completion: string | null;
   tentative_invoice_date: string | null;
-  coa_account_id: string;
   supply_composition: string;
   material_percentage: number | null;
   service_percentage: number | null;
@@ -38,9 +37,18 @@ type ReqRow = {
   created_at: string;
   submitter: { full_name: string; email: string } | null;
   vendor: { name: string; gstin: string | null; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
-  coa_account: { code: number; subcategory: string; category: string; coa: string } | null;
   approver: { full_name: string } | null;
   outlets: { outlet: { name: string; code: string } | null }[];
+};
+
+type LineItemRow = {
+  id: string;
+  description: string | null;
+  quantity: number;
+  rate: number;
+  amount: number;
+  sort_order: number;
+  coa_account: { id: string; subcategory: string; category: string; coa: string } | null;
 };
 
 export default async function RequestDetailPage({
@@ -61,12 +69,11 @@ export default async function RequestDetailPage({
        po_not_applicable_reason, invoice_reference, total_bill_value,
        payment_amount, payment_percentage, previous_payments, balance_payable,
        payment_due_date, date_of_work_completion, tentative_invoice_date,
-       coa_account_id, supply_composition,
+       supply_composition,
        material_percentage, service_percentage, purpose, cost_centre,
        submitted_at, approved_at, rejection_reason, return_reason, created_at,
        submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
        vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
-       coa_account:coa_accounts(code, subcategory, category, coa),
        approver:profiles!payment_requests_approver_id_fkey(full_name),
        outlets:request_outlets(outlet:outlets(name, code))`,
     )
@@ -81,8 +88,8 @@ export default async function RequestDetailPage({
   const isAccounts = roles.includes("accounts");
   const isAdmin = roles.includes("admin");
 
-  // Payment record + status history + attachments + comments + coa options
-  const [payRes, historyRes, attRes, commentRes, coaRes, mentionCandRes] = await Promise.all([
+  // Payment record + status history + attachments + comments + coa options + line items
+  const [payRes, historyRes, attRes, commentRes, coaRes, mentionCandRes, lineRes] = await Promise.all([
     supabase.from("payment_records").select("*").eq("request_id", id).maybeSingle(),
     supabase
       .from("status_history")
@@ -105,7 +112,17 @@ export default async function RequestDetailPage({
       .order("created_at"),
     supabase.from("coa_accounts").select("id, code, subcategory, category, coa").eq("is_active", true).order("subcategory"),
     supabase.from("profiles").select("id, full_name, email").eq("is_active", true).order("full_name"),
+    supabase
+      .from("request_line_items")
+      .select(
+        `id, description, quantity, rate, amount, sort_order,
+         coa_account:coa_accounts(id, subcategory, category, coa)`,
+      )
+      .eq("request_id", id)
+      .order("sort_order"),
   ]);
+
+  const lineItems = (lineRes.data ?? []) as unknown as LineItemRow[];
 
   const paymentRecord = payRes.data as {
     bank_upload_date: string | null;
@@ -274,7 +291,11 @@ export default async function RequestDetailPage({
           isAccounts={isAccounts}
           isAdmin={isAdmin}
           coaHeads={coaHeads}
-          currentCoaId={req.coa_account_id}
+          lineItems={lineItems.map((l) => ({
+            id: l.id,
+            coa_account_id: l.coa_account?.id ?? "",
+            label: l.coa_account?.subcategory ?? "—",
+          }))}
         />
       </div>
 
@@ -306,22 +327,65 @@ export default async function RequestDetailPage({
             </Grid>
           </Card>
 
-          {/* Classification */}
-          <Card title="Classification">
-            <Grid>
-              <Row label="Subcategory" value={req.coa_account?.subcategory ?? "—"} />
-              <Row label="Category" value={req.coa_account?.category ?? "—"} />
-              <Row label="COA" value={req.coa_account?.coa ?? "—"} />
-              <Row label="Code" value={req.coa_account?.code != null ? String(req.coa_account.code) : "—"} mono />
-              <Row label="Supply" value={SUPPLY_LABEL[req.supply_composition] ?? req.supply_composition} />
-              {req.supply_composition === "mixed" && (
-                <>
-                  <Row label="Material %" value={`${req.material_percentage ?? 0}%`} />
-                  <Row label="Service %" value={`${req.service_percentage ?? 0}%`} />
-                </>
-              )}
-              {req.cost_centre && <Row label="Cost centre" value={req.cost_centre} />}
-            </Grid>
+          {/* Line items */}
+          <Card title={`Line items (${lineItems.length})`}>
+            <div className="-mx-1 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                    <th className="px-2 py-2 font-medium">Subcategory</th>
+                    <th className="px-2 py-2 font-medium">Description</th>
+                    <th className="px-2 py-2 text-right font-medium">Qty</th>
+                    <th className="px-2 py-2 text-right font-medium">Rate</th>
+                    <th className="px-2 py-2 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineItems.map((l) => (
+                    <tr key={l.id} className="border-b border-zinc-100 align-top dark:border-zinc-800/60">
+                      <td className="px-2 py-2">
+                        <div className="font-medium text-zinc-900 dark:text-zinc-100">
+                          {l.coa_account?.subcategory ?? "—"}
+                        </div>
+                        <div className="text-[11px] text-zinc-500">
+                          {l.coa_account?.category} · {l.coa_account?.coa}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-zinc-700 dark:text-zinc-300">
+                        {l.description ?? "—"}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-xs tabular-nums">{l.quantity}</td>
+                      <td className="px-2 py-2 text-right font-mono text-xs tabular-nums">{formatINR(l.rate)}</td>
+                      <td className="px-2 py-2 text-right font-mono text-xs tabular-nums font-semibold">
+                        {formatINR(l.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4} className="px-2 py-2 text-right text-xs uppercase tracking-wide text-zinc-500">
+                      Total
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono text-sm font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
+                      {formatINR(lineItems.reduce((s, l) => s + Number(l.amount), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
+              <Grid>
+                <Row label="Supply" value={SUPPLY_LABEL[req.supply_composition] ?? req.supply_composition} />
+                {req.supply_composition === "mixed" && (
+                  <>
+                    <Row label="Material %" value={`${req.material_percentage ?? 0}%`} />
+                    <Row label="Service %" value={`${req.service_percentage ?? 0}%`} />
+                  </>
+                )}
+                {req.cost_centre && <Row label="Cost centre" value={req.cost_centre} />}
+              </Grid>
+            </div>
           </Card>
 
           {/* Purpose */}
