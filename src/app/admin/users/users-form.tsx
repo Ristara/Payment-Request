@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { assignRole, createUser, removeRole } from "@/app/admin/actions";
 import { ROLE_LABEL } from "@/lib/types";
 
@@ -16,6 +16,18 @@ const ROLES = ["requester", "approver", "accounts", "admin"] as const;
 
 export default function UsersForm({ users }: { users: UserRow[] }) {
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => {
+      if (u.full_name.toLowerCase().includes(q)) return true;
+      if (u.email.toLowerCase().includes(q)) return true;
+      if (u.user_roles.some((r) => (ROLE_LABEL[r.role] ?? r.role).toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [users, query]);
 
   return (
     <div className="space-y-8">
@@ -73,6 +85,42 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
       </form>
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+          <p className="text-xs text-zinc-500">
+            {filtered.length === users.length
+              ? `${users.length} user${users.length === 1 ? "" : "s"}`
+              : `${filtered.length} of ${users.length}`}
+          </p>
+          <div className="relative w-full max-w-xs">
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path strokeLinecap="round" d="M21 21l-4.35-4.35" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, email, or role…"
+              className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-9 pr-8 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
         <div className="overflow-x-auto">
         <table className="w-full min-w-[520px] text-sm">
           <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
@@ -84,14 +132,16 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {users.length === 0 ? (
+            {filtered.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-5 py-8 text-center text-sm text-zinc-500">
-                  No users yet.
+                  {users.length === 0
+                    ? "No users yet."
+                    : `No users matching "${query}".`}
                 </td>
               </tr>
             ) : (
-              users.map((u) => {
+              filtered.map((u) => {
                 const held = new Set(u.user_roles.map((r) => r.role));
                 return (
                   <tr key={u.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
