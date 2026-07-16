@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { signOut } from "@/app/(auth)/actions";
 
 export type DrawerLink = {
   href: string;
@@ -143,9 +142,9 @@ export default function MobileDrawer({
           })}
         </nav>
 
-        {/* Switch-view CTA + Sign out */}
-        <div className="border-t border-zinc-100 p-3 dark:border-zinc-800 space-y-1">
-          {switchView && (
+        {/* Switch-view CTA (sign-out lives in the profile avatar menu on the top bar) */}
+        {switchView && (
+          <div className="border-t border-zinc-100 p-3 dark:border-zinc-800">
             <Link
               href={switchView.href}
               className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-white ${
@@ -159,20 +158,8 @@ export default function MobileDrawer({
               </svg>
               {switchView.label}
             </Link>
-          )}
-          <form action={signOut}>
-            <button
-              type="submit"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <path d="M16 17l5-5-5-5M21 12H9" />
-              </svg>
-              Sign out
-            </button>
-          </form>
-        </div>
+          </div>
+        )}
       </aside>
     </>
   );

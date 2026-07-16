@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Warm neutrals — slightly less clinical than pure zinc */
+  --background: #F9FAFB;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --border: #E4E7EC;
+  --muted: #667085;
+
+  /* Zoho-style brand palette */
+  --primary: #4F46E5;         /* indigo-600 */
+  --primary-hover: #4338CA;   /* indigo-700 */
+  --primary-soft: #EEF2FF;    /* indigo-50 */
+  --admin: #D97706;           /* amber-600 */
+
+  /* Semantic */
+  --success: #059669;         /* emerald-600 */
+  --success-soft: #ECFDF5;
+  --warning: #D97706;         /* amber-600 */
+  --warning-soft: #FEF3C7;
+  --danger: #DC2626;          /* red-600 */
+  --danger-soft: #FEF2F2;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0B0F1A;
+    --foreground: #EDEEF0;
+    --card: #131826;
+    --border: #262B39;
+    --muted: #8B94A6;
+    --primary-soft: #1B1F3A;
   }
 }
+
+* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Polish: subtle default shadow on the primary "card" pattern used everywhere */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }

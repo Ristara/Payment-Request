@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { signOut } from "@/app/(auth)/actions";
 import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
+import ProfileMenu from "@/components/ProfileMenu";
 
 export type SidebarLink = {
   href: string;
@@ -149,17 +149,13 @@ export default function AppShell({
                 </span>
               )}
             </Link>
-            <div className="hidden h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700 sm:flex dark:bg-indigo-900 dark:text-indigo-200" title={userEmail}>
-              {(userName ?? userEmail ?? "?").slice(0, 1).toUpperCase()}
+            <div className="hidden sm:block">
+              <ProfileMenu userName={userName} userEmail={userEmail} isAdmin={showAdmin} />
             </div>
-            <form action={signOut} className="hidden sm:block">
-              <button
-                type="submit"
-                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                Sign out
-              </button>
-            </form>
+            {/* Mobile: still show avatar but as trigger for profile menu */}
+            <div className="sm:hidden">
+              <ProfileMenu userName={userName} userEmail={userEmail} isAdmin={showAdmin} />
+            </div>
           </div>
         </div>
       </header>
