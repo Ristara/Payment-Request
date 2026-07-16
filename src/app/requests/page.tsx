@@ -29,7 +29,6 @@ export default async function MyRequestsPage() {
       <PageHeader
         title="My requests"
         subtitle="Payment requests you have raised."
-        action={{ href: "/requests/new", label: "+ Raise request" }}
       />
 
       {rows.length === 0 ? (

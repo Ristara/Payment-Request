@@ -2,19 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import type { SidebarLink } from "@/components/AppShell";
 
 /**
  * Zoho Expense-style sidebar nav — horizontal row per link, active row
  * gets a rounded light-indigo pill with indigo icon + text.
+ *
+ * Active-link resolution: exactly one link is active at a time. When the
+ * pathname could match several links (e.g. /requests/new matches both
+ * `/requests` and `/requests/new`), the one with the LONGEST matching
+ * href wins — the more specific route.
  */
 export default function SidebarNav({ links }: { links: SidebarLink[] }) {
   const pathname = usePathname() ?? "";
+  const activeHref = useMemo(() => resolveActive(pathname, links), [pathname, links]);
 
   return (
     <nav className="flex-1 overflow-y-auto py-2">
       {links.map((l) => {
-        const active = isActive(pathname, l.href);
+        const active = l.href === activeHref;
         return (
           <Link
             key={l.href}
@@ -34,9 +41,7 @@ export default function SidebarNav({ links }: { links: SidebarLink[] }) {
             {typeof l.badge === "number" && l.badge > 0 && (
               <span
                 className={`rounded-full px-1.5 text-[10px] font-semibold ${
-                  active
-                    ? "bg-indigo-600 text-white"
-                    : "bg-red-500 text-white"
+                  active ? "bg-indigo-600 text-white" : "bg-red-500 text-white"
                 }`}
               >
                 {l.badge > 99 ? "99+" : l.badge}
@@ -49,8 +54,21 @@ export default function SidebarNav({ links }: { links: SidebarLink[] }) {
   );
 }
 
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/dashboard") return pathname === "/dashboard" || pathname === "/";
-  if (pathname === href) return true;
-  return pathname.startsWith(`${href}/`);
+function resolveActive(pathname: string, links: SidebarLink[]): string | null {
+  // Dashboard is special: only "/" and "/dashboard" count.
+  const dashboard = links.find((l) => l.href === "/dashboard");
+  if (dashboard && (pathname === "/dashboard" || pathname === "/")) {
+    return dashboard.href;
+  }
+
+  // Longest-prefix wins. Exact match beats prefix match automatically because
+  // an exact match has the max possible length among matching hrefs.
+  let best: SidebarLink | null = null;
+  for (const l of links) {
+    if (l.href === "/dashboard") continue;
+    if (pathname === l.href || pathname.startsWith(`${l.href}/`)) {
+      if (!best || l.href.length > best.href.length) best = l;
+    }
+  }
+  return best?.href ?? null;
 }

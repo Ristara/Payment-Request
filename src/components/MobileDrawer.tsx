@@ -112,38 +112,35 @@ export default function MobileDrawer({
           </div>
         </div>
 
-        {/* Nav links */}
+        {/* Nav links — longest-prefix wins so /requests/new activates Raise, not Requests */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {links.map((l) => {
-            const p = pathname ?? "";
-            const active =
-              l.href === "/dashboard"
-                ? p === "/dashboard" || p === "/"
-                : p === l.href || p.startsWith(`${l.href}/`);
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`mx-3 my-0.5 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm ${
-                  active
-                    ? "bg-indigo-600 font-medium text-white"
-                    : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                <span className={active ? "text-white" : "text-zinc-500"}>{l.icon}</span>
-                <span className="flex-1">{l.label}</span>
-                {typeof l.badge === "number" && l.badge > 0 && (
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          {(() => {
+            const activeHref = resolveActiveHref(pathname ?? "", links);
+            return links.map((l) => {
+              const active = l.href === activeHref;
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={`mx-3 my-0.5 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm ${
                     active
-                      ? "bg-white/25 text-white"
-                      : "bg-red-500 text-white"
-                  }`}>
-                    {l.badge > 99 ? "99+" : l.badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+                      ? "bg-indigo-600 font-medium text-white"
+                      : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <span className={active ? "text-white" : "text-zinc-500"}>{l.icon}</span>
+                  <span className="flex-1">{l.label}</span>
+                  {typeof l.badge === "number" && l.badge > 0 && (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      active ? "bg-white/25 text-white" : "bg-red-500 text-white"
+                    }`}>
+                      {l.badge > 99 ? "99+" : l.badge}
+                    </span>
+                  )}
+                </Link>
+              );
+            });
+          })()}
         </nav>
 
         {/* Switch-view CTA (sign-out lives in the profile avatar menu on the top bar) */}
@@ -167,4 +164,17 @@ export default function MobileDrawer({
       </aside>
     </>
   );
+}
+
+function resolveActiveHref(pathname: string, links: DrawerLink[]): string | null {
+  const dashboard = links.find((l) => l.href === "/dashboard");
+  if (dashboard && (pathname === "/dashboard" || pathname === "/")) return dashboard.href;
+  let best: DrawerLink | null = null;
+  for (const l of links) {
+    if (l.href === "/dashboard") continue;
+    if (pathname === l.href || pathname.startsWith(`${l.href}/`)) {
+      if (!best || l.href.length > best.href.length) best = l;
+    }
+  }
+  return best?.href ?? null;
 }
