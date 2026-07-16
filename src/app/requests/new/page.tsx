@@ -35,7 +35,7 @@ export default async function NewRequestPage() {
 
       <div className="mt-8">
         <RequestForm
-          vendors={(vendors.data ?? []) as { id: string; name: string; gstin: string; status: string }[]}
+          vendors={(vendors.data ?? []) as { id: string; name: string; gstin: string | null; status: string }[]}
           outlets={outlets as { id: string; code: string; name: string }[]}
           categories={categories as { id: string; name: string }[]}
           subcategories={subcategories as { id: string; name: string; category_id: string; default_coa_head_id: string }[]}

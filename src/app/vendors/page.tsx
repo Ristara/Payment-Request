@@ -7,7 +7,7 @@ import PageHeader from "@/components/PageHeader";
 type Vendor = {
   id: string;
   name: string;
-  gstin: string;
+  gstin: string | null;
   pan: string;
   status: "pending" | "approved" | "rejected";
   created_at: string;
@@ -105,7 +105,9 @@ export default async function VendorsPage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-base font-medium text-zinc-900 dark:text-zinc-100">{v.name}</p>
-                      <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">GSTIN {v.gstin}</p>
+                      <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+                        {v.gstin ? `GSTIN ${v.gstin}` : "PAN " + v.pan + " · Not GST registered"}
+                      </p>
                     </div>
                     <VendorStatusPill status={v.status} />
                   </div>
@@ -135,7 +137,9 @@ export default async function VendorsPage({
                   {vendors.map((v) => (
                     <tr key={v.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                       <td className="px-5 py-3 font-medium text-zinc-900 dark:text-zinc-100">{v.name}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{v.gstin}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
+                        {v.gstin ?? <span className="italic text-zinc-400">unregistered</span>}
+                      </td>
                       <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{v.pan}</td>
                       <td className="px-5 py-3 text-zinc-600 dark:text-zinc-400">{v.submitter?.full_name ?? "—"}</td>
                       <td className="px-5 py-3"><VendorStatusPill status={v.status} /></td>

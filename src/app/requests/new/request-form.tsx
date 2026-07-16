@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { createRequest } from "@/app/requests/actions";
 
-type Vendor = { id: string; name: string; gstin: string; status: string };
+type Vendor = { id: string; name: string; gstin: string | null; status: string };
 type Outlet = { id: string; code: string; name: string };
 type Category = { id: string; name: string };
 type Subcategory = { id: string; name: string; category_id: string; default_coa_head_id: string };

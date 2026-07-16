@@ -39,7 +39,7 @@ type ReqRow = {
   return_reason: string | null;
   created_at: string;
   submitter: { full_name: string; email: string } | null;
-  vendor: { name: string; gstin: string; status: string; bank_account_number: string; bank_ifsc: string } | null;
+  vendor: { name: string; gstin: string | null; status: string; bank_account_number: string; bank_ifsc: string } | null;
   category: { name: string } | null;
   subcategory: { name: string } | null;
   coa: { code: string; name: string } | null;
@@ -429,7 +429,7 @@ export default async function RequestDetailPage({
           <Card title="Vendor">
             <Grid>
               <Row label="Name" value={req.vendor?.name ?? "—"} />
-              <Row label="GSTIN" value={req.vendor?.gstin ?? "—"} mono />
+              <Row label="GSTIN" value={req.vendor?.gstin ?? "Not registered"} mono={!!req.vendor?.gstin} />
               <Row label="A/C" value={req.vendor?.bank_account_number ?? "—"} mono />
               <Row label="IFSC" value={req.vendor?.bank_ifsc ?? "—"} mono />
             </Grid>

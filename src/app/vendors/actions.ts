@@ -23,7 +23,9 @@ export async function createVendor(
   if (!user) return { error: "Not signed in." };
 
   const name = String(formData.get("name") ?? "").trim();
-  const gstin = String(formData.get("gstin") ?? "").trim().toUpperCase();
+  const is_gst_registered = formData.get("is_gst_registered") !== "no";
+  const gstinRaw = String(formData.get("gstin") ?? "").trim().toUpperCase();
+  const gstin = is_gst_registered ? gstinRaw : null;
   const pan = String(formData.get("pan") ?? "").trim().toUpperCase();
   const bank_account_number = String(formData.get("bank_account_number") ?? "").trim();
   const bank_ifsc = String(formData.get("bank_ifsc") ?? "").trim().toUpperCase();
@@ -32,7 +34,9 @@ export async function createVendor(
   const cheque = formData.get("cancelled_cheque");
 
   if (!name) return { error: "Vendor name is required." };
-  if (!GSTIN_RE.test(gstin)) return { error: "GSTIN doesn't look right. Format: 22AAAAA0000A1Z5." };
+  if (is_gst_registered && !GSTIN_RE.test(gstinRaw)) {
+    return { error: "GSTIN doesn't look right. Format: 22AAAAA0000A1Z5." };
+  }
   if (!PAN_RE.test(pan)) return { error: "PAN doesn't look right. Format: AAAAA0000A." };
   if (!bank_account_number || bank_account_number.length < 6) {
     return { error: "Bank account number looks too short." };

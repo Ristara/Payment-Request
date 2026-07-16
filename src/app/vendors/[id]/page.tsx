@@ -9,7 +9,7 @@ import { approveVendor, rejectVendor } from "@/app/vendors/actions";
 type VendorRow = {
   id: string;
   name: string;
-  gstin: string;
+  gstin: string | null;
   pan: string;
   bank_account_number: string;
   bank_ifsc: string;
@@ -80,7 +80,7 @@ export default async function VendorDetailPage({
 
       <section className="mt-6 grid grid-cols-1 gap-4 sm:mt-8 sm:grid-cols-2 sm:gap-6">
         <Card title="Tax IDs">
-          <Row label="GSTIN" value={v.gstin} mono />
+          <Row label="GSTIN" value={v.gstin ?? "Not registered"} mono={!!v.gstin} />
           <Row label="PAN" value={v.pan} mono />
         </Card>
         <Card title="Bank">
