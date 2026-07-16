@@ -17,17 +17,31 @@ export async function createOutlet(
 ): Promise<ActionState> {
   const code = String(formData.get("code") ?? "").trim().toUpperCase();
   const name = String(formData.get("name") ?? "").trim();
-  const cost_centre = String(formData.get("cost_centre") ?? "").trim() || null;
   if (!code || !name) return { error: "Code and name are required." };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("outlets").insert({ code, name, cost_centre });
+  const { error } = await supabase.from("outlets").insert({ code, name });
   if (error) return { error: error.message };
 
   invalidateMasters();
   revalidatePath("/admin/outlets");
   revalidatePath("/admin");
   return { info: `Added ${name}.` };
+}
+
+export async function updateOutletName(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("id") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  if (!id || !name) return { error: "Name is required." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("outlets").update({ name }).eq("id", id);
+  if (error) return { error: error.message };
+  invalidateMasters();
+  revalidatePath("/admin/outlets");
+  return { info: "Name updated." };
 }
 
 export async function toggleOutletActive(formData: FormData): Promise<void> {
@@ -37,6 +51,34 @@ export async function toggleOutletActive(formData: FormData): Promise<void> {
   await supabase.from("outlets").update({ is_active }).eq("id", id);
   invalidateMasters();
   revalidatePath("/admin/outlets");
+}
+
+export async function deleteOutlet(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing outlet id." };
+  const supabase = await createClient();
+  const admin = createAdminClient();
+
+  // Check for any request_outlets rows referencing this outlet.
+  const { count } = await admin
+    .from("request_outlets")
+    .select("request_id", { count: "exact", head: true })
+    .eq("outlet_id", id);
+  if ((count ?? 0) > 0) {
+    return {
+      error: `Cannot delete — ${count} payment request${count === 1 ? " uses" : "s use"} this outlet. Deactivate it instead so it won't show up in new requests.`,
+    };
+  }
+
+  const { error } = await supabase.from("outlets").delete().eq("id", id);
+  if (error) return { error: error.message };
+  invalidateMasters();
+  revalidatePath("/admin/outlets");
+  revalidatePath("/admin");
+  return { info: "Deleted." };
 }
 
 // ---------------------------------------------------------------------------
