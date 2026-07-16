@@ -32,7 +32,7 @@ export default async function AdminLayout({
     { href: "/admin", label: "Home", icon: <HomeIcon /> },
     { href: "/admin/users", label: "Users", icon: <UsersIcon /> },
     { href: "/admin/outlets", label: "Outlets", icon: <OutletsIcon /> },
-    { href: "/admin/categories", label: "Categs", icon: <CategoriesIcon /> },
+    { href: "/admin/categories", label: "Categories", icon: <CategoriesIcon /> },
     { href: "/admin/coa", label: "COA", icon: <CoaIcon /> },
   ];
 

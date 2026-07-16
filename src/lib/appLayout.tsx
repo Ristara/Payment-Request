@@ -51,11 +51,11 @@ export default async function AppLayoutShell({
 
   const links = [
     { href: "/dashboard", label: "Home", icon: <HomeIcon /> },
-    { href: "/requests", label: "My", icon: <DocumentIcon /> },
+    { href: "/requests", label: "Requests", icon: <DocumentIcon /> },
     { href: "/requests/new", label: "Raise", icon: <PlusCircleIcon /> },
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
-    ...(isAccounts ? [{ href: "/accounts", label: "Accts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
-    ...(isAccounts || isAdmin ? [{ href: "/vendors", label: "Vendor", icon: <VendorIcon />, badge: vendorBadge.count ?? 0 }] : []),
+    ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
+    ...(isAccounts || isAdmin ? [{ href: "/vendors", label: "Vendors", icon: <VendorIcon />, badge: vendorBadge.count ?? 0 }] : []),
     ...(isStaff ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }] : []),
   ];
 

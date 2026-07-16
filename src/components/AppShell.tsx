@@ -46,7 +46,7 @@ export default function AppShell({
 }) {
   const drawerLinks: DrawerLink[] = links.map((l) => ({
     href: l.href,
-    label: l.label === "My" ? "My requests" : l.label === "Raise" ? "Raise request" : l.label === "Approve" ? "Approvals" : l.label === "Accts" ? "Accounts" : l.label === "Vendor" ? "Vendors" : l.label,
+    label: l.label === "Requests" ? "My requests" : l.label === "Raise" ? "Raise request" : l.label === "Approve" ? "Approvals" : l.label,
     icon: l.icon,
     badge: l.badge,
   }));
@@ -56,10 +56,10 @@ export default function AppShell({
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col items-center gap-1 border-r border-slate-800 bg-slate-900 py-4 sm:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-20 flex-col items-center gap-1 border-r border-slate-800 bg-slate-900 py-4 sm:flex">
         <Link
           href="/dashboard"
-          className={`mb-2 flex h-10 w-10 items-center justify-center rounded-lg text-white ${brandBg}`}
+          className={`mb-2 flex h-11 w-11 items-center justify-center rounded-lg text-white ${brandBg}`}
           title="Home"
         >
           <span className="text-lg font-bold">R</span>
@@ -69,11 +69,11 @@ export default function AppShell({
             <Link
               key={l.href}
               href={l.href}
-              className="group relative flex h-11 w-11 flex-col items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="group relative flex w-16 flex-col items-center justify-center gap-1 rounded-lg py-2 text-slate-400 hover:bg-slate-800 hover:text-white"
               title={l.label}
             >
               {l.icon}
-              <span className="mt-0.5 text-[9px] font-medium">{l.label.slice(0, 6)}</span>
+              <span className="text-[10px] font-medium leading-tight">{l.label}</span>
               {typeof l.badge === "number" && l.badge > 0 && (
                 <span className="absolute right-1 top-1 rounded-full bg-red-500 px-1.5 text-[9px] font-bold text-white">
                   {l.badge}
@@ -87,19 +87,19 @@ export default function AppShell({
         {switchView && (
           <Link
             href={switchView.href}
-            className={`mt-auto flex h-12 w-12 flex-col items-center justify-center rounded-lg text-white shadow-sm ${
+            className={`mt-auto flex w-16 flex-col items-center justify-center gap-1 rounded-lg py-2 text-white shadow-sm ${
               switchView.variant === "admin" ? "bg-amber-600 hover:bg-amber-700" : "bg-indigo-600 hover:bg-indigo-700"
             }`}
             title={switchView.label}
           >
             <SwitchIcon />
-            <span className="mt-0.5 text-[9px] font-semibold leading-tight">{switchView.short}</span>
+            <span className="text-[10px] font-semibold leading-tight">{switchView.short}</span>
           </Link>
         )}
       </aside>
 
       {/* Top bar */}
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-16 dark:border-zinc-800 dark:bg-zinc-900">
+      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-20 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center gap-2 px-3 py-3 sm:gap-6 sm:px-6">
           {/* Mobile hamburger + drawer */}
           <MobileDrawer
@@ -160,7 +160,7 @@ export default function AppShell({
       </header>
 
       {/* Main content */}
-      <main className="sm:pl-16">
+      <main className="sm:pl-20">
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</div>
       </main>
     </div>
