@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendPushToUsers } from "@/lib/push";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -181,9 +182,38 @@ export async function createRequest(
     if (rows.length > 0) await admin.from("attachments").insert(rows);
   }
 
+  // Notify all approvers (in-app + push)
+  const { data: approvers } = await admin
+    .from("user_roles")
+    .select("user_id")
+    .eq("role", "approver");
+  const approverIds = ((approvers ?? []) as { user_id: string }[]).map((r) => r.user_id).filter((id) => id !== user.id);
+  if (approverIds.length > 0) {
+    await admin.from("notifications").insert(
+      approverIds.map((recipient_id) => ({
+        recipient_id,
+        actor_id: user.id,
+        kind: "request_submitted",
+        request_id: requestId,
+        body: `${requestNumber} · ${formatShortAmount(payment_amount)}`,
+      })),
+    );
+    const { data: submitter } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
+    await sendPushToUsers(approverIds, {
+      title: `New request from ${submitter?.full_name ?? "someone"}`,
+      body: `${requestNumber} · ${formatShortAmount(payment_amount)}`,
+      url: `/requests/${requestId}`,
+      tag: `request-${requestId}`,
+    });
+  }
+
   revalidatePath("/requests");
   revalidatePath("/approvals");
   redirect(`/requests/${requestId}`);
+}
+
+function formatShortAmount(n: number): string {
+  return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +248,60 @@ async function transition(
     to_status: to,
     comment,
   });
+
+  // Notify the submitter on status changes that matter to them.
+  const notifiableKinds: Record<string, string> = {
+    approved: "request_approved",
+    rejected: "request_rejected",
+    returned_for_correction: "request_returned",
+    payment_processed: "payment_processed",
+    invoice_pending: "invoice_reminder",
+    closed: "request_closed",
+  };
+  if (notifiableKinds[to]) {
+    const { data: req } = await admin
+      .from("payment_requests")
+      .select("submitter_id, request_number")
+      .eq("id", requestId)
+      .single();
+    if (req && req.submitter_id !== user.id) {
+      const { data: actor } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
+      await admin.from("notifications").insert({
+        recipient_id: req.submitter_id,
+        actor_id: user.id,
+        kind: notifiableKinds[to],
+        request_id: requestId,
+        body: `${req.request_number} → ${to.replace(/_/g, " ")}`,
+      });
+      await sendPushToUsers([req.submitter_id], {
+        title: `${actor?.full_name ?? "Someone"} ${to.replace(/_/g, " ")} your request`,
+        body: `${req.request_number}${comment ? " · " + comment.slice(0, 100) : ""}`,
+        url: `/requests/${requestId}`,
+        tag: `request-${requestId}`,
+      });
+    }
+    // Notify Accounts when a request is approved
+    if (to === "approved") {
+      const { data: acc } = await admin.from("user_roles").select("user_id").eq("role", "accounts");
+      const accIds = ((acc ?? []) as { user_id: string }[]).map((r) => r.user_id).filter((id) => id !== user.id);
+      if (accIds.length > 0) {
+        const { data: r } = await admin.from("payment_requests").select("request_number").eq("id", requestId).single();
+        await admin.from("notifications").insert(accIds.map((recipient_id) => ({
+          recipient_id,
+          actor_id: user.id,
+          kind: "ready_for_payment",
+          request_id: requestId,
+          body: `${r?.request_number} ready to process`,
+        })));
+        await sendPushToUsers(accIds, {
+          title: "Request ready for payment",
+          body: `${r?.request_number} approved and awaiting bank upload`,
+          url: `/requests/${requestId}`,
+          tag: `request-${requestId}`,
+        });
+      }
+    }
+  }
 }
 
 export async function approveRequest(
@@ -536,7 +620,7 @@ export async function addComment(
       .from("comment_mentions")
       .insert(mentions.map((mentioned_user_id) => ({ comment_id: commentId, mentioned_user_id })));
 
-    // Fire notifications
+    // Fire in-app notifications
     await admin.from("notifications").insert(
       mentions.map((recipient_id) => ({
         recipient_id,
@@ -546,6 +630,15 @@ export async function addComment(
         body: body.slice(0, 140) || "(attachment)",
       })),
     );
+
+    // Fire push notifications (best-effort)
+    const { data: actor } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
+    await sendPushToUsers(mentions, {
+      title: `${actor?.full_name ?? "Someone"} mentioned you`,
+      body: body.slice(0, 140) || "(attachment)",
+      url: `/requests/${requestId}`,
+      tag: `request-${requestId}`,
+    });
 
     // If the mention comes with a question, mark the request as clarification_required.
     if (isQuestion) {

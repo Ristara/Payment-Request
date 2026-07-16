@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { markAllNotificationsRead, markNotificationRead } from "@/app/requests/actions";
+import PushToggle from "@/components/PushToggle";
 
 type Row = {
   id: string;
@@ -53,6 +54,16 @@ export default async function NotificationsPage() {
           </form>
         )}
       </div>
+
+      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Push notifications</h2>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          Get pinged on this device when someone mentions you or approves your request.
+        </p>
+        <div className="mt-3">
+          <PushToggle />
+        </div>
+      </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         {rows.length === 0 ? (

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendPushToUsers } from "@/lib/push";
 
 export type VendorState = { error?: string; info?: string } | undefined;
 
@@ -62,10 +63,10 @@ export async function createVendor(
   }
 
   const vendorId = inserted!.id as string;
+  const admin = createAdminClient();
 
   // Upload cheque if provided
   if (cheque instanceof File && cheque.size > 0) {
-    const admin = createAdminClient();
     const safe = cheque.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const path = `${vendorId}/${Date.now()}-${safe}`;
     const buf = await cheque.arrayBuffer();
@@ -84,6 +85,25 @@ export async function createVendor(
         uploaded_by: user.id,
       });
     }
+  }
+
+  // Notify Accounts team
+  const { data: acc } = await admin.from("user_roles").select("user_id").eq("role", "accounts");
+  const accIds = ((acc ?? []) as { user_id: string }[]).map((r) => r.user_id);
+  if (accIds.length > 0) {
+    await admin.from("notifications").insert(accIds.map((recipient_id) => ({
+      recipient_id,
+      actor_id: user.id,
+      kind: "vendor_pending",
+      vendor_id: vendorId,
+      body: `New vendor to verify: ${name}`,
+    })));
+    await sendPushToUsers(accIds, {
+      title: "New vendor to verify",
+      body: name,
+      url: `/vendors/${vendorId}`,
+      tag: `vendor-${vendorId}`,
+    });
   }
 
   revalidatePath("/vendors");
