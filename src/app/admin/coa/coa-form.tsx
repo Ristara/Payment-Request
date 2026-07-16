@@ -49,8 +49,9 @@ export default function CoaForm({ coa }: { coa: Coa[] }) {
         )}
       </form>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <table className="w-full text-sm">
+      <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-sm">
           <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
             <tr>
               <th className="px-5 py-3">Code</th>
@@ -99,6 +100,7 @@ export default function CoaForm({ coa }: { coa: Coa[] }) {
             )}
           </tbody>
         </table>
+          </div>
       </section>
     </div>
   );

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR } from "@/lib/types";
+import PageHeader from "@/components/PageHeader";
 
 type Row = {
   id: string;
@@ -25,61 +26,80 @@ export default async function MyRequestsPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">My requests</h1>
-          <p className="mt-1 text-sm text-zinc-500">Payment requests you have raised.</p>
-        </div>
-        <Link
-          href="/requests/new"
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          + Raise request
-        </Link>
-      </div>
+      <PageHeader
+        title="My requests"
+        subtitle="Payment requests you have raised."
+        action={{ href: "/requests/new", label: "+ Raise request" }}
+      />
 
-      <section className="mt-8 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <table className="w-full text-sm">
-          <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-            <tr>
-              <th className="px-5 py-3">Request #</th>
-              <th className="px-5 py-3">Vendor</th>
-              <th className="px-5 py-3 text-right">Amount</th>
-              <th className="px-5 py-3">Due date</th>
-              <th className="px-5 py-3">Status</th>
-              <th className="px-5 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-sm text-zinc-500">
-                  No requests yet.
-                </td>
-              </tr>
-            ) : (
-              rows.map((r) => (
-                <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                  <td className="px-5 py-3 font-mono text-xs">{r.request_number}</td>
-                  <td className="px-5 py-3">{r.vendor?.name ?? "—"}</td>
-                  <td className="px-5 py-3 text-right font-medium tabular-nums">
-                    {formatINR(r.payment_amount)}
-                  </td>
-                  <td className="px-5 py-3 text-zinc-500">{r.payment_due_date}</td>
-                  <td className="px-5 py-3">
+      {rows.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+          No requests yet.{" "}
+          <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
+        </div>
+      ) : (
+        <>
+          {/* Mobile card list */}
+          <ul className="mt-6 space-y-3 sm:hidden">
+            {rows.map((r) => (
+              <li key={r.id}>
+                <Link
+                  href={`/requests/${r.id}`}
+                  className="block rounded-xl border border-zinc-200 bg-white p-4 active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
+                      <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
+                        {r.vendor?.name ?? "—"}
+                      </p>
+                    </div>
                     <StatusPill status={r.status} />
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                      Open →
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
+                  </div>
+                  <div className="mt-2 flex items-baseline justify-between text-xs">
+                    <span className="font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
+                      {formatINR(r.payment_amount)}
+                    </span>
+                    <span className="text-zinc-500">Due {r.payment_due_date}</span>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop table */}
+          <section className="mt-6 hidden rounded-2xl border border-zinc-200 bg-white sm:block dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                  <tr>
+                    <th className="px-5 py-3">Request #</th>
+                    <th className="px-5 py-3">Vendor</th>
+                    <th className="px-5 py-3 text-right">Amount</th>
+                    <th className="px-5 py-3">Due date</th>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
+                      <td className="px-5 py-3 font-mono text-xs">{r.request_number}</td>
+                      <td className="px-5 py-3">{r.vendor?.name ?? "—"}</td>
+                      <td className="px-5 py-3 text-right font-medium tabular-nums">{formatINR(r.payment_amount)}</td>
+                      <td className="px-5 py-3 text-zinc-500">{r.payment_due_date}</td>
+                      <td className="px-5 py-3"><StatusPill status={r.status} /></td>
+                      <td className="px-5 py-3 text-right">
+                        <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">Open →</Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
@@ -96,7 +116,7 @@ function StatusPill({ status }: { status: string }) {
             ? "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-200"
             : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200";
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${color}`}>
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${color}`}>
       {STATUS_LABEL[status] ?? status}
     </span>
   );

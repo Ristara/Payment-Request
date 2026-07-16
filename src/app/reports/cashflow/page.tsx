@@ -60,7 +60,8 @@ export default async function CashflowReport() {
                 {g.label} · {g.rows.length} · <span className="tabular-nums">{formatINR(bTotal)}</span>
               </h2>
               <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] text-sm">
                   <tbody>
                     {g.rows.map((r) => (
                       <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
@@ -77,6 +78,7 @@ export default async function CashflowReport() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </section>
           );

@@ -2,7 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles } from "@/lib/auth";
-import { STATUS_LABEL, formatINR } from "@/lib/types";
+import { formatINR } from "@/lib/types";
+import PageHeader from "@/components/PageHeader";
 
 type Row = {
   id: string;
@@ -40,32 +41,49 @@ export default async function AccountsQueuePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Accounts work queue</h1>
-      <p className="mt-1 text-sm text-zinc-500">
-        Everything approved that needs processing, in due-date order.
-      </p>
+      <PageHeader
+        title="Accounts work queue"
+        subtitle="Everything approved that needs processing, in due-date order."
+      />
 
       <div className="mt-8 space-y-8">
         {buckets.map((b) => {
           const bucket = rows.filter((r) => r.status === b.key);
+          if (bucket.length === 0) return null;
           return (
             <section key={b.key}>
               <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                 {b.title} <span className="text-zinc-500">({bucket.length})</span>
               </h2>
-              {bucket.length > 0 && (
-                <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+
+              {/* Mobile card list */}
+              <ul className="mt-3 space-y-3 sm:hidden">
+                {bucket.map((r) => (
+                  <li key={r.id}>
+                    <Link
+                      href={`/requests/${r.id}`}
+                      className="block rounded-xl border border-zinc-200 bg-white p-4 active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
+                          <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">{r.vendor?.name}</p>
+                          <p className="mt-0.5 truncate text-xs text-zinc-500">by {r.submitter?.full_name ?? "—"}</p>
+                        </div>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                          {formatINR(r.payment_amount)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-zinc-500">Due {r.payment_due_date}</p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Desktop table */}
+              <div className="mt-3 hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white sm:block dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                      <tr>
-                        <th className="px-5 py-2">Request #</th>
-                        <th className="px-5 py-2">Vendor</th>
-                        <th className="px-5 py-2">Raised by</th>
-                        <th className="px-5 py-2 text-right">Amount</th>
-                        <th className="px-5 py-2">Due</th>
-                        <th className="px-5 py-2"></th>
-                      </tr>
-                    </thead>
                     <tbody>
                       {bucket.map((r) => (
                         <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
@@ -75,16 +93,14 @@ export default async function AccountsQueuePage() {
                           <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.payment_amount)}</td>
                           <td className="px-5 py-2 text-zinc-500">{r.payment_due_date}</td>
                           <td className="px-5 py-2 text-right">
-                            <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                              Open →
-                            </Link>
+                            <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">Open →</Link>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
+              </div>
             </section>
           );
         })}

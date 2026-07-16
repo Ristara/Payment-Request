@@ -68,9 +68,9 @@ export default async function VendorDetailPage({
         </Link>
       </div>
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{v.name}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">{v.name}</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Submitted by {v.submitter?.full_name ?? "—"} · {new Date(v.created_at).toLocaleDateString()}
           </p>
@@ -78,7 +78,7 @@ export default async function VendorDetailPage({
         <VendorStatusPill status={v.status} />
       </div>
 
-      <section className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <section className="mt-6 grid grid-cols-1 gap-4 sm:mt-8 sm:grid-cols-2 sm:gap-6">
         <Card title="Tax IDs">
           <Row label="GSTIN" value={v.gstin} mono />
           <Row label="PAN" value={v.pan} mono />

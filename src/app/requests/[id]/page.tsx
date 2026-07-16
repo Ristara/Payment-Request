@@ -230,38 +230,42 @@ export default async function RequestDetailPage({
         </Link>
       </div>
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-6">
-        <div>
+      {/* Header — stacks on mobile, side-by-side on desktop */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
           <p className="font-mono text-xs text-zinc-500">{req.request_number}</p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+          <h1 className="mt-1 text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">
             {req.vendor?.name}
-            <StatusPill status={req.status} className="ml-3 align-middle" />
           </h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <StatusPill status={req.status} />
+            {req.vendor?.status !== "approved" && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+                Vendor {VENDOR_STATUS_LABEL[req.vendor?.status ?? ""] ?? req.vendor?.status}
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-zinc-500 sm:text-sm">
             Raised by {req.submitter?.full_name} · {new Date(req.created_at).toLocaleDateString()}
           </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {req.outlets.map((ro, i) => (
-              <span
-                key={i}
-                className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-              >
-                {ro.outlet?.name}
-              </span>
-            ))}
-          </div>
+          {req.outlets.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {req.outlets.map((ro, i) => (
+                <span
+                  key={i}
+                  className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  {ro.outlet?.name}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="text-right">
-          <p className="text-3xl font-semibold text-zinc-900 dark:text-zinc-50 tabular-nums">
+        <div className="flex items-baseline gap-3 sm:flex-col sm:items-end sm:gap-0 sm:text-right">
+          <p className="text-2xl font-semibold text-zinc-900 tabular-nums sm:text-3xl dark:text-zinc-50">
             {formatINR(req.payment_amount)}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">Due {req.payment_due_date}</p>
-          {req.vendor?.status !== "approved" && (
-            <p className="mt-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-              Vendor {VENDOR_STATUS_LABEL[req.vendor?.status ?? ""] ?? req.vendor?.status}
-            </p>
-          )}
+          <p className="text-xs text-zinc-500 sm:mt-1">Due {req.payment_due_date}</p>
         </div>
       </div>
 

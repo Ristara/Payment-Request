@@ -68,7 +68,7 @@ export default async function SpendReportPage({
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Spend report</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -101,8 +101,9 @@ export default async function SpendReportPage({
       </form>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_18rem]">
-        <section className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <table className="w-full text-sm">
+        <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
             <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
               <tr>
                 <th className="px-5 py-3">
@@ -142,6 +143,7 @@ export default async function SpendReportPage({
               </tr>
             </tfoot>
           </table>
+          </div>
         </section>
 
         <aside className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

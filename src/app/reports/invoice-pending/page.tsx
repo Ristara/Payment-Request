@@ -42,8 +42,9 @@ export default async function InvoicePendingReport() {
         <span className="font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">{formatINR(total)}</span> across {rows.length} request{rows.length === 1 ? "" : "s"}
       </p>
 
-      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <table className="w-full text-sm">
+      <section className="mt-6 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-sm">
           <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
             <tr>
               <th className="px-5 py-3">Request #</th>
@@ -87,6 +88,7 @@ export default async function InvoicePendingReport() {
             )}
           </tbody>
         </table>
+          </div>
       </section>
     </div>
   );
