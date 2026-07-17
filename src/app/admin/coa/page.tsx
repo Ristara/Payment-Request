@@ -9,9 +9,9 @@ export default async function CoaPage() {
         Chart of Accounts
       </h1>
       <p className="mt-1 text-sm text-zinc-500">
-        One row per selectable account. Requesters pick a <em>subcategory</em>; the
-        category and COA auto-fill. Codes are auto-generated in sequence and
-        can&apos;t be edited.
+        Manage COA heads, categories, and subcategories as a tree. Renaming a
+        COA head or category updates every subcategory under it. Codes are
+        auto-generated per subcategory and can&apos;t be edited.
       </p>
 
       <div className="mt-6">

@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
-import Combobox, { type ComboOption } from "@/components/Combobox";
+import { useActionState, useState } from "react";
+import HierarchicalPicker from "@/components/HierarchicalPicker";
 import {
   approveRequest,
   rejectRequest,
@@ -51,16 +51,6 @@ export default function RequestActions({
   const [openBox, setOpenBox] = useState<null | "reject" | "return" | "cancel" | "coa" | "bank" | "pay" | "invoice">(null);
   const [selectedLineId, setSelectedLineId] = useState<string>(lineItems[0]?.id ?? "");
   const [newCoaId, setNewCoaId] = useState<string>(lineItems[0]?.coa_account_id ?? "");
-
-  const coaOptions = useMemo<ComboOption[]>(
-    () =>
-      coaHeads.map((c) => ({
-        value: c.id,
-        label: c.subcategory,
-        hint: `${c.category} · ${c.coa}`,
-      })),
-    [coaHeads],
-  );
 
   const canApprove = (isApprover || isAdmin) && status === "pending_approval" && vendorStatus === "approved";
   const canRejectReturn = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
@@ -208,14 +198,14 @@ export default function RequestActions({
             <div>
               <label className="text-xs text-zinc-500">New subcategory</label>
               <div className="mt-1">
-                <Combobox
+                <HierarchicalPicker
                   name="coa_account_id"
                   required
+                  accounts={coaHeads}
                   value={newCoaId}
                   onChange={setNewCoaId}
-                  placeholder="Search subcategory…"
+                  placeholder="Pick subcategory"
                   ariaLabel="New subcategory"
-                  options={coaOptions}
                 />
               </div>
             </div>

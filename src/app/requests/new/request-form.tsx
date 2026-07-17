@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createRequest } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
+import HierarchicalPicker from "@/components/HierarchicalPicker";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
 type Outlet = { id: string; code: string; name: string };
@@ -59,16 +60,6 @@ export default function RequestForm({
     coaAccounts.forEach((c) => m.set(c.id, c));
     return m;
   }, [coaAccounts]);
-
-  const coaOptions = useMemo<ComboOption[]>(
-    () =>
-      coaAccounts.map((c) => ({
-        value: c.id,
-        label: c.subcategory,
-        hint: `${c.category} · ${c.coa}`,
-      })),
-    [coaAccounts],
-  );
 
   function updateLine(idx: number, patch: Partial<LineRow>) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -226,13 +217,13 @@ export default function RequestForm({
                 return (
                   <tr key={line.key} className="border-b border-zinc-100 align-top dark:border-zinc-800/60">
                     <td className="px-1 py-2">
-                      <Combobox
+                      <HierarchicalPicker
                         size="sm"
+                        accounts={coaAccounts}
                         value={line.coa_account_id}
                         onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                        placeholder="Search subcategory…"
+                        placeholder="Pick subcategory"
                         ariaLabel="Subcategory"
-                        options={coaOptions}
                       />
                       {coa && (
                         <p className="mt-1 text-[10px] text-zinc-500">
@@ -324,12 +315,12 @@ export default function RequestForm({
                     Subcategory
                   </label>
                   <div className="mt-1">
-                    <Combobox
+                    <HierarchicalPicker
+                      accounts={coaAccounts}
                       value={line.coa_account_id}
                       onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                      placeholder="Search subcategory…"
+                      placeholder="Pick subcategory"
                       ariaLabel="Subcategory"
-                      options={coaOptions}
                     />
                   </div>
                   {coa && (

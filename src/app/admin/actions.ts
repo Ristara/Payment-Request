@@ -167,6 +167,79 @@ export async function deleteCoaAccount(
   return { info: "Deleted." };
 }
 
+/**
+ * Rename an entire Category group: updates every coa_accounts row where
+ * (coa, category) matches the old pair, setting category to the new name.
+ * Fails if the new name is already used under the same COA head (would
+ * merge two categories, which is a separate operation we don't expose yet).
+ */
+export async function renameCategoryGroup(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const coa = String(formData.get("coa") ?? "").trim();
+  const oldCategory = String(formData.get("old_category") ?? "").trim();
+  const newCategory = String(formData.get("new_category") ?? "").trim();
+  if (!coa || !oldCategory || !newCategory) return { error: "All fields required." };
+  if (oldCategory === newCategory) return { info: "No change." };
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+
+  const { count: clash } = await admin
+    .from("coa_accounts")
+    .select("id", { count: "exact", head: true })
+    .eq("coa", coa)
+    .eq("category", newCategory);
+  if ((clash ?? 0) > 0) {
+    return { error: `A category named "${newCategory}" already exists under ${coa}.` };
+  }
+
+  const { error } = await supabase
+    .from("coa_accounts")
+    .update({ category: newCategory })
+    .eq("coa", coa)
+    .eq("category", oldCategory);
+  if (error) return { error: error.message };
+  invalidateMasters();
+  revalidatePath("/admin/coa");
+  return { info: "Category renamed." };
+}
+
+/**
+ * Rename an entire COA head: updates every coa_accounts row where coa
+ * matches. Fails if a row with the new name already exists (would merge).
+ */
+export async function renameCoaGroup(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const oldCoa = String(formData.get("old_coa") ?? "").trim();
+  const newCoa = String(formData.get("new_coa") ?? "").trim();
+  if (!oldCoa || !newCoa) return { error: "Both names required." };
+  if (oldCoa === newCoa) return { info: "No change." };
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+
+  const { count: clash } = await admin
+    .from("coa_accounts")
+    .select("id", { count: "exact", head: true })
+    .eq("coa", newCoa);
+  if ((clash ?? 0) > 0) {
+    return { error: `A COA head named "${newCoa}" already exists.` };
+  }
+
+  const { error } = await supabase
+    .from("coa_accounts")
+    .update({ coa: newCoa })
+    .eq("coa", oldCoa);
+  if (error) return { error: error.message };
+  invalidateMasters();
+  revalidatePath("/admin/coa");
+  return { info: "COA head renamed." };
+}
+
 // ---------------------------------------------------------------------------
 // Users + role assignment
 // ---------------------------------------------------------------------------
