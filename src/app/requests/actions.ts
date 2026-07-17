@@ -106,15 +106,17 @@ export async function createRequest(
     return { error: "One or more selected accounts don't exist." };
   }
 
-  // Verify vendor is approved
+  // Vendor must exist. If not yet approved, submission is still allowed —
+  // Accounts will verify the vendor before the payment can be released
+  // (this matches the UI copy on the request form).
   const { data: vendor } = await supabase
     .from("vendors")
     .select("status")
     .eq("id", vendor_id)
     .single();
   if (!vendor) return { error: "Vendor not found." };
-  if (vendor.status !== "approved") {
-    return { error: "Vendor is still being verified by Accounts. You can still save + submit — but payment will pause until vendor is approved." };
+  if (vendor.status === "rejected") {
+    return { error: "This vendor was rejected. Pick a different vendor." };
   }
 
   // Generate request number: PR-YYYY-NNNNN
