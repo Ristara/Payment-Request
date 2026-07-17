@@ -227,44 +227,59 @@ function PickerSheet({
           </div>
         </div>
 
+        {/* Tap-hint — clarifies that only the leaves are pickable. */}
+        <p className="border-b border-zinc-100 bg-indigo-50/50 px-4 py-2 text-[11px] text-indigo-700 dark:border-zinc-800 dark:bg-indigo-950/30 dark:text-indigo-200">
+          Tap a <strong>subcategory</strong> to pick. COA head and Category are shown for context only.
+        </p>
+
         {/* List */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
           {filtered.length === 0 ? (
             <p className="p-8 text-center text-sm text-zinc-500">No matches for &ldquo;{query}&rdquo;.</p>
           ) : (
             <>
-              <p className="bg-zinc-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:bg-zinc-950">
-                All Categories
-              </p>
               <ul>
                 {filtered.map((coa) => (
                   <li key={coa.coa}>
-                    <p className="border-t border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 dark:border-zinc-800 dark:text-zinc-100">
+                    {/* COA head — non-selectable section header */}
+                    <p
+                      aria-hidden="true"
+                      className="cursor-default select-none border-t border-zinc-200 bg-zinc-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400"
+                    >
                       {coa.coa}
                     </p>
                     {coa.categories.map((cat) => (
                       <div key={cat.category}>
-                        <p className="flex items-center gap-2 px-4 py-2 text-sm text-zinc-800 dark:text-zinc-200">
-                          <Arrow />
+                        {/* Category — non-selectable subheader */}
+                        <p
+                          aria-hidden="true"
+                          className="flex cursor-default select-none items-center gap-2 px-4 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400"
+                        >
+                          <Arrow muted />
                           <span className="min-w-0 truncate">{cat.category}</span>
                         </p>
                         <ul>
-                          {cat.subs.map((s) => (
-                            <li key={s.id}>
-                              <button
-                                type="button"
-                                onClick={() => onPick(s.id)}
-                                className={`flex w-full items-center gap-2 px-4 py-2 pl-10 text-left text-sm hover:bg-indigo-50 dark:hover:bg-indigo-950/40 ${
-                                  s.id === value
-                                    ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
-                                    : "text-zinc-700 dark:text-zinc-300"
-                                }`}
-                              >
-                                <Arrow />
-                                <span className="min-w-0 truncate">{s.subcategory}</span>
-                              </button>
-                            </li>
-                          ))}
+                          {cat.subs.map((s) => {
+                            const isSelected = s.id === value;
+                            return (
+                              <li key={s.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => onPick(s.id)}
+                                  role="option"
+                                  aria-selected={isSelected}
+                                  className={`flex w-full items-center gap-3 border-b border-zinc-100 px-4 py-3 pl-10 text-left text-sm transition-colors last:border-b-0 hover:bg-indigo-50 active:bg-indigo-100 dark:border-zinc-800/60 dark:hover:bg-indigo-950/40 ${
+                                    isSelected
+                                      ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                                      : "text-zinc-900 dark:text-zinc-100"
+                                  }`}
+                                >
+                                  <span className="min-w-0 flex-1 truncate">{s.subcategory}</span>
+                                  {isSelected ? <CheckIcon /> : <ChevronRight />}
+                                </button>
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     ))}
@@ -284,10 +299,32 @@ function PickerSheet({
   );
 }
 
-function Arrow() {
+function Arrow({ muted = false }: { muted?: boolean }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="flex-none text-zinc-400">
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      className={`flex-none ${muted ? "text-zinc-300 dark:text-zinc-600" : "text-zinc-400"}`}
+    >
       <path d="M2 2v4a2 2 0 002 2h6M7 5l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRight() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="flex-none text-zinc-300 dark:text-zinc-600">
+      <path d="M5 3l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="flex-none text-indigo-600 dark:text-indigo-300">
+      <path d="M3 7.5l3 3 5-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
