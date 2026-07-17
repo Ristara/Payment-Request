@@ -29,10 +29,12 @@ export default function RequestForm({
   vendors,
   outlets,
   coaAccounts,
+  reservedNumber,
 }: {
   vendors: Vendor[];
   outlets: Outlet[];
   coaAccounts: CoaAccount[];
+  reservedNumber: string | null;
 }) {
   const [state, formAction, pending] = useActionState(createRequest, undefined);
 
@@ -96,6 +98,10 @@ export default function RequestForm({
       action={formAction}
       className="space-y-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {reservedNumber && (
+        <input type="hidden" name="request_number" value={reservedNumber} />
+      )}
+
       {/* Vendor */}
       <section>
         <SectionTitle>Vendor</SectionTitle>

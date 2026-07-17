@@ -106,16 +106,20 @@ export async function createRequest(
     return { error: "This vendor was rejected. Pick a different vendor." };
   }
 
-  // Generate request number: PR-YYYY-NNNNN via a real SQL sequence.
-  // Falls back to a count-based number if the sequence isn't reachable.
+  // Request number: prefer the one reserved on page-load and echoed back
+  // via the form's hidden field. If it's absent (older cached page, curl,
+  // whatever), draw a fresh one from the sequence. Random fallback is a
+  // last-resort safety net so this action never crashes on numbering.
   const admin = createAdminClient();
-  let requestNumber = `PR-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 99999)).padStart(5, "0")}`;
-  const { data: seqRow, error: seqErr } = await admin
-    .rpc("next_request_number");
-  if (!seqErr && typeof seqRow === "string" && seqRow.length > 0) {
-    requestNumber = seqRow;
-  } else {
-    console.error("[createRequest] next_request_number RPC failed:", seqErr?.message);
+  const reserved = String(formData.get("request_number") ?? "").trim();
+  let requestNumber = reserved || `PR-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 99999)).padStart(5, "0")}`;
+  if (!reserved) {
+    const { data: seqRow, error: seqErr } = await admin.rpc("next_request_number");
+    if (!seqErr && typeof seqRow === "string" && seqRow.length > 0) {
+      requestNumber = seqRow;
+    } else {
+      console.error("[createRequest] next_request_number RPC failed:", seqErr?.message);
+    }
   }
 
   const { data: inserted, error } = await supabase
