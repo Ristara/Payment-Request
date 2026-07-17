@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
-import { STATUS_LABEL, formatINR, SUPPLY_LABEL, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
+import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
 
 const DOC_TYPE_LABEL: Record<"po" | "invoice" | "no_invoice" | "invoice_pending", string> = {
   po: "PO",
@@ -31,11 +31,7 @@ type ReqRow = {
   payment_due_date: string;
   date_of_work_completion: string | null;
   tentative_invoice_date: string | null;
-  supply_composition: string;
-  material_percentage: number | null;
-  service_percentage: number | null;
   purpose: string;
-  cost_centre: string | null;
   submitted_at: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
@@ -75,8 +71,7 @@ export default async function RequestDetailPage({
        document_type, document_reference, total_bill_value,
        payment_amount, payment_percentage, previous_payments, balance_payable,
        payment_due_date, date_of_work_completion, tentative_invoice_date,
-       supply_composition,
-       material_percentage, service_percentage, purpose, cost_centre,
+       purpose,
        submitted_at, approved_at, rejection_reason, return_reason, created_at,
        submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
        vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
@@ -414,18 +409,6 @@ export default async function RequestDetailPage({
                   {formatINR(lineItems.reduce((s, l) => s + Number(l.amount), 0))}
                 </span>
               </div>
-            </div>
-            <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800/60">
-              <Grid>
-                <Row label="Supply" value={SUPPLY_LABEL[req.supply_composition] ?? req.supply_composition} />
-                {req.supply_composition === "mixed" && (
-                  <>
-                    <Row label="Material %" value={`${req.material_percentage ?? 0}%`} />
-                    <Row label="Service %" value={`${req.service_percentage ?? 0}%`} />
-                  </>
-                )}
-                {req.cost_centre && <Row label="Cost centre" value={req.cost_centre} />}
-              </Grid>
             </div>
           </Card>
 

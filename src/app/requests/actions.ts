@@ -45,18 +45,7 @@ export async function createRequest(
   } catch {
     return { error: "Invalid line items payload." };
   }
-  const supply_composition = String(formData.get("supply_composition") ?? "") as
-    | "material"
-    | "service"
-    | "mixed";
-  const material_percentage = formData.get("material_percentage")
-    ? Number(formData.get("material_percentage"))
-    : null;
-  const service_percentage = formData.get("service_percentage")
-    ? Number(formData.get("service_percentage"))
-    : null;
   const purpose = String(formData.get("purpose") ?? "").trim();
-  const cost_centre = String(formData.get("cost_centre") ?? "").trim() || null;
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
 
   // Validation
@@ -91,15 +80,6 @@ export async function createRequest(
     return {
       error: `Line items total ₹${lineSum.toFixed(2)} doesn't match payment amount ₹${payment_amount.toFixed(2)}.`,
     };
-  }
-  if (!supply_composition) return { error: "Pick supply composition." };
-  if (supply_composition === "mixed") {
-    if (material_percentage == null || service_percentage == null) {
-      return { error: "Material % and Service % are required for Mixed." };
-    }
-    if (Math.abs(material_percentage + service_percentage - 100) > 0.01) {
-      return { error: "Material % + Service % must equal 100." };
-    }
   }
   if (!purpose) return { error: "Purpose / description is required." };
 
@@ -154,12 +134,12 @@ export async function createRequest(
       previous_payments,
       payment_due_date,
       date_of_work_completion,
-      tentative_invoice_date,
-      supply_composition,
-      material_percentage,
-      service_percentage,
+      // tentative_invoice_date only makes sense when the invoice isn't in hand.
+      tentative_invoice_date:
+        document_type === "po" || document_type === "invoice_pending"
+          ? tentative_invoice_date
+          : null,
       purpose,
-      cost_centre,
       submitted_at: new Date().toISOString(),
     })
     .select("id, request_number")

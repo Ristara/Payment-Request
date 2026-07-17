@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createRequest } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 
@@ -37,9 +37,6 @@ export default function RequestForm({
 
   const [totalBill, setTotalBill] = useState("");
   const [prevPayments, setPrevPayments] = useState("");
-  const [supply, setSupply] = useState<"material" | "service" | "mixed" | "">("");
-  const [materialPct, setMaterialPct] = useState("");
-  const [servicePct, setServicePct] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [outletId, setOutletId] = useState("");
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
@@ -492,64 +489,6 @@ export default function RequestForm({
         </div>
       </section>
 
-      {/* Supply composition */}
-      <section>
-        <SectionTitle>Supply composition</SectionTitle>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {(["material", "service", "mixed"] as const).map((s) => (
-            <label
-              key={s}
-              className={`cursor-pointer rounded-md border px-3 py-1.5 text-xs ${
-                supply === s
-                  ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200"
-                  : "border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              }`}
-            >
-              <input
-                type="radio"
-                name="supply_composition"
-                value={s}
-                checked={supply === s}
-                onChange={() => setSupply(s)}
-                className="sr-only"
-                required
-              />
-              {s === "material" ? "100% Material" : s === "service" ? "100% Service" : "Mixed"}
-            </label>
-          ))}
-        </div>
-        {supply === "mixed" && (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-zinc-600 dark:text-zinc-400">Material %</label>
-              <input
-                name="material_percentage"
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={materialPct}
-                onChange={(e) => setMaterialPct(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-zinc-600 dark:text-zinc-400">Service %</label>
-              <input
-                name="service_percentage"
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={servicePct}
-                onChange={(e) => setServicePct(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-              />
-            </div>
-          </div>
-        )}
-      </section>
-
       {/* Purpose */}
       <section>
         <SectionTitle>Purpose / description</SectionTitle>
@@ -562,26 +501,10 @@ export default function RequestForm({
         />
       </section>
 
-      {/* Cost centre + Attachments */}
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <SectionTitle>Cost centre (optional)</SectionTitle>
-          <input
-            name="cost_centre"
-            placeholder="CC-HSR"
-            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          />
-        </div>
-        <div>
-          <SectionTitle>Supporting documents</SectionTitle>
-          <input
-            type="file"
-            name="attachments"
-            multiple
-            accept="image/*,application/pdf"
-            className="mt-2 block w-full text-sm text-zinc-700 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:text-zinc-300"
-          />
-        </div>
+      {/* Supporting documents — Zoho Expense-style drop zone with previews */}
+      <section>
+        <SectionTitle>Supporting documents</SectionTitle>
+        <AttachmentsField />
       </section>
 
       {state?.error && (
@@ -605,4 +528,152 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{children}</h2>
   );
+}
+
+/**
+ * Drop-zone attachment picker à la Zoho Expense.
+ * - Dashed drop zone with an upload icon, click-or-drop, formats hint.
+ * - Selected files show as cards: thumbnail for images, PDF icon otherwise,
+ *   plus name, size, and a per-file remove button.
+ * - Selection is a real File[] mirrored back into the hidden <input type=file>
+ *   via DataTransfer, so it submits with the form as attachments[].
+ */
+function AttachmentsField() {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+
+  // Keep the input's FileList in sync with our state so the form submits it.
+  useEffect(() => {
+    if (!inputRef.current) return;
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    inputRef.current.files = dt.files;
+  }, [files]);
+
+  function addFiles(incoming: FileList | File[] | null | undefined) {
+    if (!incoming) return;
+    const arr = Array.from(incoming);
+    if (!arr.length) return;
+    // Dedup by name+size+lastModified — good enough for the common re-drop case.
+    setFiles((prev) => {
+      const key = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
+      const seen = new Set(prev.map(key));
+      const merged = [...prev];
+      for (const f of arr) if (!seen.has(key(f))) merged.push(f);
+      return merged;
+    });
+  }
+
+  function removeAt(idx: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const totalSize = files.reduce((s, f) => s + f.size, 0);
+
+  return (
+    <div className="mt-2">
+      {/* Drop zone */}
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          addFiles(e.dataTransfer.files);
+        }}
+        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${
+          dragging
+            ? "border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
+            : "border-zinc-300 bg-zinc-50 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900/40 dark:hover:bg-zinc-800/40"
+        }`}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          name="attachments"
+          multiple
+          accept="image/*,application/pdf"
+          onChange={(e) => addFiles(e.target.files)}
+          className="sr-only"
+        />
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3v12" />
+            <path d="M7 8l5-5 5 5" />
+            <path d="M5 21h14" />
+          </svg>
+        </div>
+        <p className="mt-2 text-sm font-medium text-zinc-800 dark:text-zinc-100">
+          <span className="text-indigo-600 dark:text-indigo-300">Click to upload</span> or drag &amp; drop
+        </p>
+        <p className="mt-0.5 text-[11px] text-zinc-500">
+          Images (PNG · JPG) or PDF · up to 10 MB each
+        </p>
+      </label>
+
+      {/* Selected files */}
+      {files.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between px-1 text-[11px] text-zinc-500">
+            <span>
+              {files.length} file{files.length === 1 ? "" : "s"}
+            </span>
+            <span className="tabular-nums">Total {formatBytes(totalSize)}</span>
+          </div>
+          <ul className="space-y-2">
+            {files.map((f, i) => (
+              <FileCard key={`${f.name}-${f.lastModified}-${i}`} file={f} onRemove={() => removeAt(i)} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FileCard({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [thumb, setThumb] = useState<string | null>(null);
+  const isImage = file.type.startsWith("image/");
+
+  useEffect(() => {
+    if (!isImage) return;
+    const url = URL.createObjectURL(file);
+    setThumb(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file, isImage]);
+
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex h-12 w-12 flex-none items-center justify-center overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800">
+        {isImage && thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumb} alt={file.name} className="h-full w-full object-cover" />
+        ) : (
+          <span className="text-xs font-bold text-red-600">PDF</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{file.name}</p>
+        <p className="text-[11px] text-zinc-500 tabular-nums">{formatBytes(file.size)}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${file.name}`}
+        className="flex h-8 w-8 flex-none items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+      >
+        ✕
+      </button>
+    </li>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
