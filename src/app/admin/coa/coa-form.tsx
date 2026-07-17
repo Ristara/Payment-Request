@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import {
   createCoaAccount,
   deleteCoaAccount,
@@ -76,6 +76,14 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
   );
 
   const [addingNewCoa, setAddingNewCoa] = useState(false);
+  const treeRef = useRef<HTMLDivElement>(null);
+
+  function drillDown() {
+    treeRef.current?.querySelectorAll<HTMLDetailsElement>("details").forEach((d) => (d.open = true));
+  }
+  function drillUp() {
+    treeRef.current?.querySelectorAll<HTMLDetailsElement>("details").forEach((d) => (d.open = false));
+  }
 
   return (
     <div className="space-y-4">
@@ -100,6 +108,24 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
               ? `${totalMatches} match${totalMatches === 1 ? "" : "es"}`
               : `${rows.length} account${rows.length === 1 ? "" : "s"}`}
           </p>
+          <div className="flex items-center overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+            <button
+              type="button"
+              onClick={drillDown}
+              title="Expand all"
+              className="flex items-center gap-1 border-r border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <ExpandIcon /> Expand
+            </button>
+            <button
+              type="button"
+              onClick={drillUp}
+              title="Collapse all"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <CollapseIcon /> Collapse
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setAddingNewCoa(true)}
@@ -123,7 +149,10 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
       )}
 
       {/* Tree */}
-      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div
+        ref={treeRef}
+        className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+      >
         {tree.length === 0 ? (
           <p className="p-10 text-center text-sm text-zinc-500">
             {rows.length === 0 ? "No accounts yet. Add your first COA head." : `No matches for "${query}".`}
@@ -476,6 +505,22 @@ function AddInlineForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 2v8M2 6h8" />
+    </svg>
+  );
+}
+
+function CollapseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 6h8" />
+    </svg>
   );
 }
 
