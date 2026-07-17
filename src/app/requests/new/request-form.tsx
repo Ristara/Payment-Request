@@ -1,8 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { createRequest } from "@/app/requests/actions";
-import { getPreviousPaid } from "@/app/requests/lookups";
+import { createThread } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import HierarchicalPicker from "@/components/HierarchicalPicker";
 import { formatINR } from "@/lib/types";
@@ -27,6 +26,14 @@ function newLine(): LineRow {
   };
 }
 
+/**
+ * First-time raise form. Creates a THREAD (payment_requests row) + its
+ * first installment. Line items = the PO value; the "This installment"
+ * box is the first release ask.
+ *
+ * Subsequent installments (2nd, 3rd, …) are raised from the thread's
+ * detail page, not here.
+ */
 export default function RequestForm({
   vendors,
   outlets,
@@ -38,29 +45,20 @@ export default function RequestForm({
   coaAccounts: CoaAccount[];
   reservedNumber: string | null;
 }) {
-  const [state, formAction, pending] = useActionState(createRequest, undefined);
+  const [state, formAction, pending] = useActionState(createThread, undefined);
 
-  const [totalBill, setTotalBill] = useState("");
-  const [prevPayments, setPrevPayments] = useState("");
+  const [installmentAmount, setInstallmentAmount] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [outletId, setOutletId] = useState("");
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
-  // Auto-fill Previous Paid from prior payments on the same (vendor, doc ref).
-  // `prevTouched` becomes true the moment the user hand-edits — we then stop
-  // clobbering their number. `prevAuto` holds the last server-computed value.
-  const [prevTouched, setPrevTouched] = useState(false);
-  const [prevAutoInfo, setPrevAutoInfo] = useState<{ total: number; count: number } | null>(null);
-  const [prevLookupPending, setPrevLookupPending] = useState(false);
 
   const refEnabled = docType === "po" || docType === "invoice";
   const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
   const refPlaceholder =
     docType === "po" ? "PO-2026-045" : docType === "invoice" ? "INV-2026-045" : "";
-  // Tentative invoice date is meaningful only when the invoice hasn't landed
-  // yet — i.e. document type is PO or "Invoice yet to receive".
   const tentativeEnabled = docType === "po" || docType === "invoice_pending";
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
@@ -86,45 +84,18 @@ export default function RequestForm({
     const r = Number(l.rate);
     return Number.isFinite(q) && Number.isFinite(r) ? Math.round(q * r * 100) / 100 : 0;
   });
-  const paymentAmount = Math.round(lineAmounts.reduce((s, a) => s + a, 0) * 100) / 100;
+  const poValue = Math.round(lineAmounts.reduce((s, a) => s + a, 0) * 100) / 100;
 
-  const balance = (() => {
-    const t = Number(totalBill);
-    const p = Number(prevPayments) || 0;
-    if (!t) return null;
-    return Math.round((t - p - paymentAmount) * 100) / 100;
-  })();
+  const installmentNum = Number(installmentAmount) || 0;
+  const balanceAfter = Math.max(0, Math.round((poValue - installmentNum) * 100) / 100);
+  const pctOfPo = poValue > 0 && installmentNum > 0 ? (installmentNum / poValue) * 100 : null;
+  const overPo = installmentNum > poValue + 0.01;
 
   const linesPayload = lines.map((l) => ({
     coa_account_id: l.coa_account_id,
     quantity: Number(l.quantity) || 0,
     rate: Number(l.rate) || 0,
   }));
-
-  // Lookup Previous Paid whenever the vendor + doc reference change.
-  // Debounced so typing an invoice number doesn't hammer the server.
-  useEffect(() => {
-    const canLookup =
-      !!vendorId && (docType === "po" || docType === "invoice") && docRef.trim().length > 0;
-    if (!canLookup) {
-      setPrevAutoInfo(null);
-      if (!prevTouched) setPrevPayments("");
-      return;
-    }
-    setPrevLookupPending(true);
-    const handle = setTimeout(async () => {
-      try {
-        const res = await getPreviousPaid(vendorId, docRef);
-        setPrevAutoInfo({ total: res.totalPaid, count: res.requestCount });
-        if (!prevTouched) {
-          setPrevPayments(res.totalPaid > 0 ? res.totalPaid.toFixed(2) : "");
-        }
-      } finally {
-        setPrevLookupPending(false);
-      }
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [vendorId, docType, docRef, prevTouched]);
 
   return (
     <form
@@ -166,7 +137,7 @@ export default function RequestForm({
         )}
       </section>
 
-      {/* Outlet — single select */}
+      {/* Outlet */}
       <section>
         <SectionTitle>Outlet</SectionTitle>
         <select
@@ -186,13 +157,11 @@ export default function RequestForm({
           ))}
         </select>
         {outlets.length === 0 && (
-          <p className="mt-2 text-xs text-zinc-500">
-            No outlets yet. Ask your admin to add one.
-          </p>
+          <p className="mt-2 text-xs text-zinc-500">No outlets yet. Ask your admin to add one.</p>
         )}
       </section>
 
-      {/* Supporting document */}
+      {/* Document */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <SectionTitle>Document type</SectionTitle>
@@ -204,8 +173,6 @@ export default function RequestForm({
               const v = e.target.value as typeof docType;
               setDocType(v);
               if (v === "no_invoice" || v === "invoice_pending") setDocRef("");
-              // Wipe tentative date when it becomes irrelevant so the disabled
-              // input never submits a stale value.
               if (v !== "po" && v !== "invoice_pending") setTentativeInvoice("");
             }}
             className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -231,11 +198,11 @@ export default function RequestForm({
         </div>
       </section>
 
-      {/* Line items — Zoho Bills style. Desktop: table row. Mobile: stacked card. */}
+      {/* Line items = PO breakdown */}
       <section>
         <div className="flex items-baseline justify-between">
           <SectionTitle>Line items</SectionTitle>
-          <p className="hidden text-xs text-zinc-500 sm:block">Sum of lines = this payment amount.</p>
+          <p className="hidden text-xs text-zinc-500 sm:block">Sum of lines = PO value.</p>
         </div>
 
         {/* Desktop table */}
@@ -314,10 +281,10 @@ export default function RequestForm({
             <tfoot>
               <tr>
                 <td colSpan={3} className="px-2 pt-3 text-right text-xs uppercase tracking-wide text-zinc-500">
-                  Total
+                  PO value
                 </td>
                 <td className="px-2 pt-3 text-right font-mono text-sm font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
-                  {formatINR(paymentAmount)}
+                  {formatINR(poValue)}
                 </td>
                 <td />
               </tr>
@@ -348,11 +315,8 @@ export default function RequestForm({
                     ✕
                   </button>
                 </div>
-
                 <div className="mt-2">
-                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                    Subcategory
-                  </label>
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Subcategory</label>
                   <div className="mt-1">
                     <HierarchicalPicker
                       accounts={coaAccounts}
@@ -363,17 +327,12 @@ export default function RequestForm({
                     />
                   </div>
                   {coa && (
-                    <p className="mt-1 text-[10px] text-zinc-500">
-                      {coa.category} · {coa.coa}
-                    </p>
+                    <p className="mt-1 text-[10px] text-zinc-500">{coa.category} · {coa.coa}</p>
                   )}
                 </div>
-
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                      Qty
-                    </label>
+                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Qty</label>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -386,9 +345,7 @@ export default function RequestForm({
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                      Rate (₹)
-                    </label>
+                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Rate (₹)</label>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -402,7 +359,6 @@ export default function RequestForm({
                     />
                   </div>
                 </div>
-
                 <div className="mt-3 flex items-baseline justify-between border-t border-zinc-200 pt-2 dark:border-zinc-800">
                   <span className="text-[11px] uppercase tracking-wide text-zinc-500">Amount</span>
                   <span className="font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
@@ -415,10 +371,10 @@ export default function RequestForm({
 
           <div className="flex items-baseline justify-between rounded-lg bg-indigo-50 px-3 py-2 dark:bg-indigo-950/40">
             <span className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
-              Total
+              PO value
             </span>
             <span className="font-mono text-base font-semibold tabular-nums text-indigo-900 dark:text-indigo-100">
-              {formatINR(paymentAmount)}
+              {formatINR(poValue)}
             </span>
           </div>
         </div>
@@ -433,83 +389,60 @@ export default function RequestForm({
 
         {/* Hidden fields carrying the payload */}
         <input type="hidden" name="line_items" value={JSON.stringify(linesPayload)} />
-        <input type="hidden" name="payment_amount" value={paymentAmount.toFixed(2)} />
       </section>
 
-      {/* Bill totals context */}
+      {/* First installment box */}
       <section>
-        <SectionTitle>Bill totals</SectionTitle>
+        <SectionTitle>First installment</SectionTitle>
+        <p className="mt-1 text-xs text-zinc-500">
+          How much are you asking to be released against this PO right now? You'll come back to
+          this thread later to raise the next installment.
+        </p>
         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <label className="text-xs text-zinc-600 dark:text-zinc-400">Total bill value (₹)</label>
+            <label className="text-xs text-zinc-600 dark:text-zinc-400">
+              This installment (₹) <span className="text-red-500">*</span>
+            </label>
             <input
-              name="total_bill_value"
+              name="installment_amount"
               type="number"
               step="0.01"
               min="0"
               required
-              value={totalBill}
-              onChange={(e) => setTotalBill(e.target.value)}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              value={installmentAmount}
+              onChange={(e) => setInstallmentAmount(e.target.value)}
+              className={`mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm dark:bg-zinc-900 ${
+                overPo ? "border-red-400 dark:border-red-700" : "border-zinc-300 dark:border-zinc-700"
+              }`}
             />
-          </div>
-          <div>
-            <label className="text-xs text-zinc-600 dark:text-zinc-400">
-              Previous paid (₹){prevLookupPending && <span className="ml-1 text-zinc-400">·</span>}
-            </label>
-            <input
-              name="previous_payments"
-              type="number"
-              step="0.01"
-              min="0"
-              value={prevPayments}
-              onChange={(e) => {
-                setPrevPayments(e.target.value);
-                setPrevTouched(true);
-              }}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            />
-            {prevAutoInfo && prevAutoInfo.count > 0 && (
-              <p className="mt-1 text-[11px] text-zinc-500">
-                {prevTouched ? (
-                  <>
-                    Auto value: {formatINR(prevAutoInfo.total)} from {prevAutoInfo.count} prior payment
-                    {prevAutoInfo.count === 1 ? "" : "s"} ·{" "}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrevTouched(false);
-                        setPrevPayments(prevAutoInfo.total > 0 ? prevAutoInfo.total.toFixed(2) : "");
-                      }}
-                      className="text-indigo-600 hover:underline dark:text-indigo-400"
-                    >
-                      Use auto
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    Auto-filled from {prevAutoInfo.count} prior payment
-                    {prevAutoInfo.count === 1 ? "" : "s"} for the same {docType === "po" ? "PO" : "invoice"}
-                  </>
-                )}
+            {pctOfPo !== null && !overPo && (
+              <p className="mt-1 text-[11px] text-zinc-500 tabular-nums">
+                {pctOfPo.toFixed(1)}% of PO value
               </p>
             )}
-            {prevAutoInfo && prevAutoInfo.count === 0 && (docType === "po" || docType === "invoice") && docRef.trim() && (
-              <p className="mt-1 text-[11px] text-zinc-500">No prior payments for this document.</p>
+            {overPo && (
+              <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                Exceeds PO value ({formatINR(poValue)}).
+              </p>
             )}
           </div>
           <div>
-            <label className="text-xs text-zinc-600 dark:text-zinc-400">This payment (auto)</label>
-            <div className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-right font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
-              {formatINR(paymentAmount)}
+            <label className="text-xs text-zinc-600 dark:text-zinc-400">Previous paid (₹)</label>
+            <div className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-right font-mono text-sm tabular-nums text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+              ₹0.00
             </div>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              First installment on this thread — nothing paid yet.
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-600 dark:text-zinc-400">Balance after (auto)</label>
+            <div className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-right font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
+              {formatINR(balanceAfter)}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">Remains on PO after this installment.</p>
           </div>
         </div>
-        {balance !== null && (
-          <p className="mt-2 text-xs text-zinc-500 tabular-nums">
-            Balance payable after this: <strong>{formatINR(balance)}</strong>
-          </p>
-        )}
       </section>
 
       {/* Dates */}
@@ -532,9 +465,7 @@ export default function RequestForm({
           />
         </div>
         <div>
-          <SectionTitle>
-            Tentative invoice date{tentativeEnabled ? " *" : ""}
-          </SectionTitle>
+          <SectionTitle>Tentative invoice date{tentativeEnabled ? " *" : ""}</SectionTitle>
           <input
             name="tentative_invoice_date"
             type="date"
@@ -593,20 +524,11 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * Drop-zone attachment picker à la Zoho Expense.
- * - Dashed drop zone with an upload icon, click-or-drop, formats hint.
- * - Selected files show as cards: thumbnail for images, PDF icon otherwise,
- *   plus name, size, and a per-file remove button.
- * - Selection is a real File[] mirrored back into the hidden <input type=file>
- *   via DataTransfer, so it submits with the form as attachments[].
- */
 function AttachmentsField() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
 
-  // Keep the input's FileList in sync with our state so the form submits it.
   useEffect(() => {
     if (!inputRef.current) return;
     const dt = new DataTransfer();
@@ -618,7 +540,6 @@ function AttachmentsField() {
     if (!incoming) return;
     const arr = Array.from(incoming);
     if (!arr.length) return;
-    // Dedup by name+size+lastModified — good enough for the common re-drop case.
     setFiles((prev) => {
       const key = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
       const seen = new Set(prev.map(key));
@@ -627,7 +548,6 @@ function AttachmentsField() {
       return merged;
     });
   }
-
   function removeAt(idx: number) {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -636,18 +556,10 @@ function AttachmentsField() {
 
   return (
     <div className="mt-2">
-      {/* Drop zone */}
       <label
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          addFiles(e.dataTransfer.files);
-        }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
         className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${
           dragging
             ? "border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
@@ -678,13 +590,10 @@ function AttachmentsField() {
         </p>
       </label>
 
-      {/* Selected files */}
       {files.length > 0 && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between px-1 text-[11px] text-zinc-500">
-            <span>
-              {files.length} file{files.length === 1 ? "" : "s"}
-            </span>
+            <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
             <span className="tabular-nums">Total {formatBytes(totalSize)}</span>
           </div>
           <ul className="space-y-2">
@@ -701,14 +610,12 @@ function AttachmentsField() {
 function FileCard({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [thumb, setThumb] = useState<string | null>(null);
   const isImage = file.type.startsWith("image/");
-
   useEffect(() => {
     if (!isImage) return;
     const url = URL.createObjectURL(file);
     setThumb(url);
     return () => URL.revokeObjectURL(url);
   }, [file, isImage]);
-
   return (
     <li className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex h-12 w-12 flex-none items-center justify-center overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800">

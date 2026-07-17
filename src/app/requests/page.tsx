@@ -4,14 +4,18 @@ import { requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 
-type Row = {
+type ThreadRow = {
   id: string;
   request_number: string;
-  status: string;
-  payment_amount: number;
-  payment_due_date: string;
   created_at: string;
   vendor: { name: string } | null;
+  line_items: { amount: number }[];
+  installments: {
+    installment_number: number;
+    status: string;
+    requested_amount: number;
+    payment_due_date: string;
+  }[];
 };
 
 export default async function MyRequestsPage() {
@@ -19,19 +23,38 @@ export default async function MyRequestsPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("payment_requests")
-    .select("id, request_number, status, payment_amount, payment_due_date, created_at, vendor:vendors(name)")
+    .select(
+      `id, request_number, created_at,
+       vendor:vendors(name),
+       line_items:request_line_items(amount),
+       installments:request_installments(installment_number, status, requested_amount, payment_due_date)`,
+    )
     .eq("submitter_id", user.id)
     .order("created_at", { ascending: false });
-  const rows = (data ?? []) as unknown as Row[];
+  const rows = (data ?? []) as unknown as ThreadRow[];
+
+  const withSummary = rows.map((r) => {
+    const poValue = r.line_items.reduce((s, l) => s + Number(l.amount), 0);
+    const insts = [...r.installments].sort((a, b) => a.installment_number - b.installment_number);
+    const latest = insts[insts.length - 1];
+    const requestedTotal = insts
+      .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
+      .reduce((s, i) => s + Number(i.requested_amount), 0);
+    return {
+      ...r,
+      poValue,
+      latestStatus: latest?.status ?? "draft",
+      latestDue: latest?.payment_due_date ?? null,
+      installmentCount: insts.length,
+      requestedTotal,
+    };
+  });
 
   return (
     <div>
-      <PageHeader
-        title="My requests"
-        subtitle="Payment requests you have raised."
-      />
+      <PageHeader title="My requests" subtitle="Payment threads you have raised." />
 
-      {rows.length === 0 ? (
+      {withSummary.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
           No requests yet.{" "}
           <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
@@ -40,7 +63,7 @@ export default async function MyRequestsPage() {
         <>
           {/* Mobile card list */}
           <ul className="mt-6 space-y-3 sm:hidden">
-            {rows.map((r) => (
+            {withSummary.map((r) => (
               <li key={r.id}>
                 <Link
                   href={`/requests/${r.id}`}
@@ -53,13 +76,15 @@ export default async function MyRequestsPage() {
                         {r.vendor?.name ?? "—"}
                       </p>
                     </div>
-                    <StatusPill status={r.status} />
+                    <StatusPill status={r.latestStatus} />
                   </div>
                   <div className="mt-2 flex items-baseline justify-between text-xs">
                     <span className="font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
-                      {formatINR(r.payment_amount)}
+                      PO {formatINR(r.poValue)}
                     </span>
-                    <span className="text-zinc-500">Due {r.payment_due_date}</span>
+                    <span className="text-zinc-500">
+                      {r.installmentCount} inst · {r.latestDue ? `Due ${r.latestDue}` : ""}
+                    </span>
                   </div>
                 </Link>
               </li>
@@ -74,20 +99,22 @@ export default async function MyRequestsPage() {
                   <tr>
                     <th className="px-5 py-3">Request #</th>
                     <th className="px-5 py-3">Vendor</th>
-                    <th className="px-5 py-3 text-right">Amount</th>
-                    <th className="px-5 py-3">Due date</th>
-                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3 text-right">PO value</th>
+                    <th className="px-5 py-3 text-right">Requested</th>
+                    <th className="px-5 py-3">Installments</th>
+                    <th className="px-5 py-3">Latest status</th>
                     <th className="px-5 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {withSummary.map((r) => (
                     <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                       <td className="px-5 py-3 font-mono text-xs">{r.request_number}</td>
                       <td className="px-5 py-3">{r.vendor?.name ?? "—"}</td>
-                      <td className="px-5 py-3 text-right font-medium tabular-nums">{formatINR(r.payment_amount)}</td>
-                      <td className="px-5 py-3 text-zinc-500">{r.payment_due_date}</td>
-                      <td className="px-5 py-3"><StatusPill status={r.status} /></td>
+                      <td className="px-5 py-3 text-right tabular-nums">{formatINR(r.poValue)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-zinc-600">{formatINR(r.requestedTotal)}</td>
+                      <td className="px-5 py-3 text-zinc-500">{r.installmentCount}</td>
+                      <td className="px-5 py-3"><StatusPill status={r.latestStatus} /></td>
                       <td className="px-5 py-3 text-right">
                         <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">Open →</Link>
                       </td>

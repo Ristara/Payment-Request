@@ -8,10 +8,10 @@ type LineRow = {
   request: {
     id: string;
     request_number: string;
-    status: string;
     created_at: string;
     vendor: { name: string } | null;
     outlets: { outlet: { name: string } | null }[];
+    installments: { status: string }[];
   } | null;
 };
 
@@ -28,17 +28,25 @@ export default async function SpendReportPage({
     .select(
       `id, amount,
        coa_account:coa_accounts(subcategory, category, coa),
-       request:payment_requests!inner(id, request_number, status, created_at,
+       request:payment_requests!inner(id, request_number, created_at,
          vendor:vendors(name),
-         outlets:request_outlets(outlet:outlets(name)))`,
-    )
-    .not("request.status", "in", "(draft,rejected,cancelled)");
+         outlets:request_outlets(outlet:outlets(name)),
+         installments:request_installments(status))`,
+    );
 
   if (from) query = query.gte("request.created_at", from);
   if (to) query = query.lte("request.created_at", `${to}T23:59:59`);
 
   const { data } = await query.order("id");
-  const lines = ((data ?? []) as unknown as LineRow[]).filter((l) => l.request);
+  const rawLines = (data ?? []) as unknown as LineRow[];
+  // Only include lines from threads that have at least one approved-or-later
+  // installment (i.e. real spend is in motion). Drafts / all-rejected threads
+  // aren't counted.
+  const spendStatuses = new Set(["approved", "uploaded_in_bank", "invoice_pending", "payment_processed", "closed"]);
+  const lines = rawLines.filter((l) => {
+    if (!l.request) return false;
+    return (l.request.installments ?? []).some((i) => spendStatuses.has(i.status));
+  });
 
   // Aggregate
   const buckets = new Map<string, { label: string; count: number; total: number; requestIds: Set<string> }>();

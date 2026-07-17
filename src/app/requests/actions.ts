@@ -10,17 +10,38 @@ import { computeRollupIds } from "@/lib/coa";
 export type RequestState = { error?: string; info?: string } | undefined;
 
 // ---------------------------------------------------------------------------
-// createRequest — used by /requests/new
+// Formatting helpers
 // ---------------------------------------------------------------------------
 
-export async function createRequest(
+function formatShortAmount(n: number): string {
+  return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+}
+
+function formatExactAmount(n: number): string {
+  return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function currentUserOrThrow() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in.");
+  return { supabase, user };
+}
+
+// ---------------------------------------------------------------------------
+// createThread — used by /requests/new
+//
+// Creates a new thread (payment_requests row) plus its first installment
+// in one shot. The thread carries vendor + doc + line items (= PO value);
+// installment #1 carries the "release ₹X" ask with its own approval flow.
+// ---------------------------------------------------------------------------
+
+export async function createThread(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
   const vendor_id = String(formData.get("vendor_id") ?? "");
@@ -28,16 +49,11 @@ export async function createRequest(
   const document_type = String(formData.get("document_type") ?? "") as
     | "po" | "invoice" | "no_invoice" | "invoice_pending" | "";
   const document_reference = String(formData.get("document_reference") ?? "").trim() || null;
-  const total_bill_value = Number(formData.get("total_bill_value") ?? 0);
-  const payment_amount = Number(formData.get("payment_amount") ?? 0);
-  const payment_percentage_raw = formData.get("payment_percentage");
-  const payment_percentage = payment_percentage_raw ? Number(payment_percentage_raw) : null;
-  const previous_payments = Number(formData.get("previous_payments") ?? 0);
+  const installment_amount = Number(formData.get("installment_amount") ?? 0);
   const payment_due_date = String(formData.get("payment_due_date") ?? "");
-  const date_of_work_completion =
-    String(formData.get("date_of_work_completion") ?? "") || null;
-  const tentative_invoice_date =
-    String(formData.get("tentative_invoice_date") ?? "") || null;
+  const date_of_work_completion = String(formData.get("date_of_work_completion") ?? "") || null;
+  const tentative_invoice_date = String(formData.get("tentative_invoice_date") ?? "") || null;
+
   const linesRaw = String(formData.get("line_items") ?? "[]");
   type LineIn = { coa_account_id: string; quantity: number; rate: number };
   let lines: LineIn[] = [];
@@ -49,14 +65,10 @@ export async function createRequest(
   const purpose = String(formData.get("purpose") ?? "").trim();
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
 
-  // Validation
+  // ------ Validation ------
   if (!vendor_id) return { error: "Pick a vendor." };
   if (outlet_ids.length === 0) return { error: "Pick at least one outlet." };
-  if (!total_bill_value || total_bill_value <= 0) return { error: "Total bill value must be positive." };
-  if (!payment_amount || payment_amount <= 0) return { error: "Payment amount must be positive." };
-  if (payment_amount > total_bill_value - previous_payments) {
-    return { error: "Payment amount + previous payments can't exceed total bill." };
-  }
+  if (!installment_amount || installment_amount <= 0) return { error: "First installment amount must be positive." };
   if (!payment_due_date) return { error: "Payment due date is required." };
   if (!document_type) return { error: "Pick a document type." };
   if ((document_type === "po" || document_type === "invoice") && !document_reference) {
@@ -67,26 +79,19 @@ export async function createRequest(
     return { error: "Tentative invoice date is required for PO / Invoice yet to receive." };
   }
   if (lines.length === 0) return { error: "Add at least one line item." };
-  const badLine = lines.findIndex(
-    (l) => !l.coa_account_id || !(l.quantity > 0) || !(l.rate >= 0),
-  );
-  if (badLine !== -1) {
-    return { error: `Line ${badLine + 1}: subcategory + quantity + rate all required.` };
-  }
-  const lineSum = lines.reduce(
-    (s, l) => s + Math.round(l.quantity * l.rate * 100) / 100,
-    0,
-  );
-  if (Math.abs(lineSum - payment_amount) > 0.01) {
+  const badLine = lines.findIndex((l) => !l.coa_account_id || !(l.quantity > 0) || !(l.rate >= 0));
+  if (badLine !== -1) return { error: `Line ${badLine + 1}: subcategory + quantity + rate all required.` };
+
+  const poValue = Math.round(lines.reduce((s, l) => s + l.quantity * l.rate, 0) * 100) / 100;
+  if (poValue <= 0) return { error: "PO value must be positive." };
+  if (installment_amount - poValue > 0.01) {
     return {
-      error: `Line items total ${formatExactAmount(lineSum)} doesn't match payment amount ${formatExactAmount(payment_amount)}.`,
+      error: `First installment ${formatExactAmount(installment_amount)} can't exceed PO value ${formatExactAmount(poValue)}.`,
     };
   }
   if (!purpose) return { error: "Purpose / description is required." };
 
-  // Verify every referenced COA account exists, and reject rollup rows
-  // (those whose subcategory name is also used as a category label —
-  // they're group anchors, not spendable leaves).
+  // ------ CoA validation (existence + rollup guard) ------
   const uniqueCoaIds = Array.from(new Set(lines.map((l) => l.coa_account_id)));
   const { data: pickedRows } = await supabase
     .from("coa_accounts")
@@ -95,13 +100,7 @@ export async function createRequest(
   if ((pickedRows?.length ?? 0) !== uniqueCoaIds.length) {
     return { error: "One or more selected accounts don't exist." };
   }
-  // To know which rows are rollups we need the full active set for the
-  // COA heads in play — a subcategory is a rollup if its name is used as
-  // a category label anywhere else within the same COA head.
   const coaHeadsInPlay = Array.from(new Set((pickedRows ?? []).map((r) => r.coa as string)));
-  // is_active filter matches what the picker sees — otherwise a deactivated
-  // row's category label could promote an active leaf to a "rollup" here
-  // even though the picker just showed it as pickable.
   const { data: siblingRows } = await supabase
     .from("coa_accounts")
     .select("id, subcategory, category, coa")
@@ -115,80 +114,57 @@ export async function createRequest(
     };
   }
 
-  // Vendor must exist. If not yet approved, submission is still allowed —
-  // Accounts will verify the vendor before the payment can be released
-  // (this matches the UI copy on the request form).
+  // ------ Vendor sanity ------
   const { data: vendor } = await supabase
     .from("vendors")
     .select("status")
     .eq("id", vendor_id)
     .single();
   if (!vendor) return { error: "Vendor not found." };
-  if (vendor.status === "rejected") {
-    return { error: "This vendor was rejected. Pick a different vendor." };
-  }
+  if (vendor.status === "rejected") return { error: "This vendor was rejected. Pick a different vendor." };
 
-  // Request number: prefer the one reserved on page-load and echoed back
-  // via the form's hidden field. If it's absent (older cached page, curl,
-  // whatever), draw a fresh one from the sequence. Random fallback is a
-  // last-resort safety net so this action never crashes on numbering.
+  // ------ Reserve request number ------
   const admin = createAdminClient();
   const reserved = String(formData.get("request_number") ?? "").trim();
-  let requestNumber = reserved || `PR-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 99999)).padStart(5, "0")}`;
+  let requestNumber =
+    reserved || `PR-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 99999)).padStart(5, "0")}`;
   if (!reserved) {
     const { data: seqRow, error: seqErr } = await admin.rpc("next_request_number");
-    if (!seqErr && typeof seqRow === "string" && seqRow.length > 0) {
-      requestNumber = seqRow;
-    } else {
-      console.error("[createRequest] next_request_number RPC failed:", seqErr?.message);
-    }
+    if (!seqErr && typeof seqRow === "string" && seqRow.length > 0) requestNumber = seqRow;
+    else console.error("[createThread] next_request_number RPC failed:", seqErr?.message);
   }
 
+  // ------ Insert thread ------
   const { data: inserted, error } = await supabase
     .from("payment_requests")
     .insert({
       request_number: requestNumber,
-      status: "pending_approval",
       submitter_id: user.id,
       vendor_id,
       document_type,
       document_reference:
         document_type === "po" || document_type === "invoice" ? document_reference : null,
-      total_bill_value,
-      payment_percentage,
-      payment_amount,
-      previous_payments,
-      payment_due_date,
-      date_of_work_completion,
-      // tentative_invoice_date only makes sense when the invoice isn't in hand.
-      tentative_invoice_date:
-        document_type === "po" || document_type === "invoice_pending"
-          ? tentative_invoice_date
-          : null,
       purpose,
-      submitted_at: new Date().toISOString(),
     })
     .select("id, request_number")
     .single();
-
   if (error || !inserted) {
-    console.error("[createRequest] insert failed:", error);
+    console.error("[createThread] thread insert failed:", error);
     return { error: error?.message ?? "Failed to create request." };
   }
-
   const requestId = inserted.id as string;
 
-  // Insert outlets — surface errors so we don't ship half-built requests silently.
+  // ------ Outlets ------
   const { error: outletsErr } = await supabase.from("request_outlets").insert(
     outlet_ids.map((outlet_id) => ({ request_id: requestId, outlet_id })),
   );
   if (outletsErr) {
-    console.error("[createRequest] outlets insert failed:", outletsErr);
+    console.error("[createThread] outlets insert failed:", outletsErr);
     await admin.from("payment_requests").delete().eq("id", requestId);
     return { error: `Couldn't save outlets: ${outletsErr.message}` };
   }
 
-  // Insert line items
+  // ------ Line items (the PO breakdown) ------
   const { error: linesErr } = await supabase.from("request_line_items").insert(
     lines.map((l, idx) => ({
       request_id: requestId,
@@ -199,22 +175,45 @@ export async function createRequest(
     })),
   );
   if (linesErr) {
-    console.error("[createRequest] lines insert failed:", linesErr);
+    console.error("[createThread] lines insert failed:", linesErr);
     await admin.from("payment_requests").delete().eq("id", requestId);
     return { error: `Couldn't save line items: ${linesErr.message}` };
   }
 
-  // Status history entry
-  const { error: histErr } = await admin.from("status_history").insert({
+  // ------ First installment ------
+  const { data: firstInst, error: instErr } = await supabase
+    .from("request_installments")
+    .insert({
+      request_id: requestId,
+      installment_number: 1,
+      requested_amount: installment_amount,
+      payment_due_date,
+      date_of_work_completion,
+      tentative_invoice_date: tentativeRequired ? tentative_invoice_date : null,
+      purpose: null, // installment-specific note; blank for #1
+      status: "pending_approval",
+      submitted_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (instErr || !firstInst) {
+    console.error("[createThread] first installment insert failed:", instErr);
+    await admin.from("payment_requests").delete().eq("id", requestId);
+    return { error: `Couldn't save installment: ${instErr?.message}` };
+  }
+  const firstInstallmentId = firstInst.id as string;
+
+  // Status history
+  await admin.from("status_history").insert({
     request_id: requestId,
+    installment_id: firstInstallmentId,
     actor_id: user.id,
     from_status: null,
     to_status: "pending_approval",
-    comment: "Created and submitted",
+    comment: `Installment #1 raised (${formatExactAmount(installment_amount)} of ${formatExactAmount(poValue)})`,
   });
-  if (histErr) console.error("[createRequest] status_history insert failed:", histErr);
 
-  // Upload attachments
+  // ------ Attachments (thread-level) ------
   if (files.length > 0) {
     const rows: Array<Record<string, unknown>> = [];
     for (const file of files) {
@@ -238,78 +237,170 @@ export async function createRequest(
     if (rows.length > 0) await admin.from("attachments").insert(rows);
   }
 
-  // Notify all approvers (in-app + push)
-  const { data: approvers } = await admin
-    .from("user_roles")
-    .select("user_id")
-    .eq("role", "approver");
-  const approverIds = ((approvers ?? []) as { user_id: string }[]).map((r) => r.user_id).filter((id) => id !== user.id);
-  if (approverIds.length > 0) {
-    await admin.from("notifications").insert(
-      approverIds.map((recipient_id) => ({
-        recipient_id,
-        actor_id: user.id,
-        kind: "request_submitted",
-        request_id: requestId,
-        body: `${requestNumber} · ${formatShortAmount(payment_amount)}`,
-      })),
-    );
-    const { data: submitter } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
-    await sendPushToUsers(approverIds, {
-      title: `New request from ${submitter?.full_name ?? "someone"}`,
-      body: `${requestNumber} · ${formatShortAmount(payment_amount)}`,
-      url: `/requests/${requestId}`,
-      tag: `request-${requestId}`,
-    });
-  }
+  // ------ Notifications to approvers ------
+  await notifyApprovers({
+    requestId,
+    requestNumber,
+    installmentAmount: installment_amount,
+    installmentNumber: 1,
+    actorId: user.id,
+  });
 
   revalidatePath("/requests");
   revalidatePath("/approvals");
   redirect(`/requests/${requestId}`);
 }
 
-function formatShortAmount(n: number): string {
-  return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
-
-function formatExactAmount(n: number): string {
-  return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 // ---------------------------------------------------------------------------
-// Approve / Reject / Return / Ask Clarification
+// raiseInstallment — 2nd/3rd/… installment on an existing thread
 // ---------------------------------------------------------------------------
 
-async function currentUserOrThrow() {
+export async function raiseInstallment(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const requestId = String(formData.get("request_id") ?? "");
+  const requestedAmount = Number(formData.get("requested_amount") ?? 0);
+  const paymentDueDate = String(formData.get("payment_due_date") ?? "");
+  const dateOfWorkCompletion = String(formData.get("date_of_work_completion") ?? "") || null;
+  const noteRaw = String(formData.get("purpose") ?? "").trim();
+  const purposeNote = noteRaw || null;
+  const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+
+  if (!requestId) return { error: "Missing thread." };
+  if (!requestedAmount || requestedAmount <= 0) return { error: "Installment amount must be positive." };
+  if (!paymentDueDate) return { error: "Payment due date is required." };
+
   const supabase = await createClient();
+  const admin = createAdminClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not signed in.");
-  return { supabase, user };
+  if (!user) return { error: "Not signed in." };
+
+  // Thread + line items + prior installments (for balance check)
+  const [threadRes, linesRes, instRes] = await Promise.all([
+    supabase.from("payment_requests").select("id, request_number, submitter_id, document_type").eq("id", requestId).single(),
+    supabase.from("request_line_items").select("quantity, rate").eq("request_id", requestId),
+    supabase.from("request_installments").select("requested_amount, status, tentative_invoice_date").eq("request_id", requestId),
+  ]);
+  if (!threadRes.data) return { error: "Thread not found." };
+
+  const poValue = Math.round((linesRes.data ?? []).reduce((s, l) => s + Number(l.quantity) * Number(l.rate), 0) * 100) / 100;
+  const nonCancelledInstallments = (instRes.data ?? []).filter((i) => i.status !== "cancelled" && i.status !== "rejected");
+  const alreadyRequested = nonCancelledInstallments.reduce((s, i) => s + Number(i.requested_amount), 0);
+  const remaining = Math.round((poValue - alreadyRequested) * 100) / 100;
+
+  if (requestedAmount - remaining > 0.01) {
+    return {
+      error: `Only ${formatExactAmount(remaining)} left on this PO (${formatExactAmount(poValue)} total, ${formatExactAmount(alreadyRequested)} already requested). Raise a new thread if scope has grown.`,
+    };
+  }
+
+  const nextNumber = (instRes.data?.length ?? 0) + 1;
+  // Preserve tentative_invoice_date from the FIRST installment (PO doc-type
+  // context doesn't change mid-thread).
+  const firstTentative = (instRes.data ?? []).find((i) => i.tentative_invoice_date)?.tentative_invoice_date ?? null;
+
+  const { data: inst, error: instErr } = await supabase
+    .from("request_installments")
+    .insert({
+      request_id: requestId,
+      installment_number: nextNumber,
+      requested_amount: requestedAmount,
+      payment_due_date: paymentDueDate,
+      date_of_work_completion: dateOfWorkCompletion,
+      tentative_invoice_date: firstTentative,
+      purpose: purposeNote,
+      status: "pending_approval",
+      submitted_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (instErr || !inst) return { error: instErr?.message ?? "Failed to raise installment." };
+  const instId = inst.id as string;
+
+  await admin.from("status_history").insert({
+    request_id: requestId,
+    installment_id: instId,
+    actor_id: user.id,
+    from_status: null,
+    to_status: "pending_approval",
+    comment: `Installment #${nextNumber} raised (${formatExactAmount(requestedAmount)})`,
+  });
+
+  // Attachments — for this specific installment; stored under request path, tagged stage=installment
+  if (files.length > 0) {
+    const rows: Array<Record<string, unknown>> = [];
+    for (const file of files) {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${requestId}/installments/${instId}/${Date.now()}-${safe}`;
+      const buf = await file.arrayBuffer();
+      const { error: uploadErr } = await admin.storage
+        .from("request-attachments")
+        .upload(path, buf, { contentType: file.type || "application/octet-stream" });
+      if (uploadErr) continue;
+      rows.push({
+        request_id: requestId,
+        stage: "request",
+        storage_path: path,
+        file_name: file.name,
+        file_size_bytes: file.size,
+        mime_type: file.type || null,
+        uploaded_by: user.id,
+      });
+    }
+    if (rows.length > 0) await admin.from("attachments").insert(rows);
+  }
+
+  await notifyApprovers({
+    requestId,
+    requestNumber: threadRes.data.request_number as string,
+    installmentAmount: requestedAmount,
+    installmentNumber: nextNumber,
+    actorId: user.id,
+  });
+
+  revalidatePath(`/requests/${requestId}`);
+  revalidatePath("/approvals");
+  return { info: `Installment #${nextNumber} submitted for approval.` };
 }
 
-async function transition(
-  requestId: string,
-  from: string | null,
+// ---------------------------------------------------------------------------
+// Installment transitions (per-installment approval → payment → close)
+// ---------------------------------------------------------------------------
+
+async function transitionInstallment(
+  installmentId: string,
   to: string,
   comment: string | null,
   extra: Record<string, unknown> = {},
 ) {
   const admin = createAdminClient();
   const { supabase, user } = await currentUserOrThrow();
+
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id, installment_number, status, requested_amount")
+    .eq("id", installmentId)
+    .single();
+  if (!inst) throw new Error("Installment not found.");
+  const from = inst.status as string;
+
   const { error } = await supabase
-    .from("payment_requests")
+    .from("request_installments")
     .update({ status: to, ...extra })
-    .eq("id", requestId);
+    .eq("id", installmentId);
   if (error) throw error;
+
   await admin.from("status_history").insert({
-    request_id: requestId,
+    request_id: inst.request_id,
+    installment_id: installmentId,
     actor_id: user.id,
     from_status: from,
     to_status: to,
     comment,
   });
 
-  // Notify the submitter on status changes that matter to them.
+  // Notifications on notable transitions
   const notifiableKinds: Record<string, string> = {
     approved: "request_approved",
     rejected: "request_rejected",
@@ -319,64 +410,95 @@ async function transition(
     closed: "request_closed",
   };
   if (notifiableKinds[to]) {
-    const { data: req } = await admin
+    const { data: thread } = await admin
       .from("payment_requests")
       .select("submitter_id, request_number")
-      .eq("id", requestId)
+      .eq("id", inst.request_id)
       .single();
-    if (req && req.submitter_id !== user.id) {
+    if (thread && thread.submitter_id !== user.id) {
       const { data: actor } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
       await admin.from("notifications").insert({
-        recipient_id: req.submitter_id,
+        recipient_id: thread.submitter_id,
         actor_id: user.id,
         kind: notifiableKinds[to],
-        request_id: requestId,
-        body: `${req.request_number} → ${to.replace(/_/g, " ")}`,
+        request_id: inst.request_id,
+        body: `${thread.request_number} · installment #${inst.installment_number} → ${to.replace(/_/g, " ")}`,
       });
-      await sendPushToUsers([req.submitter_id], {
-        title: `${actor?.full_name ?? "Someone"} ${to.replace(/_/g, " ")} your request`,
-        body: `${req.request_number}${comment ? " · " + comment.slice(0, 100) : ""}`,
-        url: `/requests/${requestId}`,
-        tag: `request-${requestId}`,
+      await sendPushToUsers([thread.submitter_id], {
+        title: `${actor?.full_name ?? "Someone"} ${to.replace(/_/g, " ")} installment #${inst.installment_number}`,
+        body: `${thread.request_number}${comment ? " · " + comment.slice(0, 100) : ""}`,
+        url: `/requests/${inst.request_id}`,
+        tag: `request-${inst.request_id}`,
       });
     }
-    // Notify Accounts when a request is approved
     if (to === "approved") {
       const { data: acc } = await admin.from("user_roles").select("user_id").eq("role", "accounts");
       const accIds = ((acc ?? []) as { user_id: string }[]).map((r) => r.user_id).filter((id) => id !== user.id);
       if (accIds.length > 0) {
-        const { data: r } = await admin.from("payment_requests").select("request_number").eq("id", requestId).single();
+        const { data: t } = await admin.from("payment_requests").select("request_number").eq("id", inst.request_id).single();
         await admin.from("notifications").insert(accIds.map((recipient_id) => ({
           recipient_id,
           actor_id: user.id,
           kind: "ready_for_payment",
-          request_id: requestId,
-          body: `${r?.request_number} ready to process`,
+          request_id: inst.request_id,
+          body: `${t?.request_number} · installment #${inst.installment_number} ready`,
         })));
         await sendPushToUsers(accIds, {
-          title: "Request ready for payment",
-          body: `${r?.request_number} approved and awaiting bank upload`,
-          url: `/requests/${requestId}`,
-          tag: `request-${requestId}`,
+          title: "Installment ready for payment",
+          body: `${t?.request_number} · installment #${inst.installment_number}`,
+          url: `/requests/${inst.request_id}`,
+          tag: `request-${inst.request_id}`,
         });
       }
     }
   }
+  return inst;
 }
 
-export async function approveRequest(
+async function notifyApprovers(args: {
+  requestId: string;
+  requestNumber: string;
+  installmentAmount: number;
+  installmentNumber: number;
+  actorId: string;
+}) {
+  const admin = createAdminClient();
+  const { data: approvers } = await admin.from("user_roles").select("user_id").eq("role", "approver");
+  const approverIds = ((approvers ?? []) as { user_id: string }[])
+    .map((r) => r.user_id)
+    .filter((id) => id !== args.actorId);
+  if (approverIds.length === 0) return;
+  await admin.from("notifications").insert(
+    approverIds.map((recipient_id) => ({
+      recipient_id,
+      actor_id: args.actorId,
+      kind: "request_submitted",
+      request_id: args.requestId,
+      body: `${args.requestNumber} · installment #${args.installmentNumber} · ${formatShortAmount(args.installmentAmount)}`,
+    })),
+  );
+  const { data: submitter } = await admin.from("profiles").select("full_name").eq("id", args.actorId).single();
+  await sendPushToUsers(approverIds, {
+    title: `Installment #${args.installmentNumber} from ${submitter?.full_name ?? "someone"}`,
+    body: `${args.requestNumber} · ${formatShortAmount(args.installmentAmount)}`,
+    url: `/requests/${args.requestId}`,
+    tag: `request-${args.requestId}`,
+  });
+}
+
+export async function approveInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
-  if (!requestId) return { error: "Missing request." };
+  const installmentId = String(formData.get("installment_id") ?? "");
+  if (!installmentId) return { error: "Missing installment." };
   try {
     const { user } = await currentUserOrThrow();
-    await transition(requestId, "pending_approval", "approved", null, {
+    const inst = await transitionInstallment(installmentId, "approved", null, {
       approver_id: user.id,
       approved_at: new Date().toISOString(),
     });
-    revalidatePath(`/requests/${requestId}`);
+    revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/approvals");
     return { info: "Approved." };
   } catch (e) {
@@ -384,19 +506,17 @@ export async function approveRequest(
   }
 }
 
-export async function rejectRequest(
+export async function rejectInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
+  const installmentId = String(formData.get("installment_id") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
-  if (!requestId) return { error: "Missing request." };
+  if (!installmentId) return { error: "Missing installment." };
   if (!reason) return { error: "Reason is required." };
   try {
-    await transition(requestId, "pending_approval", "rejected", reason, {
-      rejection_reason: reason,
-    });
-    revalidatePath(`/requests/${requestId}`);
+    const inst = await transitionInstallment(installmentId, "rejected", reason, { rejection_reason: reason });
+    revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/approvals");
     return { info: "Rejected." };
   } catch (e) {
@@ -404,19 +524,19 @@ export async function rejectRequest(
   }
 }
 
-export async function returnRequest(
+export async function returnInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
+  const installmentId = String(formData.get("installment_id") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
-  if (!requestId) return { error: "Missing request." };
+  if (!installmentId) return { error: "Missing installment." };
   if (!reason) return { error: "Reason is required." };
   try {
-    await transition(requestId, "pending_approval", "returned_for_correction", reason, {
+    const inst = await transitionInstallment(installmentId, "returned_for_correction", reason, {
       return_reason: reason,
     });
-    revalidatePath(`/requests/${requestId}`);
+    revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/approvals");
     return { info: "Returned for correction." };
   } catch (e) {
@@ -424,19 +544,19 @@ export async function returnRequest(
   }
 }
 
-export async function cancelRequest(
+export async function cancelInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
+  const installmentId = String(formData.get("installment_id") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
-  if (!requestId || !reason) return { error: "Reason is required." };
+  if (!installmentId || !reason) return { error: "Reason is required." };
   try {
-    await transition(requestId, null, "cancelled", reason, {
+    const inst = await transitionInstallment(installmentId, "cancelled", reason, {
       cancelled_at: new Date().toISOString(),
       cancellation_reason: reason,
     });
-    revalidatePath(`/requests/${requestId}`);
+    revalidatePath(`/requests/${inst.request_id}`);
     return { info: "Cancelled." };
   } catch (e) {
     return { error: (e as Error).message };
@@ -444,7 +564,9 @@ export async function cancelRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Change COA on a request (Approver or Accounts)
+// Change COA on a line item (Approver / Accounts / Admin)
+// Line items are thread-scoped; the change applies to every installment that
+// references this thread's PO breakdown.
 // ---------------------------------------------------------------------------
 
 export async function updateLineCoa(
@@ -465,27 +587,20 @@ export async function updateLineCoa(
   if (!user) return { error: "Not signed in." };
 
   const { data: line } = await supabase
-    .from("request_line_items")
-    .select("coa_account_id")
-    .eq("id", lineId)
-    .single();
+    .from("request_line_items").select("coa_account_id").eq("id", lineId).single();
   if (!line) return { error: "Line not found." };
   if ((line.coa_account_id as string) === newCoaId) return { info: "Account unchanged." };
 
-  // Reject rollup targets — same rule as createRequest. Without this, an
-  // approver / accounts user could reclassify a line to a group anchor.
   const { data: target } = await supabase
     .from("coa_accounts")
     .select("id, subcategory, category, coa, is_active")
-    .eq("id", newCoaId)
-    .single();
+    .eq("id", newCoaId).single();
   if (!target) return { error: "Target account not found." };
   if (!target.is_active) return { error: "That account is inactive. Pick an active one." };
   const { data: siblings } = await supabase
     .from("coa_accounts")
     .select("id, subcategory, category, coa")
-    .eq("coa", target.coa)
-    .eq("is_active", true);
+    .eq("coa", target.coa).eq("is_active", true);
   const rollups = computeRollupIds((siblings ?? []) as { id: string; subcategory: string; category: string; coa: string }[]);
   if (rollups.has(target.id as string)) {
     return {
@@ -494,9 +609,7 @@ export async function updateLineCoa(
   }
 
   const { error: upErr } = await supabase
-    .from("request_line_items")
-    .update({ coa_account_id: newCoaId })
-    .eq("id", lineId);
+    .from("request_line_items").update({ coa_account_id: newCoaId }).eq("id", lineId);
   if (upErr) return { error: upErr.message };
 
   await admin.from("coa_override_log").insert({
@@ -510,43 +623,43 @@ export async function updateLineCoa(
 }
 
 // ---------------------------------------------------------------------------
-// Accounts: bank upload / mark paid / mark invoice / close
+// Accounts: bank upload / mark paid / mark invoice / close — all per installment
 // ---------------------------------------------------------------------------
 
-export async function markBankUploaded(
+export async function markInstallmentBankUploaded(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
+  const installmentId = String(formData.get("installment_id") ?? "");
   const bank_upload_date = String(formData.get("bank_upload_date") ?? "");
   const bank_batch_ref = String(formData.get("bank_batch_ref") ?? "").trim() || null;
-  if (!requestId || !bank_upload_date) return { error: "Bank upload date is required." };
+  if (!installmentId || !bank_upload_date) return { error: "Bank upload date is required." };
 
   const supabase = await createClient();
   await supabase
     .from("payment_records")
-    .upsert({ request_id: requestId, bank_upload_date, bank_batch_ref });
+    .upsert({ installment_id: installmentId, bank_upload_date, bank_batch_ref }, { onConflict: "installment_id" });
   try {
-    await transition(requestId, "approved", "uploaded_in_bank", "Marked uploaded in bank");
+    const inst = await transitionInstallment(installmentId, "uploaded_in_bank", "Marked uploaded in bank");
+    revalidatePath(`/requests/${inst.request_id}`);
   } catch (e) {
     return { error: (e as Error).message };
   }
-  revalidatePath(`/requests/${requestId}`);
   revalidatePath("/accounts");
   return { info: "Marked as uploaded in bank." };
 }
 
-export async function markPaid(
+export async function markInstallmentPaid(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
+  const installmentId = String(formData.get("installment_id") ?? "");
   const payment_date = String(formData.get("payment_date") ?? "");
   const paid_amount = Number(formData.get("paid_amount") ?? 0);
   const utr_reference = String(formData.get("utr_reference") ?? "").trim();
   const paying_bank_account = String(formData.get("paying_bank_account") ?? "").trim() || null;
   const proof = formData.get("proof");
-  if (!requestId || !payment_date || !paid_amount || !utr_reference) {
+  if (!installmentId || !payment_date || !paid_amount || !utr_reference) {
     return { error: "Payment date, amount, and UTR are all required." };
   }
 
@@ -555,28 +668,35 @@ export async function markPaid(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id")
+    .eq("id", installmentId)
+    .single();
+  if (!inst) return { error: "Installment not found." };
+
   await supabase
     .from("payment_records")
     .upsert({
-      request_id: requestId,
+      installment_id: installmentId,
+      request_id: inst.request_id,
       payment_date,
       paid_amount,
       utr_reference,
       paying_bank_account,
       recorded_by: user.id,
-    });
+    }, { onConflict: "installment_id" });
 
-  // Upload payment proof (if any)
   if (proof instanceof File && proof.size > 0) {
     const safe = proof.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const path = `${requestId}/payment/${Date.now()}-${safe}`;
+    const path = `${inst.request_id}/installments/${installmentId}/payment/${Date.now()}-${safe}`;
     const buf = await proof.arrayBuffer();
     const { error: uploadErr } = await admin.storage
       .from("request-attachments")
       .upload(path, buf, { contentType: proof.type || "application/octet-stream" });
     if (!uploadErr) {
       await admin.from("attachments").insert({
-        request_id: requestId,
+        request_id: inst.request_id,
         stage: "payment",
         storage_path: path,
         file_name: proof.name,
@@ -588,43 +708,45 @@ export async function markPaid(
   }
 
   try {
-    // Move to invoice_pending unless an invoice has already been attached.
     const { data: invExists } = await admin
       .from("attachments")
       .select("id", { count: "exact", head: true })
-      .eq("request_id", requestId)
+      .eq("request_id", inst.request_id)
       .eq("stage", "invoice");
     const nextStatus =
       ((invExists as unknown as { count?: number })?.count ?? 0) > 0
         ? "payment_processed"
         : "invoice_pending";
-    await transition(requestId, "uploaded_in_bank", nextStatus, "Payment processed");
+    await transitionInstallment(installmentId, nextStatus, "Payment processed");
   } catch (e) {
     return { error: (e as Error).message };
   }
 
-  revalidatePath(`/requests/${requestId}`);
+  revalidatePath(`/requests/${inst.request_id}`);
   revalidatePath("/accounts");
   return { info: "Payment recorded." };
 }
 
-export async function uploadInvoice(
+export async function uploadInstallmentInvoice(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
+  const installmentId = String(formData.get("installment_id") ?? "");
   const invoice = formData.get("invoice");
-  if (!requestId || !(invoice instanceof File) || invoice.size === 0) {
+  if (!installmentId || !(invoice instanceof File) || invoice.size === 0) {
     return { error: "Pick an invoice file." };
   }
 
-  const supabase = await createClient();
   const admin = createAdminClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (await createClient()).auth.getUser();
   if (!user) return { error: "Not signed in." };
 
+  const { data: inst } = await admin
+    .from("request_installments").select("id, request_id").eq("id", installmentId).single();
+  if (!inst) return { error: "Installment not found." };
+
   const safe = invoice.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${requestId}/invoice/${Date.now()}-${safe}`;
+  const path = `${inst.request_id}/installments/${installmentId}/invoice/${Date.now()}-${safe}`;
   const buf = await invoice.arrayBuffer();
   const { error: uploadErr } = await admin.storage
     .from("request-attachments")
@@ -632,7 +754,7 @@ export async function uploadInvoice(
   if (uploadErr) return { error: uploadErr.message };
 
   await admin.from("attachments").insert({
-    request_id: requestId,
+    request_id: inst.request_id,
     stage: "invoice",
     storage_path: path,
     file_name: invoice.name,
@@ -641,30 +763,28 @@ export async function uploadInvoice(
     uploaded_by: user.id,
   });
 
-  // If currently invoice_pending, keep status as invoice_pending; closure is a
-  // separate action by Accounts.
-  revalidatePath(`/requests/${requestId}`);
+  revalidatePath(`/requests/${inst.request_id}`);
   return { info: "Invoice uploaded." };
 }
 
-export async function closeRequest(
+export async function closeInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
-  const requestId = String(formData.get("request_id") ?? "");
-  if (!requestId) return { error: "Missing request." };
+  const installmentId = String(formData.get("installment_id") ?? "");
+  if (!installmentId) return { error: "Missing installment." };
   try {
-    await transition(requestId, null, "closed", "Verified and closed");
+    const inst = await transitionInstallment(installmentId, "closed", "Verified and closed");
+    revalidatePath(`/requests/${inst.request_id}`);
+    revalidatePath("/accounts");
+    return { info: "Closed." };
   } catch (e) {
     return { error: (e as Error).message };
   }
-  revalidatePath(`/requests/${requestId}`);
-  revalidatePath("/accounts");
-  return { info: "Closed." };
 }
 
 // ---------------------------------------------------------------------------
-// Add a comment / reply
+// Discussion (thread-level) — comments, questions, mentions
 // ---------------------------------------------------------------------------
 
 export async function addComment(
@@ -701,11 +821,9 @@ export async function addComment(
   const commentId = inserted.id as string;
 
   if (mentions.length > 0) {
-    await admin
-      .from("comment_mentions")
-      .insert(mentions.map((mentioned_user_id) => ({ comment_id: commentId, mentioned_user_id })));
-
-    // Fire in-app notifications
+    await admin.from("comment_mentions").insert(
+      mentions.map((mentioned_user_id) => ({ comment_id: commentId, mentioned_user_id })),
+    );
     await admin.from("notifications").insert(
       mentions.map((recipient_id) => ({
         recipient_id,
@@ -715,8 +833,6 @@ export async function addComment(
         body: body.slice(0, 140) || "(attachment)",
       })),
     );
-
-    // Fire push notifications (best-effort)
     const { data: actor } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
     await sendPushToUsers(mentions, {
       title: `${actor?.full_name ?? "Someone"} mentioned you`,
@@ -725,17 +841,20 @@ export async function addComment(
       tag: `request-${requestId}`,
     });
 
-    // If the mention comes with a question, mark the request as clarification_required.
+    // If a question is raised while an installment is pending_approval, move
+    // that installment to clarification_required.
     if (isQuestion) {
-      const { data: current } = await supabase
-        .from("payment_requests")
-        .select("status")
-        .eq("id", requestId)
-        .single();
-      if (current && (current.status === "pending_approval" || current.status === "clarification_required")) {
-        try {
-          await transition(requestId, current.status as string, "clarification_required", body.slice(0, 200));
-        } catch { /* best-effort */ }
+      const { data: pendingInsts } = await supabase
+        .from("request_installments")
+        .select("id, status")
+        .eq("request_id", requestId)
+        .in("status", ["pending_approval", "clarification_required"]);
+      for (const inst of pendingInsts ?? []) {
+        if (inst.status !== "clarification_required") {
+          try {
+            await transitionInstallment(inst.id, "clarification_required", body.slice(0, 200));
+          } catch { /* best-effort */ }
+        }
       }
     }
   }
@@ -767,10 +886,6 @@ export async function addComment(
   return { info: "Sent." };
 }
 
-// ---------------------------------------------------------------------------
-// Resolve / reopen a question
-// ---------------------------------------------------------------------------
-
 export async function setQuestionState(formData: FormData): Promise<void> {
   const commentId = String(formData.get("comment_id") ?? "");
   const state = String(formData.get("state") ?? "");
@@ -779,24 +894,25 @@ export async function setQuestionState(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("comments").update({ question_state: state }).eq("id", commentId);
 
-  // If all questions on a clarification_required request are resolved/answered,
-  // move back to pending_approval.
+  // Move clarification_required installments back to pending_approval when all
+  // questions on the thread are non-open.
   if (requestId) {
-    const { data: req } = await supabase
-      .from("payment_requests")
-      .select("status")
-      .eq("id", requestId)
-      .single();
-    if (req?.status === "clarification_required") {
-      const { data: open } = await supabase
-        .from("comments")
-        .select("id", { count: "exact", head: true })
+    const { data: open } = await supabase
+      .from("comments")
+      .select("id", { count: "exact", head: true })
+      .eq("request_id", requestId)
+      .eq("is_question", true)
+      .eq("question_state", "open");
+    const stillOpen = ((open as unknown as { count?: number })?.count ?? 0) > 0;
+    if (!stillOpen) {
+      const { data: waiting } = await supabase
+        .from("request_installments")
+        .select("id")
         .eq("request_id", requestId)
-        .eq("is_question", true)
-        .eq("question_state", "open");
-      if (((open as unknown as { count?: number })?.count ?? 0) === 0) {
+        .eq("status", "clarification_required");
+      for (const inst of waiting ?? []) {
         try {
-          await transition(requestId, "clarification_required", "pending_approval", "Clarifications resolved");
+          await transitionInstallment(inst.id, "pending_approval", "Clarifications resolved");
         } catch { /* best-effort */ }
       }
     }

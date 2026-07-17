@@ -7,10 +7,9 @@ import { ROLE_LABEL, STATUS_LABEL, formatINR } from "@/lib/types";
 type Row = {
   id: string;
   request_number: string;
-  status: string;
-  payment_amount: number;
   vendor: { name: string } | null;
   created_at: string;
+  installments: { installment_number: number; status: string; requested_amount: number }[];
 };
 
 function monthLabel(d: Date): string {
@@ -31,10 +30,10 @@ export default async function DashboardPage() {
     supabase.from("profiles").select("full_name").eq("id", user.id).single(),
     supabase.from("payment_requests").select("*", { count: "exact", head: true }).eq("submitter_id", user.id),
     isApprover
-      ? supabase.from("payment_requests").select("*", { count: "exact", head: true }).in("status", ["pending_approval", "clarification_required"])
+      ? supabase.from("request_installments").select("*", { count: "exact", head: true }).in("status", ["pending_approval", "clarification_required"])
       : Promise.resolve({ count: 0 }),
     isAccounts
-      ? supabase.from("payment_requests").select("*", { count: "exact", head: true }).in("status", ["approved", "uploaded_in_bank", "invoice_pending"])
+      ? supabase.from("request_installments").select("*", { count: "exact", head: true }).in("status", ["approved", "uploaded_in_bank", "invoice_pending"])
       : Promise.resolve({ count: 0 }),
   ]);
 
@@ -43,20 +42,25 @@ export default async function DashboardPage() {
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
   twelveMonthsAgo.setDate(1);
 
-  const spendQuery = isStaff
-    ? supabase
-        .from("payment_requests")
-        .select("id, payment_amount, created_at, status")
-        .gte("created_at", twelveMonthsAgo.toISOString())
-        .not("status", "in", "(draft,rejected,cancelled)")
-    : supabase
-        .from("payment_requests")
-        .select("id, payment_amount, created_at, status")
-        .eq("submitter_id", user.id)
-        .gte("created_at", twelveMonthsAgo.toISOString());
+  // Spend = paid installments (payment_record.paid_amount), grouped by month
+  // of payment_date. For submitters (non-staff), restrict to their own threads.
+  const spendQuery = supabase
+    .from("payment_records")
+    .select("paid_amount, payment_date, installment:request_installments!inner(request_id, request:payment_requests!inner(submitter_id))")
+    .gte("payment_date", twelveMonthsAgo.toISOString().slice(0, 10))
+    .not("payment_date", "is", null);
 
   const { data: spend } = await spendQuery;
-  const spendRows = (spend ?? []) as { payment_amount: number; created_at: string }[];
+  type SpendRow = { paid_amount: number | null; payment_date: string | null; installment: { request: { submitter_id: string } | null } | { request: { submitter_id: string } | null }[] | null };
+  const spendRaw = (spend ?? []) as unknown as SpendRow[];
+  const spendRows = spendRaw
+    .filter((r) => {
+      if (isStaff) return true;
+      const inst = Array.isArray(r.installment) ? r.installment[0] : r.installment;
+      const req = Array.isArray(inst?.request) ? inst?.request[0] : inst?.request;
+      return req?.submitter_id === user.id;
+    })
+    .map((r) => ({ payment_amount: Number(r.paid_amount ?? 0), created_at: r.payment_date ?? "" }));
 
   // Aggregate by month
   const monthTotals = new Map<string, number>();
@@ -77,10 +81,14 @@ export default async function DashboardPage() {
   const grandTotal = months.reduce((s, m) => s + m.total, 0);
   const maxMonth = Math.max(...months.map((m) => m.total), 1);
 
-  // Recent requests
+  // Recent threads with their installments
   const { data: recent } = await supabase
     .from("payment_requests")
-    .select("id, request_number, status, payment_amount, vendor:vendors(name), created_at")
+    .select(
+      `id, request_number, created_at,
+       vendor:vendors(name),
+       installments:request_installments(installment_number, status, requested_amount)`,
+    )
     .eq("submitter_id", user.id)
     .order("created_at", { ascending: false })
     .limit(5);
@@ -174,22 +182,29 @@ export default async function DashboardPage() {
               </p>
             ) : (
               <ul>
-                {recentRows.map((r) => (
-                  <li key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                    <Link href={`/requests/${r.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                      <div>
-                        <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
-                        <p className="text-sm text-zinc-900 dark:text-zinc-100">{r.vendor?.name ?? "—"}</p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
-                          {formatINR(r.payment_amount)}
-                        </span>
-                        <StatusChip status={r.status} />
-                      </div>
-                    </Link>
-                  </li>
-                ))}
+                {recentRows.map((r) => {
+                  const insts = [...(r.installments ?? [])].sort((a, b) => a.installment_number - b.installment_number);
+                  const latest = insts[insts.length - 1];
+                  const requestedTotal = insts
+                    .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
+                    .reduce((s, i) => s + Number(i.requested_amount), 0);
+                  return (
+                    <li key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
+                      <Link href={`/requests/${r.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                        <div>
+                          <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
+                          <p className="text-sm text-zinc-900 dark:text-zinc-100">{r.vendor?.name ?? "—"}</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                            {formatINR(requestedTotal)}
+                          </span>
+                          {latest && <StatusChip status={latest.status} />}
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
