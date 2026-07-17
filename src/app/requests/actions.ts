@@ -99,10 +99,14 @@ export async function createRequest(
   // COA heads in play — a subcategory is a rollup if its name is used as
   // a category label anywhere else within the same COA head.
   const coaHeadsInPlay = Array.from(new Set((pickedRows ?? []).map((r) => r.coa as string)));
+  // is_active filter matches what the picker sees — otherwise a deactivated
+  // row's category label could promote an active leaf to a "rollup" here
+  // even though the picker just showed it as pickable.
   const { data: siblingRows } = await supabase
     .from("coa_accounts")
     .select("id, subcategory, category, coa")
-    .in("coa", coaHeadsInPlay);
+    .in("coa", coaHeadsInPlay)
+    .eq("is_active", true);
   const rollups = computeRollupIds((siblingRows ?? []) as { id: string; subcategory: string; category: string; coa: string }[]);
   const badRollup = (pickedRows ?? []).find((r) => rollups.has(r.id as string));
   if (badRollup) {
@@ -467,6 +471,27 @@ export async function updateLineCoa(
     .single();
   if (!line) return { error: "Line not found." };
   if ((line.coa_account_id as string) === newCoaId) return { info: "Account unchanged." };
+
+  // Reject rollup targets — same rule as createRequest. Without this, an
+  // approver / accounts user could reclassify a line to a group anchor.
+  const { data: target } = await supabase
+    .from("coa_accounts")
+    .select("id, subcategory, category, coa, is_active")
+    .eq("id", newCoaId)
+    .single();
+  if (!target) return { error: "Target account not found." };
+  if (!target.is_active) return { error: "That account is inactive. Pick an active one." };
+  const { data: siblings } = await supabase
+    .from("coa_accounts")
+    .select("id, subcategory, category, coa")
+    .eq("coa", target.coa)
+    .eq("is_active", true);
+  const rollups = computeRollupIds((siblings ?? []) as { id: string; subcategory: string; category: string; coa: string }[]);
+  if (rollups.has(target.id as string)) {
+    return {
+      error: `"${target.subcategory}" is a group / rollup, not a spendable subcategory. Pick one of its child subcategories instead.`,
+    };
+  }
 
   const { error: upErr } = await supabase
     .from("request_line_items")

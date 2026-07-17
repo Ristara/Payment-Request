@@ -9,6 +9,7 @@ import {
   toggleCoaAccountActive,
   updateCoaAccount,
 } from "@/app/admin/actions";
+import { computeRollupIds } from "@/lib/coa";
 
 type Row = {
   id: string;
@@ -41,6 +42,10 @@ type Tree = {
  */
 export default function CoaForm({ rows }: { rows: Row[] }) {
   const [query, setQuery] = useState("");
+
+  // Rollup ids computed from ALL rows (not just filtered ones) so a row's
+  // rollup status doesn't flip based on the search query.
+  const rollupIds = useMemo(() => computeRollupIds(rows), [rows]);
 
   const tree: Tree = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -160,7 +165,7 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
         ) : (
           <ul>
             {tree.map((coaNode) => (
-              <CoaNode key={coaNode.coa} node={coaNode} openByDefault={!!query} />
+              <CoaNode key={coaNode.coa} node={coaNode} openByDefault={!!query} rollupIds={rollupIds} />
             ))}
           </ul>
         )}
@@ -169,7 +174,15 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
   );
 }
 
-function CoaNode({ node, openByDefault }: { node: Tree[number]; openByDefault: boolean }) {
+function CoaNode({
+  node,
+  openByDefault,
+  rollupIds,
+}: {
+  node: Tree[number];
+  openByDefault: boolean;
+  rollupIds: Set<string>;
+}) {
   const [addingCategory, setAddingCategory] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameState, renameAction, renamePending] = useActionState(renameCoaGroup, undefined);
@@ -234,6 +247,7 @@ function CoaNode({ node, openByDefault }: { node: Tree[number]; openByDefault: b
                 coa={node.coa}
                 node={catNode}
                 openByDefault={openByDefault}
+                rollupIds={rollupIds}
               />
             ))}
           </ul>
@@ -269,10 +283,12 @@ function CategoryNode({
   coa,
   node,
   openByDefault,
+  rollupIds,
 }: {
   coa: string;
   node: { category: string; subs: Row[] };
   openByDefault: boolean;
+  rollupIds: Set<string>;
 }) {
   const [addingSub, setAddingSub] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -329,7 +345,7 @@ function CategoryNode({
 
         <ul className="pb-1 pl-6">
           {node.subs.map((s) => (
-            <SubcategoryRow key={s.id} row={s} />
+            <SubcategoryRow key={s.id} row={s} isRollup={rollupIds.has(s.id)} />
           ))}
         </ul>
 
@@ -358,7 +374,7 @@ function CategoryNode({
   );
 }
 
-function SubcategoryRow({ row }: { row: Row }) {
+function SubcategoryRow({ row, isRollup }: { row: Row; isRollup: boolean }) {
   const [editing, setEditing] = useState(false);
   const [editState, editAction, editPending] = useActionState(updateCoaAccount, undefined);
   const [deleteState, deleteAction, deletePending] = useActionState(deleteCoaAccount, undefined);
@@ -401,39 +417,55 @@ function SubcategoryRow({ row }: { row: Row }) {
           <span className={`flex-1 truncate ${row.is_active ? "text-zinc-800 dark:text-zinc-200" : "text-zinc-400 line-through"}`}>
             {row.subcategory}
           </span>
+          {isRollup && (
+            <span
+              title="This row's name is used as a category label. It's treated as a group anchor and can't be selected on a request."
+              className="rounded-full bg-amber-100 px-1.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/60 dark:text-amber-200"
+            >
+              Group anchor
+            </span>
+          )}
           <span className="font-mono text-[10px] text-zinc-400 tabular-nums">{row.code}</span>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            Rename
-          </button>
-          <form action={toggleCoaAccountActive}>
-            <input type="hidden" name="id" value={row.id} />
-            <input type="hidden" name="is_active" value={row.is_active ? "false" : "true"} />
-            <button
-              type="submit"
-              className="text-[11px] font-medium text-zinc-500 hover:underline"
-            >
-              {row.is_active ? "Deactivate" : "Reactivate"}
-            </button>
-          </form>
-          <form
-            action={deleteAction}
-            onSubmit={(e) => {
-              if (!confirm(`Delete "${row.subcategory}" (code ${row.code})? This can't be undone.`)) e.preventDefault();
-            }}
-          >
-            <input type="hidden" name="id" value={row.id} />
-            <button
-              type="submit"
-              disabled={deletePending}
-              className="text-[11px] font-medium text-red-600 hover:underline disabled:opacity-60 dark:text-red-400"
-            >
-              Delete
-            </button>
-          </form>
+          {isRollup ? (
+            <span className="text-[11px] italic text-zinc-400" title="Rename/Delete disabled on group anchors">
+              locked
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Rename
+              </button>
+              <form action={toggleCoaAccountActive}>
+                <input type="hidden" name="id" value={row.id} />
+                <input type="hidden" name="is_active" value={row.is_active ? "false" : "true"} />
+                <button
+                  type="submit"
+                  className="text-[11px] font-medium text-zinc-500 hover:underline"
+                >
+                  {row.is_active ? "Deactivate" : "Reactivate"}
+                </button>
+              </form>
+              <form
+                action={deleteAction}
+                onSubmit={(e) => {
+                  if (!confirm(`Delete "${row.subcategory}" (code ${row.code})? This can't be undone.`)) e.preventDefault();
+                }}
+              >
+                <input type="hidden" name="id" value={row.id} />
+                <button
+                  type="submit"
+                  disabled={deletePending}
+                  className="text-[11px] font-medium text-red-600 hover:underline disabled:opacity-60 dark:text-red-400"
+                >
+                  Delete
+                </button>
+              </form>
+            </>
+          )}
         </>
       )}
       {editState?.error && (
