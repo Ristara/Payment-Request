@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createRequest } from "@/app/requests/actions";
+import { getPreviousPaid } from "@/app/requests/lookups";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import HierarchicalPicker from "@/components/HierarchicalPicker";
 import { formatINR } from "@/lib/types";
@@ -47,6 +48,12 @@ export default function RequestForm({
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
+  // Auto-fill Previous Paid from prior payments on the same (vendor, doc ref).
+  // `prevTouched` becomes true the moment the user hand-edits — we then stop
+  // clobbering their number. `prevAuto` holds the last server-computed value.
+  const [prevTouched, setPrevTouched] = useState(false);
+  const [prevAutoInfo, setPrevAutoInfo] = useState<{ total: number; count: number } | null>(null);
+  const [prevLookupPending, setPrevLookupPending] = useState(false);
 
   const refEnabled = docType === "po" || docType === "invoice";
   const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
@@ -93,6 +100,31 @@ export default function RequestForm({
     quantity: Number(l.quantity) || 0,
     rate: Number(l.rate) || 0,
   }));
+
+  // Lookup Previous Paid whenever the vendor + doc reference change.
+  // Debounced so typing an invoice number doesn't hammer the server.
+  useEffect(() => {
+    const canLookup =
+      !!vendorId && (docType === "po" || docType === "invoice") && docRef.trim().length > 0;
+    if (!canLookup) {
+      setPrevAutoInfo(null);
+      if (!prevTouched) setPrevPayments("");
+      return;
+    }
+    setPrevLookupPending(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await getPreviousPaid(vendorId, docRef);
+        setPrevAutoInfo({ total: res.totalPaid, count: res.requestCount });
+        if (!prevTouched) {
+          setPrevPayments(res.totalPaid > 0 ? res.totalPaid.toFixed(2) : "");
+        }
+      } finally {
+        setPrevLookupPending(false);
+      }
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [vendorId, docType, docRef, prevTouched]);
 
   return (
     <form
@@ -422,16 +454,49 @@ export default function RequestForm({
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-600 dark:text-zinc-400">Previous paid (₹)</label>
+            <label className="text-xs text-zinc-600 dark:text-zinc-400">
+              Previous paid (₹){prevLookupPending && <span className="ml-1 text-zinc-400">·</span>}
+            </label>
             <input
               name="previous_payments"
               type="number"
               step="0.01"
               min="0"
               value={prevPayments}
-              onChange={(e) => setPrevPayments(e.target.value)}
+              onChange={(e) => {
+                setPrevPayments(e.target.value);
+                setPrevTouched(true);
+              }}
               className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
             />
+            {prevAutoInfo && prevAutoInfo.count > 0 && (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                {prevTouched ? (
+                  <>
+                    Auto value: {formatINR(prevAutoInfo.total)} from {prevAutoInfo.count} prior payment
+                    {prevAutoInfo.count === 1 ? "" : "s"} ·{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPrevTouched(false);
+                        setPrevPayments(prevAutoInfo.total > 0 ? prevAutoInfo.total.toFixed(2) : "");
+                      }}
+                      className="text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      Use auto
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Auto-filled from {prevAutoInfo.count} prior payment
+                    {prevAutoInfo.count === 1 ? "" : "s"} for the same {docType === "po" ? "PO" : "invoice"}
+                  </>
+                )}
+              </p>
+            )}
+            {prevAutoInfo && prevAutoInfo.count === 0 && (docType === "po" || docType === "invoice") && docRef.trim() && (
+              <p className="mt-1 text-[11px] text-zinc-500">No prior payments for this document.</p>
+            )}
           </div>
           <div>
             <label className="text-xs text-zinc-600 dark:text-zinc-400">This payment (auto)</label>
