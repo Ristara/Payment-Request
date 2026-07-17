@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { computeRollupIds } from "@/lib/coa";
 
 export type CoaOption = {
   id: string;
@@ -142,7 +143,13 @@ function PickerSheet({
   }, []);
 
   // Build the tree once: COA → Category → [Subcategory rows].
-  const tree = useMemo(() => buildTree(accounts), [accounts]);
+  // Rollup subs (subcategory that is also a category label elsewhere) are
+  // NOT selectable leaves — filter them out so the picker only offers
+  // real spendable rows.
+  const tree = useMemo(() => {
+    const rollups = computeRollupIds(accounts);
+    return buildTree(accounts.filter((a) => !rollups.has(a.id)));
+  }, [accounts]);
 
   // Filter tree by query on any level.
   const filtered = useMemo(() => {

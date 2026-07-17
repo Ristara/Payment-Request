@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
+import { computeRollupIds } from "@/lib/coa";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -83,14 +84,31 @@ export async function createRequest(
   }
   if (!purpose) return { error: "Purpose / description is required." };
 
-  // Verify every referenced COA account exists (active or otherwise).
+  // Verify every referenced COA account exists, and reject rollup rows
+  // (those whose subcategory name is also used as a category label —
+  // they're group anchors, not spendable leaves).
   const uniqueCoaIds = Array.from(new Set(lines.map((l) => l.coa_account_id)));
-  const { data: coaMatches } = await supabase
+  const { data: pickedRows } = await supabase
     .from("coa_accounts")
-    .select("id")
+    .select("id, subcategory, category, coa")
     .in("id", uniqueCoaIds);
-  if ((coaMatches?.length ?? 0) !== uniqueCoaIds.length) {
+  if ((pickedRows?.length ?? 0) !== uniqueCoaIds.length) {
     return { error: "One or more selected accounts don't exist." };
+  }
+  // To know which rows are rollups we need the full active set for the
+  // COA heads in play — a subcategory is a rollup if its name is used as
+  // a category label anywhere else within the same COA head.
+  const coaHeadsInPlay = Array.from(new Set((pickedRows ?? []).map((r) => r.coa as string)));
+  const { data: siblingRows } = await supabase
+    .from("coa_accounts")
+    .select("id, subcategory, category, coa")
+    .in("coa", coaHeadsInPlay);
+  const rollups = computeRollupIds((siblingRows ?? []) as { id: string; subcategory: string; category: string; coa: string }[]);
+  const badRollup = (pickedRows ?? []).find((r) => rollups.has(r.id as string));
+  if (badRollup) {
+    return {
+      error: `"${badRollup.subcategory}" is a group / rollup, not a spendable subcategory. Pick one of its child subcategories instead.`,
+    };
   }
 
   // Vendor must exist. If not yet approved, submission is still allowed —
