@@ -42,8 +42,14 @@ export default function RequestForm({
   const [servicePct, setServicePct] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [outletId, setOutletId] = useState("");
-  const [poNa, setPoNa] = useState(false);
+  const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
+  const [docRef, setDocRef] = useState("");
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
+
+  const refEnabled = docType === "po" || docType === "invoice";
+  const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
+  const refPlaceholder =
+    docType === "po" ? "PO-2026-045" : docType === "invoice" ? "INV-2026-045" : "";
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
 
@@ -155,35 +161,38 @@ export default function RequestForm({
         )}
       </section>
 
-      {/* PO + Invoice ref */}
+      {/* Supporting document */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <SectionTitle>PO number</SectionTitle>
-          <input
-            name="po_number"
-            disabled={poNa}
-            placeholder="PO-2026-045"
-            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
-          />
-          <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-            <input type="checkbox" checked={poNa} onChange={(e) => setPoNa(e.target.checked)} />
-            No PO applicable
-          </label>
-          {poNa && (
-            <input
-              name="po_not_applicable_reason"
-              required
-              placeholder="Reason…"
-              className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            />
-          )}
+          <SectionTitle>Document type</SectionTitle>
+          <select
+            name="document_type"
+            required
+            value={docType}
+            onChange={(e) => {
+              const v = e.target.value as typeof docType;
+              setDocType(v);
+              if (v === "no_invoice" || v === "invoice_pending") setDocRef("");
+            }}
+            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="" disabled>Pick document type…</option>
+            <option value="po">PO</option>
+            <option value="invoice">Invoice</option>
+            <option value="no_invoice">No Invoice</option>
+            <option value="invoice_pending">Invoice Yet to Receive</option>
+          </select>
         </div>
         <div>
-          <SectionTitle>Invoice / proforma reference (optional)</SectionTitle>
+          <SectionTitle>{refLabel}{refEnabled ? " *" : ""}</SectionTitle>
           <input
-            name="invoice_reference"
-            placeholder="INV-2026-045"
-            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            name="document_reference"
+            value={docRef}
+            onChange={(e) => setDocRef(e.target.value)}
+            required={refEnabled}
+            disabled={!refEnabled}
+            placeholder={refEnabled ? refPlaceholder : "—"}
+            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
           />
         </div>
       </section>

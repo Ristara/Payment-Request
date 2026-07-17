@@ -24,10 +24,9 @@ export async function createRequest(
 
   const vendor_id = String(formData.get("vendor_id") ?? "");
   const outlet_ids = formData.getAll("outlet_ids").map((s) => String(s)).filter(Boolean);
-  const po_number = String(formData.get("po_number") ?? "").trim() || null;
-  const po_not_applicable_reason =
-    String(formData.get("po_not_applicable_reason") ?? "").trim() || null;
-  const invoice_reference = String(formData.get("invoice_reference") ?? "").trim() || null;
+  const document_type = String(formData.get("document_type") ?? "") as
+    | "po" | "invoice" | "no_invoice" | "invoice_pending" | "";
+  const document_reference = String(formData.get("document_reference") ?? "").trim() || null;
   const total_bill_value = Number(formData.get("total_bill_value") ?? 0);
   const payment_amount = Number(formData.get("payment_amount") ?? 0);
   const payment_percentage_raw = formData.get("payment_percentage");
@@ -69,6 +68,10 @@ export async function createRequest(
     return { error: "Payment amount + previous payments can't exceed total bill." };
   }
   if (!payment_due_date) return { error: "Payment due date is required." };
+  if (!document_type) return { error: "Pick a document type." };
+  if ((document_type === "po" || document_type === "invoice") && !document_reference) {
+    return { error: `Enter the ${document_type === "po" ? "PO" : "invoice"} number.` };
+  }
   if (lines.length === 0) return { error: "Add at least one line item." };
   const badLine = lines.findIndex(
     (l) => !l.coa_account_id || !(l.quantity > 0) || !(l.rate >= 0),
@@ -138,9 +141,9 @@ export async function createRequest(
       status: "pending_approval",
       submitter_id: user.id,
       vendor_id,
-      po_number,
-      po_not_applicable_reason,
-      invoice_reference,
+      document_type,
+      document_reference:
+        document_type === "po" || document_type === "invoice" ? document_reference : null,
       total_bill_value,
       payment_percentage,
       payment_amount,

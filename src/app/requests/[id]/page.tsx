@@ -4,6 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, SUPPLY_LABEL, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
+
+const DOC_TYPE_LABEL: Record<"po" | "invoice" | "no_invoice" | "invoice_pending", string> = {
+  po: "PO",
+  invoice: "Invoice",
+  no_invoice: "No Invoice",
+  invoice_pending: "Invoice Yet to Receive",
+};
 import RequestActions from "./request-actions";
 import DiscussionThread from "./discussion";
 import type { CommentItem, ThreadAttachment } from "./discussion";
@@ -14,9 +21,8 @@ type ReqRow = {
   status: string;
   submitter_id: string;
   vendor_id: string;
-  po_number: string | null;
-  po_not_applicable_reason: string | null;
-  invoice_reference: string | null;
+  document_type: "po" | "invoice" | "no_invoice" | "invoice_pending" | null;
+  document_reference: string | null;
   total_bill_value: number;
   payment_amount: number;
   payment_percentage: number | null;
@@ -65,8 +71,8 @@ export default async function RequestDetailPage({
   const { data } = await supabase
     .from("payment_requests")
     .select(
-      `id, request_number, status, submitter_id, vendor_id, po_number,
-       po_not_applicable_reason, invoice_reference, total_bill_value,
+      `id, request_number, status, submitter_id, vendor_id,
+       document_type, document_reference, total_bill_value,
        payment_amount, payment_percentage, previous_payments, balance_payable,
        payment_due_date, date_of_work_completion, tentative_invoice_date,
        supply_composition,
@@ -322,8 +328,8 @@ export default async function RequestDetailPage({
               {req.tentative_invoice_date && (
                 <Row label="Tentative invoice" value={req.tentative_invoice_date} />
               )}
-              {req.po_number && <Row label="PO #" value={req.po_number} mono />}
-              {req.invoice_reference && <Row label="Invoice ref" value={req.invoice_reference} mono />}
+              {req.document_type && <Row label="Document" value={DOC_TYPE_LABEL[req.document_type]} />}
+              {req.document_reference && <Row label="Doc #" value={req.document_reference} mono />}
             </Grid>
           </Card>
 
