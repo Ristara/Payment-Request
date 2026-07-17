@@ -4,6 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createRequest } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import HierarchicalPicker from "@/components/HierarchicalPicker";
+import { formatINR } from "@/lib/types";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
 type Outlet = { id: string; code: string; name: string };
@@ -261,7 +262,7 @@ export default function RequestForm({
                       />
                     </td>
                     <td className="px-2 py-2 text-right font-mono text-xs font-semibold tabular-nums">
-                      ₹{lineAmounts[idx].toFixed(2)}
+                      {formatINR(lineAmounts[idx])}
                     </td>
                     <td className="px-1 py-2 text-center">
                       <button
@@ -284,7 +285,7 @@ export default function RequestForm({
                   Total
                 </td>
                 <td className="px-2 pt-3 text-right font-mono text-sm font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
-                  ₹{paymentAmount.toFixed(2)}
+                  {formatINR(paymentAmount)}
                 </td>
                 <td />
               </tr>
@@ -373,7 +374,7 @@ export default function RequestForm({
                 <div className="mt-3 flex items-baseline justify-between border-t border-zinc-200 pt-2 dark:border-zinc-800">
                   <span className="text-[11px] uppercase tracking-wide text-zinc-500">Amount</span>
                   <span className="font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    ₹{lineAmounts[idx].toFixed(2)}
+                    {formatINR(lineAmounts[idx])}
                   </span>
                 </div>
               </div>
@@ -385,7 +386,7 @@ export default function RequestForm({
               Total
             </span>
             <span className="font-mono text-base font-semibold tabular-nums text-indigo-900 dark:text-indigo-100">
-              ₹{paymentAmount.toFixed(2)}
+              {formatINR(paymentAmount)}
             </span>
           </div>
         </div>
@@ -435,13 +436,13 @@ export default function RequestForm({
           <div>
             <label className="text-xs text-zinc-600 dark:text-zinc-400">This payment (auto)</label>
             <div className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-right font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
-              ₹{paymentAmount.toFixed(2)}
+              {formatINR(paymentAmount)}
             </div>
           </div>
         </div>
         {balance !== null && (
           <p className="mt-2 text-xs text-zinc-500 tabular-nums">
-            Balance payable after this: <strong>₹{balance.toFixed(2)}</strong>
+            Balance payable after this: <strong>{formatINR(balance)}</strong>
           </p>
         )}
       </section>

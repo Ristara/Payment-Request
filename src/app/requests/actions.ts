@@ -78,7 +78,7 @@ export async function createRequest(
   );
   if (Math.abs(lineSum - payment_amount) > 0.01) {
     return {
-      error: `Line items total ₹${lineSum.toFixed(2)} doesn't match payment amount ₹${payment_amount.toFixed(2)}.`,
+      error: `Line items total ${formatExactAmount(lineSum)} doesn't match payment amount ${formatExactAmount(payment_amount)}.`,
     };
   }
   if (!purpose) return { error: "Purpose / description is required." };
@@ -248,6 +248,10 @@ export async function createRequest(
 
 function formatShortAmount(n: number): string {
   return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+}
+
+function formatExactAmount(n: number): string {
+  return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ---------------------------------------------------------------------------
