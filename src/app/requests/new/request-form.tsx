@@ -44,12 +44,16 @@ export default function RequestForm({
   const [outletId, setOutletId] = useState("");
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
+  const [tentativeInvoice, setTentativeInvoice] = useState("");
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
 
   const refEnabled = docType === "po" || docType === "invoice";
   const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
   const refPlaceholder =
     docType === "po" ? "PO-2026-045" : docType === "invoice" ? "INV-2026-045" : "";
+  // Tentative invoice date is meaningful only when the invoice hasn't landed
+  // yet — i.e. document type is PO or "Invoice yet to receive".
+  const tentativeEnabled = docType === "po" || docType === "invoice_pending";
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
 
@@ -173,6 +177,9 @@ export default function RequestForm({
               const v = e.target.value as typeof docType;
               setDocType(v);
               if (v === "no_invoice" || v === "invoice_pending") setDocRef("");
+              // Wipe tentative date when it becomes irrelevant so the disabled
+              // input never submits a stale value.
+              if (v !== "po" && v !== "invoice_pending") setTentativeInvoice("");
             }}
             className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           >
@@ -465,12 +472,23 @@ export default function RequestForm({
           />
         </div>
         <div>
-          <SectionTitle>Tentative invoice date</SectionTitle>
+          <SectionTitle>
+            Tentative invoice date{tentativeEnabled ? " *" : ""}
+          </SectionTitle>
           <input
             name="tentative_invoice_date"
             type="date"
-            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            value={tentativeInvoice}
+            onChange={(e) => setTentativeInvoice(e.target.value)}
+            required={tentativeEnabled}
+            disabled={!tentativeEnabled}
+            className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
           />
+          {!tentativeEnabled && docType && (
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Not needed — invoice is {docType === "invoice" ? "already attached" : "not applicable"}.
+            </p>
+          )}
         </div>
       </section>
 

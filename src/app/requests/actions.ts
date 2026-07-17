@@ -72,6 +72,10 @@ export async function createRequest(
   if ((document_type === "po" || document_type === "invoice") && !document_reference) {
     return { error: `Enter the ${document_type === "po" ? "PO" : "invoice"} number.` };
   }
+  const tentativeRequired = document_type === "po" || document_type === "invoice_pending";
+  if (tentativeRequired && !tentative_invoice_date) {
+    return { error: "Tentative invoice date is required for PO / Invoice yet to receive." };
+  }
   if (lines.length === 0) return { error: "Add at least one line item." };
   const badLine = lines.findIndex(
     (l) => !l.coa_account_id || !(l.quantity > 0) || !(l.rate >= 0),
