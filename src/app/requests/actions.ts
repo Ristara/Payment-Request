@@ -119,18 +119,16 @@ export async function createRequest(
     return { error: "This vendor was rejected. Pick a different vendor." };
   }
 
-  // Generate request number: PR-YYYY-NNNNN
+  // Generate request number: PR-YYYY-NNNNN via a real SQL sequence.
+  // Falls back to a count-based number if the sequence isn't reachable.
   const admin = createAdminClient();
-  const { data: seq } = await admin.rpc("nextval", { sequence_name: "request_number_seq" }).select();
-  // Fallback if RPC doesn't exist — use raw sql via admin.
-  let requestNumber = "";
-  if (seq && typeof seq === "number") {
-    requestNumber = `PR-${new Date().getFullYear()}-${String(seq).padStart(5, "0")}`;
+  let requestNumber = `PR-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 99999)).padStart(5, "0")}`;
+  const { data: seqRow, error: seqErr } = await admin
+    .rpc("next_request_number");
+  if (!seqErr && typeof seqRow === "string" && seqRow.length > 0) {
+    requestNumber = seqRow;
   } else {
-    const { data: n } = await admin
-      .from("payment_requests")
-      .select("id", { count: "exact", head: true });
-    requestNumber = `PR-${new Date().getFullYear()}-${String((n as unknown as { count?: number })?.count ?? Math.floor(Math.random() * 99999)).padStart(5, "0")}`;
+    console.error("[createRequest] next_request_number RPC failed:", seqErr?.message);
   }
 
   const { data: inserted, error } = await supabase
@@ -160,17 +158,25 @@ export async function createRequest(
     .select("id, request_number")
     .single();
 
-  if (error || !inserted) return { error: error?.message ?? "Failed to create request." };
+  if (error || !inserted) {
+    console.error("[createRequest] insert failed:", error);
+    return { error: error?.message ?? "Failed to create request." };
+  }
 
   const requestId = inserted.id as string;
 
-  // Insert outlets
-  await supabase.from("request_outlets").insert(
+  // Insert outlets — surface errors so we don't ship half-built requests silently.
+  const { error: outletsErr } = await supabase.from("request_outlets").insert(
     outlet_ids.map((outlet_id) => ({ request_id: requestId, outlet_id })),
   );
+  if (outletsErr) {
+    console.error("[createRequest] outlets insert failed:", outletsErr);
+    await admin.from("payment_requests").delete().eq("id", requestId);
+    return { error: `Couldn't save outlets: ${outletsErr.message}` };
+  }
 
   // Insert line items
-  await supabase.from("request_line_items").insert(
+  const { error: linesErr } = await supabase.from("request_line_items").insert(
     lines.map((l, idx) => ({
       request_id: requestId,
       coa_account_id: l.coa_account_id,
@@ -179,15 +185,21 @@ export async function createRequest(
       sort_order: idx,
     })),
   );
+  if (linesErr) {
+    console.error("[createRequest] lines insert failed:", linesErr);
+    await admin.from("payment_requests").delete().eq("id", requestId);
+    return { error: `Couldn't save line items: ${linesErr.message}` };
+  }
 
   // Status history entry
-  await admin.from("status_history").insert({
+  const { error: histErr } = await admin.from("status_history").insert({
     request_id: requestId,
     actor_id: user.id,
     from_status: null,
     to_status: "pending_approval",
     comment: "Created and submitted",
   });
+  if (histErr) console.error("[createRequest] status_history insert failed:", histErr);
 
   // Upload attachments
   if (files.length > 0) {
