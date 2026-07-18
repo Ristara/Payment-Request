@@ -53,7 +53,12 @@ export default function InstallmentActions({
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = (isAccounts || isAdmin) && ["invoice_pending", "payment_processed"].includes(status);
-  const canCancel = (isSubmitter || isAdmin) && !["closed", "cancelled", "rejected", "payment_processed"].includes(status);
+  // Cancel is only meaningful before money moves: once uploaded_in_bank or
+  // beyond, the cash is committed and cancelling would free PO balance that
+  // was actually spent.
+  const canCancel =
+    (isSubmitter || isAdmin) &&
+    ["pending_approval", "clarification_required", "returned_for_correction", "approved"].includes(status);
 
   if (!canApprove && !canRejectReturn && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canCancel) {
     return null;

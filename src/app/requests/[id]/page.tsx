@@ -257,9 +257,10 @@ export default async function ThreadDetailPage({
     email: string;
   }[]).filter((p) => p.id !== user!.id);
 
-  // Thread status = the most-recent-installment's status (surfaced as a tag)
-  const latest = installments[installments.length - 1];
-  const threadStatus = latest?.status ?? "draft";
+  // Thread status = the most action-relevant installment status, not simply
+  // the latest. A fully-paid thread with one rejected re-attempt should read
+  // as paid, not "Rejected".
+  const threadStatus = deriveThreadStatus(installments.map((i) => i.status));
 
   // Whether the submitter can raise another installment.
   const canRaiseInstallment = isSubmitter && balanceRemaining > 0.005;
@@ -396,6 +397,11 @@ export default async function ThreadDetailPage({
                       <p>Approved by {inst.approver.full_name} · {new Date(inst.approved_at).toLocaleDateString()}</p>
                     )}
                   </div>
+                  {inst.purpose && (
+                    <p className="mt-2 rounded-md bg-zinc-50 p-2 text-xs text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
+                      Note: {inst.purpose}
+                    </p>
+                  )}
                   {inst.rejection_reason && (
                     <p className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
                       Rejected: {inst.rejection_reason}
@@ -509,6 +515,32 @@ export default async function ThreadDetailPage({
       {false && coaHeads.length}
     </div>
   );
+}
+
+/**
+ * Pick the most action-relevant status to summarize a thread:
+ * anything awaiting someone's action wins; then in-flight payment states;
+ * then terminal states. Rejected/cancelled only shows when nothing else
+ * ever succeeded.
+ */
+function deriveThreadStatus(statuses: string[]): string {
+  if (statuses.length === 0) return "draft";
+  const priority = [
+    "clarification_required",
+    "pending_approval",
+    "returned_for_correction",
+    "approved",
+    "uploaded_in_bank",
+    "invoice_pending",
+    "payment_processed",
+    "closed",
+    "rejected",
+    "cancelled",
+  ];
+  for (const s of priority) {
+    if (statuses.includes(s)) return s;
+  }
+  return statuses[statuses.length - 1];
 }
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {

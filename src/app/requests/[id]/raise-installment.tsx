@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { raiseInstallment } from "@/app/requests/actions";
 import { formatINR } from "@/lib/types";
 
@@ -26,6 +26,15 @@ export default function RaiseInstallmentPanel({
   const [amount, setAmount] = useState("");
   const [open, setOpen] = useState(false);
 
+  // Close + clear the panel after a successful submit so stale values can't
+  // be double-submitted; the page revalidation shows the new installment.
+  useEffect(() => {
+    if (state?.info) {
+      setAmount("");
+      setOpen(false);
+    }
+  }, [state?.info]);
+
   const amt = Number(amount) || 0;
   const wouldExceed = amt > balanceRemaining + 0.005;
   const balanceAfter = Math.max(0, Math.round((balanceRemaining - amt) * 100) / 100);
@@ -33,13 +42,20 @@ export default function RaiseInstallmentPanel({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full rounded-md border border-dashed border-indigo-400 bg-indigo-50/50 px-3 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300"
-      >
-        + Raise installment #{nextInstallmentNumber} · {formatINR(balanceRemaining)} balance
-      </button>
+      <div>
+        {state?.info && (
+          <p className="mb-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+            {state.info}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full rounded-md border border-dashed border-indigo-400 bg-indigo-50/50 px-3 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300"
+        >
+          + Raise installment #{nextInstallmentNumber} · {formatINR(balanceRemaining)} balance
+        </button>
+      </div>
     );
   }
 

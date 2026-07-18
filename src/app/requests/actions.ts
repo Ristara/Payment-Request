@@ -84,7 +84,7 @@ export async function createThread(
 
   const poValue = Math.round(lines.reduce((s, l) => s + l.quantity * l.rate, 0) * 100) / 100;
   if (poValue <= 0) return { error: "PO value must be positive." };
-  if (installment_amount - poValue > 0.01) {
+  if (installment_amount - poValue > 0.005) {
     return {
       error: `First installment ${formatExactAmount(installment_amount)} can't exceed PO value ${formatExactAmount(poValue)}.`,
     };
@@ -289,7 +289,7 @@ export async function raiseInstallment(
   const alreadyRequested = nonCancelledInstallments.reduce((s, i) => s + Number(i.requested_amount), 0);
   const remaining = Math.round((poValue - alreadyRequested) * 100) / 100;
 
-  if (requestedAmount - remaining > 0.01) {
+  if (requestedAmount - remaining > 0.005) {
     return {
       error: `Only ${formatExactAmount(remaining)} left on this PO (${formatExactAmount(poValue)} total, ${formatExactAmount(alreadyRequested)} already requested). Raise a new thread if scope has grown.`,
     };
@@ -385,11 +385,39 @@ async function transitionInstallment(
   if (!inst) throw new Error("Installment not found.");
   const from = inst.status as string;
 
-  const { error } = await supabase
+  // Legal from-states per target. A stale form / crafted POST can't approve a
+  // cancelled installment or re-pay a closed one.
+  const ALLOWED_FROM: Record<string, string[]> = {
+    approved: ["pending_approval", "clarification_required"],
+    rejected: ["pending_approval", "clarification_required"],
+    returned_for_correction: ["pending_approval", "clarification_required"],
+    clarification_required: ["pending_approval"],
+    pending_approval: ["clarification_required", "returned_for_correction"],
+    uploaded_in_bank: ["approved"],
+    invoice_pending: ["uploaded_in_bank", "approved"],
+    payment_processed: ["uploaded_in_bank", "approved", "invoice_pending"],
+    closed: ["invoice_pending", "payment_processed"],
+    cancelled: ["pending_approval", "clarification_required", "returned_for_correction", "approved"],
+  };
+  const legal = ALLOWED_FROM[to];
+  if (legal && !legal.includes(from)) {
+    throw new Error(
+      `Can't move installment #${inst.installment_number} from "${from.replace(/_/g, " ")}" to "${to.replace(/_/g, " ")}". Refresh the page — its status has changed.`,
+    );
+  }
+
+  // Guarded update: the WHERE clause re-checks status so a concurrent
+  // transition between our read and this write can't double-apply.
+  const { data: updated, error } = await supabase
     .from("request_installments")
     .update({ status: to, ...extra })
-    .eq("id", installmentId);
+    .eq("id", installmentId)
+    .eq("status", from)
+    .select("id");
   if (error) throw error;
+  if (!updated || updated.length === 0) {
+    throw new Error("Installment status changed while you were acting. Refresh and retry.");
+  }
 
   await admin.from("status_history").insert({
     request_id: inst.request_id,
@@ -636,11 +664,29 @@ export async function markInstallmentBankUploaded(
   if (!installmentId || !bank_upload_date) return { error: "Bank upload date is required." };
 
   const supabase = await createClient();
-  await supabase
-    .from("payment_records")
-    .upsert({ installment_id: installmentId, bank_upload_date, bank_batch_ref }, { onConflict: "installment_id" });
+  const admin = createAdminClient();
+
+  // Vendor must still be approved before money moves — approval could have
+  // been granted before the vendor was later rejected.
+  const { data: instRow } = await admin
+    .from("request_installments")
+    .select("request_id, request:payment_requests(vendor:vendors(status))")
+    .eq("id", installmentId)
+    .single();
+  type VendorJoin = { request: { vendor: { status: string } | null } | { vendor: { status: string } | null }[] | null };
+  const reqJoin = (instRow as unknown as VendorJoin | null)?.request;
+  const vendorStatus = (Array.isArray(reqJoin) ? reqJoin[0]?.vendor : reqJoin?.vendor)?.status;
+  if (vendorStatus !== "approved") {
+    return { error: "Vendor is not approved. Verify the vendor before uploading to bank." };
+  }
+
   try {
+    // Transition FIRST — the state machine rejects wrong from-states, and we
+    // only write the payment record once the move is legal.
     const inst = await transitionInstallment(installmentId, "uploaded_in_bank", "Marked uploaded in bank");
+    await supabase
+      .from("payment_records")
+      .upsert({ installment_id: installmentId, bank_upload_date, bank_batch_ref }, { onConflict: "installment_id" });
     revalidatePath(`/requests/${inst.request_id}`);
   } catch (e) {
     return { error: (e as Error).message };
@@ -670,10 +716,22 @@ export async function markInstallmentPaid(
 
   const { data: inst } = await admin
     .from("request_installments")
-    .select("id, request_id")
+    .select("id, request_id, status, request:payment_requests(vendor:vendors(status))")
     .eq("id", installmentId)
     .single();
   if (!inst) return { error: "Installment not found." };
+
+  // Status gate BEFORE writing anything — a stale form on an already-paid or
+  // closed installment must not overwrite the real payment record.
+  if (!["uploaded_in_bank", "approved"].includes(inst.status as string)) {
+    return { error: `Installment is "${String(inst.status).replace(/_/g, " ")}" — can't record payment. Refresh the page.` };
+  }
+  type VendorJoin = { vendor: { status: string } | null } | { vendor: { status: string } | null }[] | null;
+  const reqJoin = (inst as unknown as { request: VendorJoin }).request;
+  const vendorStatus = (Array.isArray(reqJoin) ? reqJoin[0]?.vendor : reqJoin?.vendor)?.status;
+  if (vendorStatus !== "approved") {
+    return { error: "Vendor is not approved. Verify the vendor before recording payment." };
+  }
 
   await supabase
     .from("payment_records")
@@ -708,15 +766,17 @@ export async function markInstallmentPaid(
   }
 
   try {
-    const { data: invExists } = await admin
+    // Invoice must belong to THIS installment — the storage path embeds the
+    // installment id (…/installments/<id>/invoice/…), so filter on it.
+    // A thread-mate's invoice must not skip this installment past
+    // invoice_pending.
+    const { count: invCount } = await admin
       .from("attachments")
       .select("id", { count: "exact", head: true })
       .eq("request_id", inst.request_id)
-      .eq("stage", "invoice");
-    const nextStatus =
-      ((invExists as unknown as { count?: number })?.count ?? 0) > 0
-        ? "payment_processed"
-        : "invoice_pending";
+      .eq("stage", "invoice")
+      .like("storage_path", `%/installments/${installmentId}/%`);
+    const nextStatus = (invCount ?? 0) > 0 ? "payment_processed" : "invoice_pending";
     await transitionInstallment(installmentId, nextStatus, "Payment processed");
   } catch (e) {
     return { error: (e as Error).message };
@@ -738,12 +798,23 @@ export async function uploadInstallmentInvoice(
   }
 
   const admin = createAdminClient();
-  const { data: { user } } = await (await createClient()).auth.getUser();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
   const { data: inst } = await admin
     .from("request_installments").select("id, request_id").eq("id", installmentId).single();
   if (!inst) return { error: "Installment not found." };
+
+  // Only the thread's submitter, accounts, or admin may attach invoices.
+  const { data: thread } = await admin
+    .from("payment_requests").select("submitter_id").eq("id", inst.request_id).single();
+  const { data: roleRows } = await supabase
+    .from("user_roles").select("role").eq("user_id", user.id);
+  const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
+  const allowed =
+    thread?.submitter_id === user.id || roles.has("accounts") || roles.has("admin");
+  if (!allowed) return { error: "Only the submitter or Accounts can upload the invoice." };
 
   const safe = invoice.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `${inst.request_id}/installments/${installmentId}/invoice/${Date.now()}-${safe}`;
@@ -840,22 +911,20 @@ export async function addComment(
       url: `/requests/${requestId}`,
       tag: `request-${requestId}`,
     });
+  }
 
-    // If a question is raised while an installment is pending_approval, move
-    // that installment to clarification_required.
-    if (isQuestion) {
-      const { data: pendingInsts } = await supabase
-        .from("request_installments")
-        .select("id, status")
-        .eq("request_id", requestId)
-        .in("status", ["pending_approval", "clarification_required"]);
-      for (const inst of pendingInsts ?? []) {
-        if (inst.status !== "clarification_required") {
-          try {
-            await transitionInstallment(inst.id, "clarification_required", body.slice(0, 200));
-          } catch { /* best-effort */ }
-        }
-      }
+  // A question pauses pending installments regardless of whether anyone was
+  // @mentioned — the question itself is the blocker, not the mention.
+  if (isQuestion) {
+    const { data: pendingInsts } = await supabase
+      .from("request_installments")
+      .select("id, status")
+      .eq("request_id", requestId)
+      .eq("status", "pending_approval");
+    for (const inst of pendingInsts ?? []) {
+      try {
+        await transitionInstallment(inst.id, "clarification_required", body.slice(0, 200));
+      } catch { /* best-effort */ }
     }
   }
 
