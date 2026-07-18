@@ -7,7 +7,17 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Run on every request except static assets and images
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    {
+      // Run on every request except static assets, PWA files, and images.
+      // The `missing` conditions skip <Link> prefetches — those RSC requests
+      // don't need a session refresh, and every page still enforces auth at
+      // render time via requireUser().
+      source:
+        "/((?!_next/static|_next/image|favicon.ico|favicon-32.png|manifest\\.json|sw\\.js|robots\\.txt|sitemap\\.xml|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
   ],
 };

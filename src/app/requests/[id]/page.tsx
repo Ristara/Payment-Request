@@ -82,27 +82,20 @@ export default async function ThreadDetailPage({
   const supabase = await createClient();
   const admin = createAdminClient();
 
-  const { data } = await supabase
-    .from("payment_requests")
-    .select(
-      `id, request_number, submitter_id, vendor_id,
-       document_type, document_reference, purpose, created_at,
-       submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
-       vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
-       outlets:request_outlets(outlet:outlets(name, code))`,
-    )
-    .eq("id", id)
-    .maybeSingle();
-
-  if (!data) notFound();
-  const req = data as unknown as ThreadRow;
-
-  const isSubmitter = user!.id === req.submitter_id;
-  const isApprover = roles.includes("approver");
-  const isAccounts = roles.includes("accounts");
-  const isAdmin = roles.includes("admin");
-
-  const [instRes, historyRes, attRes, commentRes, mentionCandRes, lineRes] = await Promise.all([
+  // One parallel wave — every query filters by the route id alone, so the
+  // main thread row doesn't need to resolve first.
+  const [threadRes, instRes, historyRes, attRes, commentRes, mentionCandRes, lineRes] = await Promise.all([
+    supabase
+      .from("payment_requests")
+      .select(
+        `id, request_number, submitter_id, vendor_id,
+         document_type, document_reference, purpose, created_at,
+         submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
+         vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
+         outlets:request_outlets(outlet:outlets(name, code))`,
+      )
+      .eq("id", id)
+      .maybeSingle(),
     supabase
       .from("request_installments")
       .select(
@@ -130,7 +123,8 @@ export default async function ThreadDetailPage({
       .select(
         `id, body, created_at, author_id, is_question, question_state,
          author:profiles!comments_author_id_fkey(full_name, email),
-         mentions:comment_mentions(mentioned_user_id, mentioned:profiles!comment_mentions_mentioned_user_id_fkey(full_name))`,
+         mentions:comment_mentions(mentioned_user_id, mentioned:profiles!comment_mentions_mentioned_user_id_fkey(full_name)),
+         attachments:attachments(id, storage_path, file_name, file_size_bytes, mime_type)`,
       )
       .eq("request_id", id)
       .order("created_at"),
@@ -144,6 +138,14 @@ export default async function ThreadDetailPage({
       .eq("request_id", id)
       .order("sort_order"),
   ]);
+
+  if (!threadRes.data) notFound();
+  const req = threadRes.data as unknown as ThreadRow;
+
+  const isSubmitter = user!.id === req.submitter_id;
+  const isApprover = roles.includes("approver");
+  const isAccounts = roles.includes("accounts");
+  const isAdmin = roles.includes("admin");
 
   const lineItems = (lineRes.data ?? []) as unknown as LineItemRow[];
   const installments = ((instRes.data ?? []) as unknown as InstallmentRow[]).map((i) => ({
@@ -182,24 +184,30 @@ export default async function ThreadDetailPage({
     uploaded_by: string;
   }[];
 
-  const commentIds = (commentRes.data ?? []).map((c: unknown) => (c as { id: string }).id);
-  const { data: commentAtts } = commentIds.length
-    ? await supabase
-        .from("attachments")
-        .select("id, comment_id, storage_path, file_name, file_size_bytes, mime_type")
-        .in("comment_id", commentIds)
-    : { data: [] as {
-        id: string;
-        comment_id: string;
-        storage_path: string;
-        file_name: string;
-        file_size_bytes: number;
-        mime_type: string | null;
-      }[] };
+  // Comment attachments arrive nested in the comments select (attachments has
+  // a single FK to comments) — no second serialized query needed.
+  type RawComment = {
+    id: string;
+    body: string;
+    created_at: string;
+    author_id: string;
+    is_question: boolean | null;
+    question_state: string | null;
+    author: { full_name: string; email: string } | null;
+    mentions: { mentioned: { full_name: string } | null }[];
+    attachments: {
+      id: string;
+      storage_path: string;
+      file_name: string;
+      file_size_bytes: number;
+      mime_type: string | null;
+    }[];
+  };
+  const rawComments = (commentRes.data ?? []) as unknown as RawComment[];
 
   const allPaths = [
     ...rawAttachments.map((a) => a.storage_path),
-    ...(commentAtts ?? []).map((a) => a.storage_path),
+    ...rawComments.flatMap((c) => (c.attachments ?? []).map((a) => a.storage_path)),
   ];
   const urlByPath = new Map<string, string>();
   await Promise.all(
@@ -211,30 +219,6 @@ export default async function ThreadDetailPage({
 
   const requestStageAtt = rawAttachments.filter((a) => a.stage === "request");
 
-  const commentAttsByComment = new Map<string, ThreadAttachment[]>();
-  for (const a of commentAtts ?? []) {
-    const list = commentAttsByComment.get(a.comment_id) ?? [];
-    list.push({
-      id: a.id,
-      file_name: a.file_name,
-      file_size_bytes: a.file_size_bytes,
-      mime_type: a.mime_type,
-      url: urlByPath.get(a.storage_path) ?? null,
-    });
-    commentAttsByComment.set(a.comment_id, list);
-  }
-
-  type RawComment = {
-    id: string;
-    body: string;
-    created_at: string;
-    author_id: string;
-    is_question: boolean | null;
-    question_state: string | null;
-    author: { full_name: string; email: string } | null;
-    mentions: { mentioned: { full_name: string } | null }[];
-  };
-  const rawComments = (commentRes.data ?? []) as unknown as RawComment[];
   const comments: CommentItem[] = rawComments.map((c) => ({
     id: c.id,
     body: c.body,
@@ -246,7 +230,13 @@ export default async function ThreadDetailPage({
     is_question: !!c.is_question,
     question_state: c.question_state ?? null,
     mentioned_names: (c.mentions ?? []).map((m) => m.mentioned?.full_name ?? "").filter(Boolean),
-    attachments: commentAttsByComment.get(c.id) ?? [],
+    attachments: (c.attachments ?? []).map((a): ThreadAttachment => ({
+      id: a.id,
+      file_name: a.file_name,
+      file_size_bytes: a.file_size_bytes,
+      mime_type: a.mime_type,
+      url: urlByPath.get(a.storage_path) ?? null,
+    })),
   }));
 
   const mentionCandidates = ((mentionCandRes.data ?? []) as {

@@ -3,12 +3,15 @@
 // - Push notification handler
 // - Notification click → open the request URL
 
-const CACHE = "pay-app-v1";
-const APP_SHELL = ["/", "/dashboard", "/login", "/manifest.json", "/icon-192.png", "/icon-512.png"];
+const CACHE = "pay-app-v2";
+// Precache ONLY truly static files. Never SSR HTML — install-time HTML
+// snapshots go stale, can capture a login redirect, and every install
+// would re-run the server's full query fan-out for pages nobody asked for.
+const APP_SHELL = ["/offline.html", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL.filter(Boolean))).catch(() => {}),
+    caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)).catch(() => {}),
   );
   self.skipWaiting();
 });
@@ -29,10 +32,10 @@ self.addEventListener("fetch", (event) => {
   if (url.hostname.includes("supabase") || url.hostname.includes("google")) return;
 
   if (req.mode === "navigate") {
+    // Network-first; offline fallback is a static page, never a stale
+    // personalized snapshot.
     event.respondWith(
-      fetch(req).catch(() =>
-        caches.match(req).then((r) => r || caches.match("/dashboard") || Response.error()),
-      ),
+      fetch(req).catch(() => caches.match("/offline.html").then((r) => r || Response.error())),
     );
     return;
   }

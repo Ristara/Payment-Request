@@ -18,20 +18,31 @@ type ThreadRow = {
   }[];
 };
 
-export default async function MyRequestsPage() {
+const PAGE_SIZE = 50;
+
+export default async function MyRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const user = await requireUser();
+  const { page: pageRaw } = await searchParams;
+  const page = Math.max(0, Number(pageRaw) || 0);
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, count } = await supabase
     .from("payment_requests")
     .select(
       `id, request_number, created_at,
        vendor:vendors(name),
        line_items:request_line_items(amount),
        installments:request_installments(installment_number, status, requested_amount, payment_due_date)`,
+      { count: "exact" },
     )
     .eq("submitter_id", user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
   const rows = (data ?? []) as unknown as ThreadRow[];
+  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
 
   const withSummary = rows.map((r) => {
     const poValue = r.line_items.reduce((s, l) => s + Number(l.amount), 0);
@@ -124,6 +135,24 @@ export default async function MyRequestsPage() {
               </table>
             </div>
           </section>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-center gap-3 text-sm">
+              {page > 0 && (
+                <Link href={`/requests?page=${page - 1}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
+                  ← Newer
+                </Link>
+              )}
+              <span className="text-xs text-zinc-500">
+                Page {page + 1} of {totalPages}
+              </span>
+              {page + 1 < totalPages && (
+                <Link href={`/requests?page=${page + 1}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
+                  Older →
+                </Link>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

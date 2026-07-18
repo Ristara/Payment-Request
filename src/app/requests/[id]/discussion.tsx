@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { addComment, setQuestionState } from "@/app/requests/actions";
 import { avatarColor, initials, timeShort } from "@/lib/routing";
 
@@ -47,13 +46,15 @@ export default function DiscussionThread({
   const [state, formAction, pending] = useActionState(addComment, undefined);
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const router = useRouter();
 
   const [mentions, setMentions] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [isQuestion, setIsQuestion] = useState(false);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
 
+  // No router.refresh() here — addComment's revalidatePath already returns
+  // the fresh RSC tree with the action response; refreshing again re-rendered
+  // the heaviest page a second time and re-minted every signed URL.
   useEffect(() => {
     if (state?.info) {
       formRef.current?.reset();
@@ -61,9 +62,8 @@ export default function DiscussionThread({
       setFiles([]);
       setIsQuestion(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      router.refresh();
     }
-  }, [state, router]);
+  }, [state]);
 
   useEffect(() => {
     if (!fileInputRef.current) return;

@@ -26,7 +26,14 @@ export default async function DashboardPage() {
   const isAdmin = roles.includes("admin");
   const isStaff = isApprover || isAccounts || isAdmin;
 
-  const [profile, myCount, pendingApprovals, accountsQueue] = await Promise.all([
+  // Last 12 months of paid/closed spend for the chart
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+  twelveMonthsAgo.setDate(1);
+
+  // Everything on this page is independent — one parallel wave, no
+  // serialized round-trips.
+  const [profile, myCount, pendingApprovals, accountsQueue, spendRes, recentRes] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", user.id).single(),
     supabase.from("payment_requests").select("*", { count: "exact", head: true }).eq("submitter_id", user.id),
     isApprover
@@ -35,22 +42,26 @@ export default async function DashboardPage() {
     isAccounts
       ? supabase.from("request_installments").select("*", { count: "exact", head: true }).in("status", ["approved", "uploaded_in_bank", "invoice_pending"])
       : Promise.resolve({ count: 0 }),
+    // Spend = paid installments (payment_record.paid_amount) by month of
+    // payment_date. For submitters (non-staff), filtered to their threads below.
+    supabase
+      .from("payment_records")
+      .select("paid_amount, payment_date, installment:request_installments!inner(request_id, request:payment_requests!inner(submitter_id))")
+      .gte("payment_date", twelveMonthsAgo.toISOString().slice(0, 10))
+      .not("payment_date", "is", null),
+    supabase
+      .from("payment_requests")
+      .select(
+        `id, request_number, created_at,
+         vendor:vendors(name),
+         installments:request_installments(installment_number, status, requested_amount)`,
+      )
+      .eq("submitter_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(5),
   ]);
 
-  // Last 12 months of paid/closed spend for the chart
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
-  twelveMonthsAgo.setDate(1);
-
-  // Spend = paid installments (payment_record.paid_amount), grouped by month
-  // of payment_date. For submitters (non-staff), restrict to their own threads.
-  const spendQuery = supabase
-    .from("payment_records")
-    .select("paid_amount, payment_date, installment:request_installments!inner(request_id, request:payment_requests!inner(submitter_id))")
-    .gte("payment_date", twelveMonthsAgo.toISOString().slice(0, 10))
-    .not("payment_date", "is", null);
-
-  const { data: spend } = await spendQuery;
+  const { data: spend } = spendRes;
   type SpendRow = { paid_amount: number | null; payment_date: string | null; installment: { request: { submitter_id: string } | null } | { request: { submitter_id: string } | null }[] | null };
   const spendRaw = (spend ?? []) as unknown as SpendRow[];
   const spendRows = spendRaw
@@ -81,18 +92,7 @@ export default async function DashboardPage() {
   const grandTotal = months.reduce((s, m) => s + m.total, 0);
   const maxMonth = Math.max(...months.map((m) => m.total), 1);
 
-  // Recent threads with their installments
-  const { data: recent } = await supabase
-    .from("payment_requests")
-    .select(
-      `id, request_number, created_at,
-       vendor:vendors(name),
-       installments:request_installments(installment_number, status, requested_amount)`,
-    )
-    .eq("submitter_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(5);
-  const recentRows = (recent ?? []) as unknown as Row[];
+  const recentRows = (recentRes.data ?? []) as unknown as Row[];
 
   const displayName = profile.data?.full_name?.split(" ")[0] ?? user.email;
 

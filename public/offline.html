@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Offline · Payments</title>
+<style>
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; background: #fafafa; color: #18181b; }
+  @media (prefers-color-scheme: dark) { body { background: #09090b; color: #fafafa; } }
+  .box { text-align: center; padding: 2rem; }
+  .icon { width: 64px; height: 64px; border-radius: 14px; background: #4f46e5; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; margin: 0 auto 1rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+  p { font-size: 0.9rem; color: #71717a; margin: 0 0 1.5rem; }
+  button { background: #4f46e5; color: #fff; border: 0; border-radius: 8px; padding: 0.6rem 1.4rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">₹</div>
+    <h1>You're offline</h1>
+    <p>Payment Requests needs a connection. Check your network and try again.</p>
+    <button onclick="location.reload()">Retry</button>
+  </div>
+</body>
+</html>

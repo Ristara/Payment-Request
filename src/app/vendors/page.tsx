@@ -38,13 +38,15 @@ export default async function VendorsPage({
   if (status !== "all") query = query.eq("status", status);
   if (q) query = query.ilike("name", `%${q}%`);
 
-  const { data } = await query;
-  const vendors = (data ?? []) as unknown as Vendor[];
-
-  const { count: pendingCount } = await supabase
-    .from("vendors")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
+  const [listRes, countRes] = await Promise.all([
+    query,
+    supabase
+      .from("vendors")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending"),
+  ]);
+  const vendors = (listRes.data ?? []) as unknown as Vendor[];
+  const pendingCount = countRes.count;
 
   const tabs = [
     { key: "all", label: "All" },
