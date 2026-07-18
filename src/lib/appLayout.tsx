@@ -39,10 +39,10 @@ export default async function AppLayoutShell({
       ? supabase.from("notifications").select("*", { count: "exact", head: true }).eq("recipient_id", user.id).is("read_at", null)
       : Promise.resolve({ count: 0 }),
     isApprover
-      ? supabase.from("payment_requests").select("*", { count: "exact", head: true }).in("status", ["pending_approval", "clarification_required"])
+      ? supabase.from("request_installments").select("*", { count: "exact", head: true }).in("status", ["pending_approval", "clarification_required"])
       : Promise.resolve({ count: 0 }),
     isAccounts
-      ? supabase.from("payment_requests").select("*", { count: "exact", head: true }).in("status", ["approved", "uploaded_in_bank", "invoice_pending"])
+      ? supabase.from("request_installments").select("*", { count: "exact", head: true }).in("status", ["approved", "uploaded_in_bank", "invoice_pending"])
       : Promise.resolve({ count: 0 }),
     isAccounts || isAdmin
       ? supabase.from("vendors").select("*", { count: "exact", head: true }).eq("status", "pending")

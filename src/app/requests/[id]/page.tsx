@@ -102,7 +102,7 @@ export default async function ThreadDetailPage({
   const isAccounts = roles.includes("accounts");
   const isAdmin = roles.includes("admin");
 
-  const [instRes, historyRes, attRes, commentRes, coaRes, mentionCandRes, lineRes] = await Promise.all([
+  const [instRes, historyRes, attRes, commentRes, mentionCandRes, lineRes] = await Promise.all([
     supabase
       .from("request_installments")
       .select(
@@ -134,7 +134,6 @@ export default async function ThreadDetailPage({
       )
       .eq("request_id", id)
       .order("created_at"),
-    supabase.from("coa_accounts").select("id, code, subcategory, category, coa").eq("is_active", true).order("subcategory"),
     supabase.from("profiles").select("id, full_name, email").eq("is_active", true).order("full_name"),
     supabase
       .from("request_line_items")
@@ -250,7 +249,6 @@ export default async function ThreadDetailPage({
     attachments: commentAttsByComment.get(c.id) ?? [],
   }));
 
-  const coaHeads = (coaRes.data ?? []) as { id: string; code: number; subcategory: string; category: string; coa: string }[];
   const mentionCandidates = ((mentionCandRes.data ?? []) as {
     id: string;
     full_name: string;
@@ -511,8 +509,6 @@ export default async function ThreadDetailPage({
         </aside>
       </div>
 
-      {/* Suppress unused var warnings for coaHeads if not used elsewhere */}
-      {false && coaHeads.length}
     </div>
   );
 }
