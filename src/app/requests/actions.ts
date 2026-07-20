@@ -423,7 +423,7 @@ async function transitionInstallment(
     rejected: ["pending_approval", "clarification_required"],
     returned_for_correction: ["pending_approval", "clarification_required"],
     clarification_required: ["pending_approval"],
-    pending_approval: ["clarification_required", "returned_for_correction"],
+    pending_approval: ["clarification_required", "returned_for_correction", "rejected"],
     uploaded_in_bank: ["approved"],
     invoice_pending: ["uploaded_in_bank", "approved"],
     payment_processed: ["uploaded_in_bank", "approved", "invoice_pending"],
@@ -620,6 +620,169 @@ export async function cancelInstallment(
   } catch (e) {
     return { error: (e as Error).message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Edit & resubmit a rejected / returned installment (submitter)
+// ---------------------------------------------------------------------------
+
+export async function editAndResubmitInstallment(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const installmentId = String(formData.get("installment_id") ?? "");
+  const requestedAmount = Number(formData.get("requested_amount") ?? 0);
+  const paymentDueDate = String(formData.get("payment_due_date") ?? "");
+  const dateOfWorkCompletion = String(formData.get("date_of_work_completion") ?? "") || null;
+  const note = String(formData.get("purpose") ?? "").trim() || null;
+  const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+
+  if (!installmentId) return { error: "Missing installment." };
+  if (!requestedAmount || requestedAmount <= 0) return { error: "Amount must be positive." };
+  if (!paymentDueDate) return { error: "Payment due date is required." };
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id, installment_number, status, requested_amount")
+    .eq("id", installmentId)
+    .single();
+  if (!inst) return { error: "Installment not found." };
+  if (!["rejected", "returned_for_correction"].includes(inst.status as string)) {
+    return { error: "Only rejected or returned installments can be edited and resubmitted." };
+  }
+
+  // Only the thread's submitter (or admin) may resubmit.
+  const { data: thread } = await admin
+    .from("payment_requests")
+    .select("id, request_number, submitter_id")
+    .eq("id", inst.request_id)
+    .single();
+  if (!thread) return { error: "Thread not found." };
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
+  if (thread.submitter_id !== user.id && !roles.has("admin")) {
+    return { error: "Only the submitter can edit and resubmit." };
+  }
+
+  // Balance guard: PO value minus every OTHER live installment.
+  const [linesRes, instRes] = await Promise.all([
+    admin.from("request_line_items").select("quantity, rate").eq("request_id", inst.request_id),
+    admin.from("request_installments").select("id, requested_amount, status").eq("request_id", inst.request_id),
+  ]);
+  const poValue = Math.round((linesRes.data ?? []).reduce((s, l) => s + Number(l.quantity) * Number(l.rate), 0) * 100) / 100;
+  const othersRequested = (instRes.data ?? [])
+    .filter((i) => i.id !== installmentId && i.status !== "cancelled" && i.status !== "rejected")
+    .reduce((s, i) => s + Number(i.requested_amount), 0);
+  const remaining = Math.round((poValue - othersRequested) * 100) / 100;
+  if (requestedAmount - remaining > 0.005) {
+    return {
+      error: `Only ${formatExactAmount(remaining)} available on this PO (${formatExactAmount(poValue)} total, ${formatExactAmount(othersRequested)} on other installments).`,
+    };
+  }
+
+  // Update fields + flip back to pending_approval in one guarded write.
+  const { data: updated, error: upErr } = await supabase
+    .from("request_installments")
+    .update({
+      requested_amount: requestedAmount,
+      payment_due_date: paymentDueDate,
+      date_of_work_completion: dateOfWorkCompletion,
+      purpose: note,
+      status: "pending_approval",
+      rejection_reason: null,
+      return_reason: null,
+    })
+    .eq("id", installmentId)
+    .in("status", ["rejected", "returned_for_correction"])
+    .select("id");
+  if (upErr) return { error: upErr.message };
+  if (!updated || updated.length === 0) {
+    return { error: "Installment status changed while you were editing. Refresh and retry." };
+  }
+
+  await admin.from("status_history").insert({
+    request_id: inst.request_id,
+    installment_id: installmentId,
+    actor_id: user.id,
+    from_status: inst.status,
+    to_status: "pending_approval",
+    comment: `Installment #${inst.installment_number} edited and resubmitted (${formatExactAmount(requestedAmount)})`,
+  });
+
+  // New supporting documents for the corrected submission
+  if (files.length > 0) {
+    const rows: Array<Record<string, unknown>> = [];
+    for (const file of files) {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${inst.request_id}/installments/${installmentId}/${Date.now()}-${safe}`;
+      const buf = await file.arrayBuffer();
+      const { error: uploadErr } = await admin.storage
+        .from("request-attachments")
+        .upload(path, buf, { contentType: file.type || "application/octet-stream" });
+      if (uploadErr) continue;
+      rows.push({
+        request_id: inst.request_id,
+        stage: "request",
+        storage_path: path,
+        file_name: file.name,
+        file_size_bytes: file.size,
+        mime_type: file.type || null,
+        uploaded_by: user.id,
+      });
+    }
+    if (rows.length > 0) await admin.from("attachments").insert(rows);
+  }
+
+  await notifyApprovers({
+    requestId: inst.request_id,
+    requestNumber: thread.request_number as string,
+    installmentAmount: requestedAmount,
+    installmentNumber: inst.installment_number as number,
+    actorId: user.id,
+  });
+
+  revalidatePath(`/requests/${inst.request_id}`);
+  revalidatePath("/approvals");
+  return { info: `Installment #${inst.installment_number} resubmitted for approval.` };
+}
+
+// ---------------------------------------------------------------------------
+// Delete a supporting document (submitter / admin, request-stage only)
+// ---------------------------------------------------------------------------
+
+export async function deleteAttachment(formData: FormData): Promise<void> {
+  const attachmentId = String(formData.get("attachment_id") ?? "");
+  const requestId = String(formData.get("request_id") ?? "");
+  if (!attachmentId || !requestId) return;
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const [{ data: att }, { data: thread }, { data: roleRows }] = await Promise.all([
+    admin
+      .from("attachments")
+      .select("id, request_id, stage, storage_path")
+      .eq("id", attachmentId)
+      .single(),
+    admin.from("payment_requests").select("submitter_id").eq("id", requestId).single(),
+    supabase.from("user_roles").select("role").eq("user_id", user.id),
+  ]);
+  // Only request-stage docs are deletable — payment proofs and invoices are
+  // audit records and stay immutable.
+  if (!att || att.request_id !== requestId || att.stage !== "request") return;
+  const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
+  if (thread?.submitter_id !== user.id && !roles.has("admin")) return;
+
+  await admin.storage.from("request-attachments").remove([att.storage_path as string]);
+  await admin.from("attachments").delete().eq("id", attachmentId);
+  revalidatePath(`/requests/${requestId}`);
 }
 
 // ---------------------------------------------------------------------------

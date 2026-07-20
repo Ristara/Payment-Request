@@ -8,6 +8,7 @@ import InstallmentActions from "./installment-actions";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
 import DiscussionThread from "./discussion";
+import { deleteAttachment } from "@/app/requests/actions";
 import type { CommentItem, ThreadAttachment } from "./discussion";
 
 const DOC_TYPE_LABEL: Record<"po" | "invoice" | "no_invoice" | "invoice_pending", string> = {
@@ -431,6 +432,24 @@ export default async function ThreadDetailPage({
                       isApprover={isApprover}
                       isAccounts={isAccounts}
                       isAdmin={isAdmin}
+                      requestedAmount={Number(inst.requested_amount)}
+                      paymentDueDate={inst.payment_due_date}
+                      dateOfWorkCompletion={inst.date_of_work_completion}
+                      note={inst.purpose}
+                      maxAmount={Math.max(
+                        0,
+                        Math.round(
+                          (poValue -
+                            installments
+                              .filter(
+                                (o) =>
+                                  o.id !== inst.id &&
+                                  o.status !== "cancelled" &&
+                                  o.status !== "rejected",
+                              )
+                              .reduce((s, o) => s + Number(o.requested_amount), 0)) * 100,
+                        ) / 100,
+                      )}
                     />
                   </div>
                 </li>
@@ -458,7 +477,12 @@ export default async function ThreadDetailPage({
           {/* Attachments — Request stage */}
           {requestStageAtt.length > 0 && (
             <Card title={`Supporting documents (${requestStageAtt.length})`}>
-              <AttachmentsGrid items={requestStageAtt} urlByPath={urlByPath} />
+              <AttachmentsGrid
+                items={requestStageAtt}
+                urlByPath={urlByPath}
+                canDelete={isSubmitter || isAdmin}
+                requestId={req.id}
+              />
             </Card>
           )}
 
@@ -565,9 +589,13 @@ function MoneyChip({ label, value, tone = "zinc" }: { label: string; value: numb
 function AttachmentsGrid({
   items,
   urlByPath,
+  canDelete = false,
+  requestId,
 }: {
   items: { id: string; storage_path: string; file_name: string; file_size_bytes: number; mime_type: string | null }[];
   urlByPath: Map<string, string>;
+  canDelete?: boolean;
+  requestId?: string;
 }) {
   return (
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -575,7 +603,21 @@ function AttachmentsGrid({
         const url = urlByPath.get(a.storage_path);
         const isImage = (a.mime_type ?? "").startsWith("image/");
         return (
-          <li key={a.id} className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+          <li key={a.id} className="relative overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+            {canDelete && requestId && (
+              <form action={deleteAttachment} className="absolute right-1 top-1 z-10">
+                <input type="hidden" name="attachment_id" value={a.id} />
+                <input type="hidden" name="request_id" value={requestId} />
+                <button
+                  type="submit"
+                  aria-label={`Delete ${a.file_name}`}
+                  title="Delete document"
+                  className="flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-xs text-white hover:bg-red-600"
+                >
+                  ✕
+                </button>
+              </form>
+            )}
             {url ? (
               <a href={url} target="_blank" rel="noopener noreferrer" className="block">
                 {isImage ? (
