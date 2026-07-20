@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { addComment, setQuestionState } from "@/app/requests/actions";
+import { addComment } from "@/app/requests/actions";
 import { avatarColor, initials, timeShort } from "@/lib/routing";
 
 export type ThreadAttachment = {
@@ -20,8 +20,6 @@ export type CommentItem = {
   author_name: string;
   author_email: string;
   is_me: boolean;
-  is_question: boolean;
-  question_state: string | null;
   mentioned_names: string[];
   attachments: ThreadAttachment[];
 };
@@ -49,7 +47,6 @@ export default function DiscussionThread({
 
   const [mentions, setMentions] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
-  const [isQuestion, setIsQuestion] = useState(false);
 
   // Inline @-mention autocomplete state
   const [body, setBody] = useState("");
@@ -137,7 +134,6 @@ export default function DiscussionThread({
       setBody("");
       setMentions([]);
       setFiles([]);
-      setIsQuestion(false);
       setMentionQuery(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -200,9 +196,7 @@ export default function DiscussionThread({
                     className={`whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-relaxed shadow-sm ${
                       c.is_me
                         ? "rounded-tr-sm bg-indigo-600 text-white"
-                        : c.is_question
-                          ? "rounded-tl-sm bg-amber-50 text-zinc-900 dark:bg-amber-950 dark:text-amber-100"
-                          : "rounded-tl-sm bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                        : "rounded-tl-sm bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
                     }`}
                   >
                     {c.mentioned_names.length > 0 && (
@@ -216,12 +210,6 @@ export default function DiscussionThread({
                         {c.attachments.map((a) => (
                           <ChatAttachment key={a.id} a={a} dark={c.is_me} />
                         ))}
-                      </div>
-                    )}
-                    {c.is_question && (
-                      <div className={`mt-2 flex items-center gap-2 text-[11px] ${c.is_me ? "text-indigo-100" : "text-amber-800 dark:text-amber-300"}`}>
-                        <span>Question:</span>
-                        <QuestionStateChip state={c.question_state ?? "open"} commentId={c.id} requestId={requestId} isMe={c.is_me} />
                       </div>
                     )}
                   </div>
@@ -331,16 +319,6 @@ export default function DiscussionThread({
           >
             📎 Attach
           </button>
-          <label className="inline-flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
-            <input
-              type="checkbox"
-              name="is_question"
-              checked={isQuestion}
-              onChange={(e) => setIsQuestion(e.target.checked)}
-            />
-            This is a question
-          </label>
-
           <div className="ml-auto flex items-center gap-3">
             <div className="text-xs">
               {state?.error && <span className="text-red-600">{state.error}</span>}
@@ -385,37 +363,3 @@ function ChatAttachment({ a, dark }: { a: ThreadAttachment; dark: boolean }) {
   );
 }
 
-function QuestionStateChip({
-  state,
-  commentId,
-  requestId,
-  isMe,
-}: {
-  state: string;
-  commentId: string;
-  requestId: string;
-  isMe: boolean;
-}) {
-  const label = state === "open" ? "Open" : state === "answered" ? "Answered" : "Resolved";
-  return (
-    <form action={setQuestionState} className="inline-flex items-center gap-1">
-      <input type="hidden" name="comment_id" value={commentId} />
-      <input type="hidden" name="request_id" value={requestId} />
-      <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-        state === "resolved" || state === "answered"
-          ? isMe ? "bg-emerald-500/30" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-          : isMe ? "bg-white/20" : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
-      }`}>{label}</span>
-      {state === "open" && (
-        <>
-          <button name="state" value="answered" type="submit" className="text-[10px] underline">
-            mark answered
-          </button>
-          <button name="state" value="resolved" type="submit" className="text-[10px] underline">
-            resolved
-          </button>
-        </>
-      )}
-    </form>
-  );
-}

@@ -122,7 +122,7 @@ export default async function ThreadDetailPage({
     supabase
       .from("comments")
       .select(
-        `id, body, created_at, author_id, is_question, question_state,
+        `id, body, created_at, author_id,
          author:profiles!comments_author_id_fkey(full_name, email),
          mentions:comment_mentions(mentioned_user_id, mentioned:profiles!comment_mentions_mentioned_user_id_fkey(full_name)),
          attachments:attachments(id, storage_path, file_name, file_size_bytes, mime_type)`,
@@ -192,8 +192,6 @@ export default async function ThreadDetailPage({
     body: string;
     created_at: string;
     author_id: string;
-    is_question: boolean | null;
-    question_state: string | null;
     author: { full_name: string; email: string } | null;
     mentions: { mentioned: { full_name: string } | null }[];
     attachments: {
@@ -228,8 +226,6 @@ export default async function ThreadDetailPage({
     author_name: c.author?.full_name ?? "—",
     author_email: c.author?.email ?? "",
     is_me: c.author_id === user!.id,
-    is_question: !!c.is_question,
-    question_state: c.question_state ?? null,
     mentioned_names: (c.mentions ?? []).map((m) => m.mentioned?.full_name ?? "").filter(Boolean),
     attachments: (c.attachments ?? []).map((a): ThreadAttachment => ({
       id: a.id,

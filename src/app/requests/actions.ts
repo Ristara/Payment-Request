@@ -897,7 +897,6 @@ export async function addComment(
   const body = String(formData.get("body") ?? "").trim();
   const mentions = formData.getAll("mentions").map((s) => String(s)).filter(Boolean);
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
-  const isQuestion = formData.get("is_question") === "on";
 
   if (!requestId) return { error: "Missing request." };
   if (!body && files.length === 0) return { error: "Type a message or attach a file." };
@@ -913,8 +912,6 @@ export async function addComment(
       request_id: requestId,
       author_id: user.id,
       body: body || "(attachment)",
-      is_question: isQuestion,
-      question_state: isQuestion ? "open" : null,
     })
     .select("id")
     .single();
@@ -944,9 +941,11 @@ export async function addComment(
     });
   }
 
-  // A question pauses pending installments regardless of whether anyone was
-  // @mentioned — the question itself is the blocker, not the mention.
-  if (isQuestion) {
+  // Any message on a thread with pending installments flags them as
+  // "Clarification required" — active discussion means the approver should
+  // read before acting. Approving directly from that state is allowed and
+  // is what "resolves" the discussion.
+  {
     const { data: pendingInsts } = await supabase
       .from("request_installments")
       .select("id, status")
@@ -954,7 +953,7 @@ export async function addComment(
       .eq("status", "pending_approval");
     for (const inst of pendingInsts ?? []) {
       try {
-        await transitionInstallment(inst.id, "clarification_required", body.slice(0, 200));
+        await transitionInstallment(inst.id, "clarification_required", body.slice(0, 200) || "New discussion message");
       } catch { /* best-effort */ }
     }
   }
@@ -984,40 +983,6 @@ export async function addComment(
 
   revalidatePath(`/requests/${requestId}`);
   return { info: "Sent." };
-}
-
-export async function setQuestionState(formData: FormData): Promise<void> {
-  const commentId = String(formData.get("comment_id") ?? "");
-  const state = String(formData.get("state") ?? "");
-  const requestId = String(formData.get("request_id") ?? "");
-  if (!commentId || !["open", "answered", "resolved"].includes(state)) return;
-  const supabase = await createClient();
-  await supabase.from("comments").update({ question_state: state }).eq("id", commentId);
-
-  // Move clarification_required installments back to pending_approval when all
-  // questions on the thread are non-open.
-  if (requestId) {
-    const { data: open } = await supabase
-      .from("comments")
-      .select("id", { count: "exact", head: true })
-      .eq("request_id", requestId)
-      .eq("is_question", true)
-      .eq("question_state", "open");
-    const stillOpen = ((open as unknown as { count?: number })?.count ?? 0) > 0;
-    if (!stillOpen) {
-      const { data: waiting } = await supabase
-        .from("request_installments")
-        .select("id")
-        .eq("request_id", requestId)
-        .eq("status", "clarification_required");
-      for (const inst of waiting ?? []) {
-        try {
-          await transitionInstallment(inst.id, "pending_approval", "Clarifications resolved");
-        } catch { /* best-effort */ }
-      }
-    }
-  }
-  revalidatePath(`/requests/${requestId}`);
 }
 
 // ---------------------------------------------------------------------------

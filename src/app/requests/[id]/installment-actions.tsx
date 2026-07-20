@@ -47,7 +47,12 @@ export default function InstallmentActions({
 
   const [open, setOpen] = useState<null | "reject" | "return" | "cancel" | "bank" | "pay" | "invoice">(null);
 
-  const canApprove = (isApprover || isAdmin) && status === "pending_approval" && vendorStatus === "approved";
+  // Approve is allowed from clarification_required too — reading the
+  // discussion and hitting Approve is what resolves it.
+  const canApprove =
+    (isApprover || isAdmin) &&
+    ["pending_approval", "clarification_required"].includes(status) &&
+    vendorStatus === "approved";
   const canRejectReturn = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
   const canBankUpload = (isAccounts || isAdmin) && status === "approved";
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
