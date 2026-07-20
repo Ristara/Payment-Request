@@ -36,7 +36,10 @@ export default async function VendorsPage({
     .order("created_at", { ascending: false });
 
   if (status !== "all") query = query.eq("status", status);
-  if (q) query = query.ilike("name", `%${q}%`);
+  if (q) {
+    const safe = q.replace(/[%,()]/g, "").trim();
+    if (safe) query = query.or(`name.ilike.%${safe}%,gstin.ilike.%${safe}%,pan.ilike.%${safe}%`);
+  }
 
   const [listRes, countRes] = await Promise.all([
     query,
@@ -65,13 +68,48 @@ export default async function VendorsPage({
         action={{ href: "/vendors/new", label: "+ New vendor" }}
       />
 
-      <div className="mt-6 -mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800">
+      {/* Search — GET form so the query lands in the URL and survives tab switches */}
+      <form method="GET" action="/vendors" className="mt-6 flex max-w-md items-center gap-2">
+        {status !== "all" && <input type="hidden" name="status" value={status} />}
+        <div className="relative flex-1">
+          <svg
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path strokeLinecap="round" d="M21 21l-4.35-4.35" />
+          </svg>
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="Search vendor name, GSTIN, PAN…"
+            className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </div>
+        <button className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+          Search
+        </button>
+        {q && (
+          <Link
+            href={`/vendors${status !== "all" ? `?status=${status}` : ""}`}
+            className="text-xs text-zinc-500 hover:underline"
+          >
+            Clear
+          </Link>
+        )}
+      </form>
+
+      <div className="mt-4 -mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800">
         {tabs.map((t) => {
           const active = (status || "all") === t.key;
           return (
             <Link
               key={t.key}
-              href={`/vendors?status=${t.key}${q ? `&q=${q}` : ""}`}
+              href={`/vendors?status=${t.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
               className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
                 active
                   ? "border-indigo-600 font-medium text-indigo-700 dark:text-indigo-300"
