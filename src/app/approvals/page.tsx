@@ -91,7 +91,7 @@ export default async function ApprovalsPage({
   });
 
   const tabs = [
-    { key: "waiting", label: "Waiting", badge: waitingCount },
+    { key: "waiting", label: "Pending approval", badge: waitingCount },
     { key: "approved", label: "Approved" },
     { key: "rejected", label: "Rejected" },
   ] as const;
