@@ -34,16 +34,20 @@ function newLine(): LineRow {
  * Subsequent installments (2nd, 3rd, …) are raised from the thread's
  * detail page, not here.
  */
+type Person = { id: string; full_name: string; email: string };
+
 export default function RequestForm({
   vendors,
   outlets,
   coaAccounts,
   reservedNumber,
+  people,
 }: {
   vendors: Vendor[];
   outlets: Outlet[];
   coaAccounts: CoaAccount[];
   reservedNumber: string | null;
+  people: Person[];
 }) {
   const [state, formAction, pending] = useActionState(createThread, undefined);
 
@@ -54,6 +58,8 @@ export default function RequestForm({
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
+  const [ccIds, setCcIds] = useState<string[]>([]);
+  const ccPeople = people.filter((p) => ccIds.includes(p.id));
 
   const refEnabled = docType === "po" || docType === "invoice";
   const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
@@ -493,6 +499,49 @@ export default function RequestForm({
           placeholder="Business justification, scope of work, period covered…"
           className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />
+      </section>
+
+      {/* CC — loop people in for visibility */}
+      <section>
+        <SectionTitle>CC (optional)</SectionTitle>
+        <p className="mt-1 text-xs text-zinc-500">
+          Loop in anyone who should be informed about this payment. They can view the
+          thread and get notified, but don&apos;t need to act.
+        </p>
+        <div className="mt-2">
+          <Combobox
+            value=""
+            onChange={(id) => {
+              if (id) setCcIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+            }}
+            placeholder="Search a person to CC…"
+            ariaLabel="CC person"
+            options={people
+              .filter((p) => !ccIds.includes(p.id))
+              .map<ComboOption>((p) => ({ value: p.id, label: p.full_name, hint: p.email }))}
+          />
+        </div>
+        {ccPeople.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {ccPeople.map((p) => (
+              <span
+                key={p.id}
+                className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200"
+              >
+                {p.full_name}
+                <button
+                  type="button"
+                  onClick={() => setCcIds((prev) => prev.filter((x) => x !== p.id))}
+                  aria-label={`Remove ${p.full_name} from CC`}
+                  className="text-indigo-500 hover:text-indigo-800"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <input type="hidden" name="cc_user_ids" value={JSON.stringify(ccIds)} />
       </section>
 
       {/* Supporting documents — Zoho Expense-style drop zone with previews */}

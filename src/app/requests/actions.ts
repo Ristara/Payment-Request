@@ -64,6 +64,11 @@ export async function createThread(
   }
   const purpose = String(formData.get("purpose") ?? "").trim();
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  let ccUserIds: string[] = [];
+  try {
+    ccUserIds = JSON.parse(String(formData.get("cc_user_ids") ?? "[]")) as string[];
+  } catch { /* optional field */ }
+  ccUserIds = Array.from(new Set(ccUserIds.filter((s) => typeof s === "string" && s && s !== user.id)));
 
   // ------ Validation ------
   if (!vendor_id) return { error: "Pick a vendor." };
@@ -235,6 +240,32 @@ export async function createThread(
       });
     }
     if (rows.length > 0) await admin.from("attachments").insert(rows);
+  }
+
+  // ------ CC watchers: visibility + a heads-up notification ------
+  if (ccUserIds.length > 0) {
+    const { error: ccErr } = await admin.from("request_watchers").insert(
+      ccUserIds.map((uid) => ({ request_id: requestId, user_id: uid, added_by: user.id })),
+    );
+    if (ccErr) console.error("[createThread] watchers insert failed:", ccErr);
+    else {
+      await admin.from("notifications").insert(
+        ccUserIds.map((recipient_id) => ({
+          recipient_id,
+          actor_id: user.id,
+          kind: "mentioned",
+          request_id: requestId,
+          body: `You were CC'd on ${requestNumber}`,
+        })),
+      );
+      const { data: submitterName } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
+      await sendPushToUsers(ccUserIds, {
+        title: `${submitterName?.full_name ?? "Someone"} CC'd you`,
+        body: `${requestNumber} · ${formatShortAmount(installment_amount)}`,
+        url: `/requests/${requestId}`,
+        tag: `request-${requestId}`,
+      });
+    }
   }
 
   // ------ Notifications to approvers ------

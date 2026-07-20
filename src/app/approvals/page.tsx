@@ -15,27 +15,56 @@ type Row = {
     id: string;
     request_number: string;
     vendor: { name: string; status: string } | null;
+    comments: {
+      id: string;
+      created_at: string;
+      author_id: string;
+      comment_mentions: { mentioned_user_id: string }[];
+    }[];
   } | null;
   submitter: { full_name: string } | null;
 };
 
 export default async function ApprovalsPage() {
-  const { roles } = await getCurrentUserRoles();
+  const { user, roles } = await getCurrentUserRoles();
   if (!roles.includes("approver") && !roles.includes("admin")) redirect("/dashboard");
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("request_installments")
-    .select(
-      `id, installment_number, requested_amount, payment_due_date, status,
-       request:payment_requests!inner(id, request_number,
-         vendor:vendors(name, status)),
-       submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
-    )
-    .in("status", ["pending_approval", "clarification_required"])
-    .order("payment_due_date");
+  const [{ data }, readsRes] = await Promise.all([
+    supabase
+      .from("request_installments")
+      .select(
+        `id, installment_number, requested_amount, payment_due_date, status,
+         request:payment_requests!inner(id, request_number,
+           vendor:vendors(name, status),
+           comments(id, created_at, author_id, comment_mentions(mentioned_user_id))),
+         submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
+      )
+      .in("status", ["pending_approval", "clarification_required"])
+      .order("payment_due_date"),
+    supabase.from("request_reads").select("request_id, last_read_at").eq("user_id", user!.id),
+  ]);
 
-  const rows = (data ?? []) as unknown as Row[];
+  const lastReadByThread = new Map(
+    ((readsRes.data ?? []) as { request_id: string; last_read_at: string }[]).map((r) => [
+      r.request_id,
+      new Date(r.last_read_at).getTime(),
+    ]),
+  );
+
+  const rows = ((data ?? []) as unknown as Row[]).map((r) => {
+    const lastRead = r.request ? (lastReadByThread.get(r.request.id) ?? 0) : 0;
+    const unread = (r.request?.comments ?? []).filter(
+      (c) => c.author_id !== user!.id && new Date(c.created_at).getTime() > lastRead,
+    );
+    return {
+      ...r,
+      unreadCount: unread.length,
+      mentionedUnread: unread.some((c) =>
+        (c.comment_mentions ?? []).some((m) => m.mentioned_user_id === user!.id),
+      ),
+    };
+  });
 
   return (
     <div>
@@ -60,8 +89,9 @@ export default async function ApprovalsPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="font-mono text-[11px] text-zinc-500">
+                      <p className="flex items-center gap-1.5 font-mono text-[11px] text-zinc-500">
                         {r.request?.request_number} · #{r.installment_number}
+                        <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
                       </p>
                       <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
                         {r.request?.vendor?.name}
@@ -105,7 +135,10 @@ export default async function ApprovalsPage() {
                   {rows.map((r) => (
                     <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                       <td className="px-5 py-3 font-mono text-xs">
-                        {r.request?.request_number} · #{r.installment_number}
+                        <span className="inline-flex items-center gap-2">
+                          {r.request?.request_number} · #{r.installment_number}
+                          <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
+                        </span>
                       </td>
                       <td className="px-5 py-3">
                         {r.request?.vendor?.name}
@@ -142,6 +175,22 @@ function StatusPill({ status }: { status: string }) {
   return (
     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${color}`}>
       {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+function DiscussionBadges({ unreadCount, mentioned }: { unreadCount: number; mentioned: boolean }) {
+  if (unreadCount === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-indigo-600 px-1.5 font-sans text-[10px] font-bold text-white">
+        {unreadCount > 99 ? "99+" : unreadCount}
+      </span>
+      {mentioned && (
+        <span className="inline-flex h-5 items-center rounded-full bg-amber-500 px-1.5 font-sans text-[10px] font-bold text-white">
+          @ you
+        </span>
+      )}
     </span>
   );
 }

@@ -50,7 +50,83 @@ export default function DiscussionThread({
   const [mentions, setMentions] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [isQuestion, setIsQuestion] = useState(false);
-  const [showMentionPicker, setShowMentionPicker] = useState(false);
+
+  // Inline @-mention autocomplete state
+  const [body, setBody] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  const suggestions =
+    mentionQuery === null
+      ? []
+      : candidates
+          .filter((c) => {
+            const q = mentionQuery.toLowerCase();
+            return (
+              !q ||
+              c.full_name.toLowerCase().includes(q) ||
+              c.email.toLowerCase().includes(q)
+            );
+          })
+          .slice(0, 6);
+
+  function detectMention(value: string, caret: number) {
+    // Look backwards from the caret for an "@" that starts a mention token
+    // (start of text or preceded by whitespace), with no whitespace between
+    // it and the caret beyond single spaces inside a name.
+    const upto = value.slice(0, caret);
+    const at = upto.lastIndexOf("@");
+    if (at === -1) return null;
+    if (at > 0 && !/\s/.test(upto[at - 1])) return null;
+    const token = upto.slice(at + 1);
+    if (token.includes("\n") || token.length > 40) return null;
+    return { start: at, query: token };
+  }
+
+  function onBodyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setBody(value);
+    const hit = detectMention(value, e.target.selectionStart ?? value.length);
+    if (hit) {
+      setMentionQuery(hit.query);
+      setMentionStart(hit.start);
+      setActiveIdx(0);
+    } else {
+      setMentionQuery(null);
+    }
+  }
+
+  function pickSuggestion(c: Candidate) {
+    const caret = textareaRef.current?.selectionStart ?? body.length;
+    const next = `${body.slice(0, mentionStart)}@${c.full_name} ${body.slice(caret)}`;
+    setBody(next);
+    setMentions((prev) => (prev.includes(c.id) ? prev : [...prev, c.id]));
+    setMentionQuery(null);
+    // Restore focus + caret just after the inserted name.
+    requestAnimationFrame(() => {
+      const pos = mentionStart + c.full_name.length + 2;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(pos, pos);
+    });
+  }
+
+  function onBodyKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionQuery === null || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      pickSuggestion(suggestions[activeIdx]);
+    } else if (e.key === "Escape") {
+      setMentionQuery(null);
+    }
+  }
 
   // No router.refresh() here — addComment's revalidatePath already returns
   // the fresh RSC tree with the action response; refreshing again re-rendered
@@ -58,9 +134,11 @@ export default function DiscussionThread({
   useEffect(() => {
     if (state?.info) {
       formRef.current?.reset();
+      setBody("");
       setMentions([]);
       setFiles([]);
       setIsQuestion(false);
+      setMentionQuery(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }, [state]);
@@ -188,12 +266,47 @@ export default function DiscussionThread({
           </div>
         )}
 
-        <textarea
-          name="body"
-          rows={2}
-          placeholder={mentions.length > 0 ? `Message @${candidates.find((c) => c.id === mentions[0])?.full_name.split(" ")[0]}…` : "Write a message…"}
-          className="w-full resize-none rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-        />
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            name="body"
+            rows={2}
+            value={body}
+            onChange={onBodyChange}
+            onKeyDown={onBodyKeyDown}
+            placeholder="Write a message… type @ to tag someone"
+            className="w-full resize-none rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          />
+          {mentionQuery !== null && suggestions.length > 0 && (
+            <ul className="absolute left-2 top-full z-20 -mt-1 w-72 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              {suggestions.map((c, i) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickSuggestion(c);
+                    }}
+                    onMouseEnter={() => setActiveIdx(i)}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                      i === activeIdx
+                        ? "bg-indigo-50 dark:bg-indigo-950/60"
+                        : ""
+                    }`}
+                  >
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${avatarColor(c.email)}`}>
+                      {initials(c.full_name)}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-zinc-900 dark:text-zinc-100">{c.full_name}</span>
+                      <span className="block truncate text-[11px] text-zinc-500">{c.email}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <input ref={fileInputRef} type="file" name="attachments" multiple className="hidden" onChange={onFilePicked} />
 
@@ -217,17 +330,6 @@ export default function DiscussionThread({
             className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
           >
             📎 Attach
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowMentionPicker((v) => !v)}
-            className={`rounded-md border px-3 py-1.5 text-xs ${
-              showMentionPicker || mentions.length > 0
-                ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200"
-                : "border-zinc-300 dark:border-zinc-700"
-            }`}
-          >
-            @ Mention
           </button>
           <label className="inline-flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
             <input
@@ -254,25 +356,6 @@ export default function DiscussionThread({
           </div>
         </div>
 
-        {showMentionPicker && (
-          <div className="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-xs text-zinc-500">Pick who to mention:</p>
-            <ul className="mt-2 grid gap-1 sm:grid-cols-2">
-              {candidates.map((c) => {
-                const on = mentions.includes(c.id);
-                return (
-                  <li key={c.id}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                      <input type="checkbox" checked={on} onChange={() => toggleMention(c.id)} />
-                      <span className="text-zinc-800 dark:text-zinc-200">{c.full_name}</span>
-                      <span className="text-zinc-500">{c.email}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
       </form>
     </div>
   );

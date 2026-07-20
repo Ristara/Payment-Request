@@ -8,6 +8,7 @@ type ThreadRow = {
   id: string;
   request_number: string;
   created_at: string;
+  submitter_id: string;
   vendor: { name: string } | null;
   line_items: { amount: number }[];
   installments: {
@@ -35,18 +36,30 @@ export default async function MyRequestsPage({
   const { page: pageRaw } = await searchParams;
   const page = Math.max(0, Number(pageRaw) || 0);
   const supabase = await createClient();
+
+  // Threads I'm CC'd on show alongside my own.
+  const { data: watcherRows } = await supabase
+    .from("request_watchers")
+    .select("request_id")
+    .eq("user_id", user.id);
+  const watchedIds = ((watcherRows ?? []) as { request_id: string }[]).map((w) => w.request_id);
+  const ownershipFilter =
+    watchedIds.length > 0
+      ? `submitter_id.eq.${user.id},id.in.(${watchedIds.join(",")})`
+      : `submitter_id.eq.${user.id}`;
+
   const [{ data, count }, readsRes] = await Promise.all([
     supabase
       .from("payment_requests")
       .select(
-        `id, request_number, created_at,
+        `id, request_number, created_at, submitter_id,
          vendor:vendors(name),
          line_items:request_line_items(amount),
          installments:request_installments(installment_number, status, requested_amount, payment_due_date),
          comments(id, created_at, author_id, comment_mentions(mentioned_user_id))`,
         { count: "exact" },
       )
-      .eq("submitter_id", user.id)
+      .or(ownershipFilter)
       .order("created_at", { ascending: false })
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1),
     supabase.from("request_reads").select("request_id, last_read_at").eq("user_id", user.id),
@@ -87,6 +100,7 @@ export default async function MyRequestsPage({
       requestedTotal,
       unreadCount: unread.length,
       mentionedUnread,
+      isCc: r.submitter_id !== user.id,
     };
   });
 
@@ -111,7 +125,14 @@ export default async function MyRequestsPage({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
+                      <p className="font-mono text-[11px] text-zinc-500">
+                        {r.request_number}
+                        {r.isCc && (
+                          <span className="ml-1.5 rounded bg-zinc-200 px-1 py-0.5 font-sans text-[9px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                            CC
+                          </span>
+                        )}
+                      </p>
                       <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
                         {r.vendor?.name ?? "—"}
                       </p>
@@ -155,6 +176,11 @@ export default async function MyRequestsPage({
                       <td className="px-5 py-3 font-mono text-xs">
                         <span className="inline-flex items-center gap-2">
                           {r.request_number}
+                          {r.isCc && (
+                            <span className="rounded bg-zinc-200 px-1 py-0.5 font-sans text-[9px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                              CC
+                            </span>
+                          )}
                           <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
                         </span>
                       </td>

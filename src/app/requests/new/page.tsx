@@ -10,11 +10,11 @@ import RequestForm from "./request-form";
 export const dynamic = "force-dynamic";
 
 export default async function NewRequestPage() {
-  await requireUser();
+  const user = await requireUser();
   const supabase = await createClient();
   const admin = createAdminClient();
 
-  const [vendorsRes, outlets, coaAccounts, seqRes] = await Promise.all([
+  const [vendorsRes, outlets, coaAccounts, seqRes, peopleRes] = await Promise.all([
     supabase
       .from("vendors")
       .select("id, name, gstin, status")
@@ -23,9 +23,16 @@ export default async function NewRequestPage() {
     getActiveOutlets(),
     getActiveCoaAccounts(),
     admin.rpc("next_request_number"),
+    supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("is_active", true)
+      .order("full_name"),
   ]);
   const vendors = { data: vendorsRes.data };
   const reservedNumber = typeof seqRes.data === "string" ? seqRes.data : null;
+  const people = ((peopleRes.data ?? []) as { id: string; full_name: string; email: string }[])
+    .filter((p) => p.id !== user.id);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -59,6 +66,7 @@ export default async function NewRequestPage() {
           outlets={outlets as { id: string; code: string; name: string }[]}
           coaAccounts={coaAccounts as { id: string; code: number; subcategory: string; category: string; coa: string }[]}
           reservedNumber={reservedNumber}
+          people={people}
         />
       </div>
     </div>
