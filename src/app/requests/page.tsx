@@ -238,7 +238,7 @@ export default async function MyRequestsPage({
                       <td className="px-5 py-3 text-zinc-500">{r.installmentCount}</td>
                       <td className="px-5 py-3"><StatusPill status={r.latestStatus} /></td>
                       <td className="px-5 py-3 text-right">
-                        <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">Open →</Link>
+                        <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">View →</Link>
                       </td>
                     </tr>
                   ))}

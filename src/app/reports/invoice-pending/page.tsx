@@ -79,7 +79,7 @@ export default async function InvoicePendingReport() {
                     </td>
                     <td className="px-5 py-2 text-right">
                       <Link href={`/requests/${r.request?.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                        Open →
+                        View →
                       </Link>
                     </td>
                   </tr>

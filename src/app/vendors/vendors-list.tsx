@@ -127,7 +127,7 @@ export default function VendorsList({ vendors }: { vendors: VendorListItem[] }) 
                       <td className="px-5 py-3 text-zinc-600 dark:text-zinc-400">{v.submitter_name ?? "—"}</td>
                       <td className="px-5 py-3"><VendorStatusPill status={v.status} /></td>
                       <td className="px-5 py-3 text-right">
-                        <Link href={`/vendors/${v.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">Open →</Link>
+                        <Link href={`/vendors/${v.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">View →</Link>
                       </td>
                     </tr>
                   ))}

@@ -73,7 +73,7 @@ export default async function CashflowReport() {
                         <td className="px-5 py-2 text-zinc-500">{r.payment_due_date}</td>
                         <td className="px-5 py-2 text-right">
                           <Link href={`/requests/${r.request?.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                            Open →
+                            View →
                           </Link>
                         </td>
                       </tr>
