@@ -16,6 +16,12 @@ type ThreadRow = {
     requested_amount: number;
     payment_due_date: string;
   }[];
+  comments: {
+    id: string;
+    created_at: string;
+    author_id: string;
+    comment_mentions: { mentioned_user_id: string }[];
+  }[];
 };
 
 const PAGE_SIZE = 50;
@@ -29,20 +35,30 @@ export default async function MyRequestsPage({
   const { page: pageRaw } = await searchParams;
   const page = Math.max(0, Number(pageRaw) || 0);
   const supabase = await createClient();
-  const { data, count } = await supabase
-    .from("payment_requests")
-    .select(
-      `id, request_number, created_at,
-       vendor:vendors(name),
-       line_items:request_line_items(amount),
-       installments:request_installments(installment_number, status, requested_amount, payment_due_date)`,
-      { count: "exact" },
-    )
-    .eq("submitter_id", user.id)
-    .order("created_at", { ascending: false })
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+  const [{ data, count }, readsRes] = await Promise.all([
+    supabase
+      .from("payment_requests")
+      .select(
+        `id, request_number, created_at,
+         vendor:vendors(name),
+         line_items:request_line_items(amount),
+         installments:request_installments(installment_number, status, requested_amount, payment_due_date),
+         comments(id, created_at, author_id, comment_mentions(mentioned_user_id))`,
+        { count: "exact" },
+      )
+      .eq("submitter_id", user.id)
+      .order("created_at", { ascending: false })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1),
+    supabase.from("request_reads").select("request_id, last_read_at").eq("user_id", user.id),
+  ]);
   const rows = (data ?? []) as unknown as ThreadRow[];
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+  const lastReadByThread = new Map(
+    ((readsRes.data ?? []) as { request_id: string; last_read_at: string }[]).map((r) => [
+      r.request_id,
+      new Date(r.last_read_at).getTime(),
+    ]),
+  );
 
   const withSummary = rows.map((r) => {
     const poValue = r.line_items.reduce((s, l) => s + Number(l.amount), 0);
@@ -51,6 +67,17 @@ export default async function MyRequestsPage({
     const requestedTotal = insts
       .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
       .reduce((s, i) => s + Number(i.requested_amount), 0);
+
+    // Unread = comments by others newer than my read marker (all of them if
+    // I've never opened the thread). Mentioned = one of those tags me.
+    const lastRead = lastReadByThread.get(r.id) ?? 0;
+    const unread = (r.comments ?? []).filter(
+      (c) => c.author_id !== user.id && new Date(c.created_at).getTime() > lastRead,
+    );
+    const mentionedUnread = unread.some((c) =>
+      (c.comment_mentions ?? []).some((m) => m.mentioned_user_id === user.id),
+    );
+
     return {
       ...r,
       poValue,
@@ -58,6 +85,8 @@ export default async function MyRequestsPage({
       latestDue: latest?.payment_due_date ?? null,
       installmentCount: insts.length,
       requestedTotal,
+      unreadCount: unread.length,
+      mentionedUnread,
     };
   });
 
@@ -87,7 +116,10 @@ export default async function MyRequestsPage({
                         {r.vendor?.name ?? "—"}
                       </p>
                     </div>
-                    <StatusPill status={r.latestStatus} />
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <StatusPill status={r.latestStatus} />
+                      <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
+                    </div>
                   </div>
                   <div className="mt-2 flex items-baseline justify-between text-xs">
                     <span className="font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
@@ -120,7 +152,12 @@ export default async function MyRequestsPage({
                 <tbody>
                   {withSummary.map((r) => (
                     <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                      <td className="px-5 py-3 font-mono text-xs">{r.request_number}</td>
+                      <td className="px-5 py-3 font-mono text-xs">
+                        <span className="inline-flex items-center gap-2">
+                          {r.request_number}
+                          <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
+                        </span>
+                      </td>
                       <td className="px-5 py-3">{r.vendor?.name ?? "—"}</td>
                       <td className="px-5 py-3 text-right tabular-nums">{formatINR(r.poValue)}</td>
                       <td className="px-5 py-3 text-right tabular-nums text-zinc-600">{formatINR(r.requestedTotal)}</td>
@@ -156,6 +193,26 @@ export default async function MyRequestsPage({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * WhatsApp-style discussion badges: an indigo unread-count pill, plus an
+ * amber "@ you" pill when one of the unread comments tags the viewer.
+ */
+function DiscussionBadges({ unreadCount, mentioned }: { unreadCount: number; mentioned: boolean }) {
+  if (unreadCount === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-indigo-600 px-1.5 text-[10px] font-bold text-white">
+        {unreadCount > 99 ? "99+" : unreadCount}
+      </span>
+      {mentioned && (
+        <span className="inline-flex h-5 items-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+          @ you
+        </span>
+      )}
+    </span>
   );
 }
 

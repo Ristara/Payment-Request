@@ -6,6 +6,7 @@ import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
 import InstallmentActions from "./installment-actions";
 import RaiseInstallmentPanel from "./raise-installment";
+import MarkRead from "./mark-read";
 import DiscussionThread from "./discussion";
 import type { CommentItem, ThreadAttachment } from "./discussion";
 
@@ -255,6 +256,7 @@ export default async function ThreadDetailPage({
 
   return (
     <div>
+      <MarkRead requestId={req.id} />
       <div className="mb-4 text-sm">
         <Link href={isSubmitter ? "/requests" : "/approvals"} className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
           ← Back

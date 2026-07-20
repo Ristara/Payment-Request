@@ -990,6 +990,23 @@ export async function setQuestionState(formData: FormData): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Thread read marker — powers unread badges on the request lists
+// ---------------------------------------------------------------------------
+
+export async function markThreadRead(requestId: string): Promise<void> {
+  if (!requestId) return;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase
+    .from("request_reads")
+    .upsert(
+      { request_id: requestId, user_id: user.id, last_read_at: new Date().toISOString() },
+      { onConflict: "request_id,user_id" },
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Notifications: mark read
 // ---------------------------------------------------------------------------
 
