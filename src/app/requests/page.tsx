@@ -27,13 +27,24 @@ type ThreadRow = {
 
 const PAGE_SIZE = 50;
 
+// Filter tab → which latest-installment statuses a thread must be in.
+const VIEW_FILTERS: Record<string, { label: string; statuses: string[] | null }> = {
+  all: { label: "All", statuses: null },
+  pending: { label: "Pending", statuses: ["pending_approval", "clarification_required"] },
+  approved: { label: "Approved", statuses: ["approved", "uploaded_in_bank"] },
+  paid: { label: "Paid", statuses: ["invoice_pending", "payment_processed"] },
+  rejected: { label: "Rejected", statuses: ["rejected", "returned_for_correction", "cancelled"] },
+  closed: { label: "Closed", statuses: ["closed"] },
+};
+
 export default async function MyRequestsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; view?: string }>;
 }) {
   const user = await requireUser();
-  const { page: pageRaw } = await searchParams;
+  const { page: pageRaw, view: viewRaw } = await searchParams;
+  const view = VIEW_FILTERS[viewRaw ?? ""] ? (viewRaw as string) : "all";
   const page = Math.max(0, Number(pageRaw) || 0);
   const supabase = await createClient();
 
@@ -48,24 +59,32 @@ export default async function MyRequestsPage({
       ? `submitter_id.eq.${user.id},id.in.(${watchedIds.join(",")})`
       : `submitter_id.eq.${user.id}`;
 
+  // The status filter works on the DERIVED latest-installment status, so it
+  // can't be pushed into SQL. All view: paginated. Filtered view: fetch up
+  // to 200 newest threads and filter in memory (small volumes).
+  let threadQuery = supabase
+    .from("payment_requests")
+    .select(
+      `id, request_number, created_at, submitter_id,
+       vendor:vendors(name),
+       line_items:request_line_items(amount),
+       installments:request_installments(installment_number, status, requested_amount, payment_due_date),
+       comments(id, created_at, author_id, comment_mentions(mentioned_user_id))`,
+      { count: "exact" },
+    )
+    .or(ownershipFilter)
+    .order("created_at", { ascending: false });
+  threadQuery =
+    view === "all"
+      ? threadQuery.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+      : threadQuery.limit(200);
+
   const [{ data, count }, readsRes] = await Promise.all([
-    supabase
-      .from("payment_requests")
-      .select(
-        `id, request_number, created_at, submitter_id,
-         vendor:vendors(name),
-         line_items:request_line_items(amount),
-         installments:request_installments(installment_number, status, requested_amount, payment_due_date),
-         comments(id, created_at, author_id, comment_mentions(mentioned_user_id))`,
-        { count: "exact" },
-      )
-      .or(ownershipFilter)
-      .order("created_at", { ascending: false })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1),
+    threadQuery,
     supabase.from("request_reads").select("request_id, last_read_at").eq("user_id", user.id),
   ]);
   const rows = (data ?? []) as unknown as ThreadRow[];
-  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+  const totalPages = view === "all" ? Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE)) : 1;
   const lastReadByThread = new Map(
     ((readsRes.data ?? []) as { request_id: string; last_read_at: string }[]).map((r) => [
       r.request_id,
@@ -102,16 +121,45 @@ export default async function MyRequestsPage({
       mentionedUnread,
       isCc: r.submitter_id !== user.id,
     };
+  }).filter((r) => {
+    const allowed = VIEW_FILTERS[view].statuses;
+    return !allowed || allowed.includes(r.latestStatus);
   });
 
   return (
     <div>
       <PageHeader title="My requests" subtitle="Payment threads you have raised." />
 
+      {/* Status filter tabs */}
+      <div className="mt-6 -mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800">
+        {Object.entries(VIEW_FILTERS).map(([key, f]) => {
+          const active = view === key;
+          return (
+            <Link
+              key={key}
+              href={key === "all" ? "/requests" : `/requests?view=${key}`}
+              className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
+                active
+                  ? "border-indigo-600 font-medium text-indigo-700 dark:text-indigo-300"
+                  : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              }`}
+            >
+              {f.label}
+            </Link>
+          );
+        })}
+      </div>
+
       {withSummary.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          No requests yet.{" "}
-          <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
+          {view === "all" ? (
+            <>
+              No requests yet.{" "}
+              <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
+            </>
+          ) : (
+            `No ${VIEW_FILTERS[view].label.toLowerCase()} requests.`
+          )}
         </div>
       ) : (
         <>
