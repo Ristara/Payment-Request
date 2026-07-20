@@ -583,26 +583,6 @@ export async function rejectInstallment(
   }
 }
 
-export async function returnInstallment(
-  _prev: RequestState,
-  formData: FormData,
-): Promise<RequestState> {
-  const installmentId = String(formData.get("installment_id") ?? "");
-  const reason = String(formData.get("reason") ?? "").trim();
-  if (!installmentId) return { error: "Missing installment." };
-  if (!reason) return { error: "Reason is required." };
-  try {
-    const inst = await transitionInstallment(installmentId, "returned_for_correction", reason, {
-      return_reason: reason,
-    });
-    revalidatePath(`/requests/${inst.request_id}`);
-    revalidatePath("/approvals");
-    return { info: "Returned for correction." };
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
-}
-
 export async function cancelInstallment(
   _prev: RequestState,
   formData: FormData,

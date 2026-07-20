@@ -4,7 +4,6 @@ import { useActionState, useState } from "react";
 import {
   approveInstallment,
   rejectInstallment,
-  returnInstallment,
   cancelInstallment,
   editAndResubmitInstallment,
   markInstallmentBankUploaded,
@@ -51,7 +50,6 @@ export default function InstallmentActions({
   const [editState, editAction, editPending] = useActionState(editAndResubmitInstallment, undefined);
   const [approveState, approveAction, approvePending] = useActionState(approveInstallment, undefined);
   const [rejectState, rejectAction, rejectPending] = useActionState(rejectInstallment, undefined);
-  const [returnState, returnAction, returnPending] = useActionState(returnInstallment, undefined);
   const [cancelState, cancelAction, cancelPending] = useActionState(cancelInstallment, undefined);
   const [bankState, bankAction, bankPending] = useActionState(markInstallmentBankUploaded, undefined);
   const [payState, payAction, payPending] = useActionState(markInstallmentPaid, undefined);
@@ -69,7 +67,7 @@ export default function InstallmentActions({
     (isApprover || isAdmin) &&
     ["pending_approval", "clarification_required"].includes(status) &&
     vendorStatus === "approved";
-  const canRejectReturn = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
+  const canReject = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
   const canBankUpload = (isAccounts || isAdmin) && status === "approved";
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
@@ -83,15 +81,15 @@ export default function InstallmentActions({
   const canEditResubmit =
     (isSubmitter || isAdmin) && ["rejected", "returned_for_correction"].includes(status);
 
-  if (!canApprove && !canRejectReturn && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canCancel && !canEditResubmit) {
+  if (!canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canCancel && !canEditResubmit) {
     return null;
   }
 
   const info =
-    editState?.info || approveState?.info || rejectState?.info || returnState?.info || cancelState?.info ||
+    editState?.info || approveState?.info || rejectState?.info || cancelState?.info ||
     bankState?.info || payState?.info || invState?.info || closeState?.info;
   const err =
-    editState?.error || approveState?.error || rejectState?.error || returnState?.error || cancelState?.error ||
+    editState?.error || approveState?.error || rejectState?.error || cancelState?.error ||
     bankState?.error || payState?.error || invState?.error || closeState?.error;
 
   return (
@@ -113,15 +111,10 @@ export default function InstallmentActions({
             </button>
           </form>
         )}
-        {canRejectReturn && (
-          <>
-            <button onClick={() => setOpen(open === "return" ? null : "return")} className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700">
-              Return
-            </button>
-            <button onClick={() => setOpen(open === "reject" ? null : "reject")} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">
-              Reject
-            </button>
-          </>
+        {canReject && (
+          <button onClick={() => setOpen(open === "reject" ? null : "reject")} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">
+            Reject
+          </button>
         )}
         {canBankUpload && (
           <button onClick={() => setOpen(open === "bank" ? null : "bank")} className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
@@ -229,9 +222,6 @@ export default function InstallmentActions({
 
       {open === "reject" && (
         <ReasonBox action={rejectAction} pending={rejectPending} installmentId={installmentId} label="Reason for rejection" submit="Reject" tone="red" />
-      )}
-      {open === "return" && (
-        <ReasonBox action={returnAction} pending={returnPending} installmentId={installmentId} label="What needs correcting?" submit="Return" tone="orange" />
       )}
       {open === "cancel" && (
         <ReasonBox action={cancelAction} pending={cancelPending} installmentId={installmentId} label="Reason for cancelling" submit="Cancel" tone="red" />
