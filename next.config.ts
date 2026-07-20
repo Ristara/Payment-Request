@@ -2,7 +2,14 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    serverActions: {
+      // Default is 1MB, which any phone-camera photo blows past. Attach
+      // flows promise "up to 10 MB each" and allow multiple files, so give
+      // generous headroom (multipart adds boundary/header overhead too).
+      bodySizeLimit: "50mb",
+    },
+  },
 };
 
 export default withSentryConfig(nextConfig, {
