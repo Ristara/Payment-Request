@@ -19,9 +19,27 @@ type Row = {
   submitter: { full_name: string } | null;
 };
 
-export default async function AccountsQueuePage() {
+// Filter tab → statuses. "all" = the live work queue (default);
+// "closed" adds a history view.
+const TAB_STATUSES: Record<string, string[]> = {
+  all: ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed"],
+  to_upload: ["approved"],
+  in_bank: ["uploaded_in_bank"],
+  invoice_pending: ["invoice_pending"],
+  to_close: ["payment_processed"],
+  closed: ["closed"],
+};
+
+export default async function AccountsQueuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const { roles } = await getCurrentUserRoles();
   if (!roles.includes("accounts") && !roles.includes("admin")) redirect("/dashboard");
+
+  const { tab: tabRaw } = await searchParams;
+  const tab = TAB_STATUSES[tabRaw ?? ""] ? (tabRaw as string) : "all";
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -32,8 +50,9 @@ export default async function AccountsQueuePage() {
          vendor:vendors(name, status)),
        submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
     )
-    .in("status", ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed"])
-    .order("payment_due_date");
+    .in("status", TAB_STATUSES[tab])
+    .order("payment_due_date")
+    .limit(200);
 
   const rows = (data ?? []) as unknown as Row[];
 
@@ -42,6 +61,16 @@ export default async function AccountsQueuePage() {
     { key: "uploaded_in_bank", title: "Uploaded in bank → Awaiting confirmation" },
     { key: "invoice_pending", title: "Paid → Invoice pending" },
     { key: "payment_processed", title: "Paid → Ready to close" },
+    { key: "closed", title: "Closed" },
+  ] as const;
+
+  const tabs = [
+    { key: "all", label: "All open" },
+    { key: "to_upload", label: "To upload" },
+    { key: "in_bank", label: "In bank" },
+    { key: "invoice_pending", label: "Invoice pending" },
+    { key: "to_close", label: "To close" },
+    { key: "closed", label: "Closed" },
   ] as const;
 
   return (
@@ -50,6 +79,32 @@ export default async function AccountsQueuePage() {
         title="Accounts work queue"
         subtitle="Every installment approved that needs processing, in due-date order."
       />
+
+      {/* Filter tabs */}
+      <div className="mt-6 -mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800">
+        {tabs.map((t) => {
+          const active = tab === t.key;
+          return (
+            <Link
+              key={t.key}
+              href={t.key === "all" ? "/accounts" : `/accounts?tab=${t.key}`}
+              className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
+                active
+                  ? "border-indigo-600 font-medium text-indigo-700 dark:text-indigo-300"
+                  : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              }`}
+            >
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
+
+      {rows.length === 0 && (
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+          Nothing here. Clean queue.
+        </div>
+      )}
 
       <div className="mt-8 space-y-8">
         {buckets.map((b) => {

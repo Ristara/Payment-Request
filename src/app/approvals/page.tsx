@@ -27,12 +27,18 @@ type Row = {
   approver: { full_name: string } | null;
 };
 
-// Tab → set of installment statuses it shows. "Approved" includes every
-// post-approval state — those were all approved at some point.
+// Tab → set of installment statuses it shows. Same buckets as My Requests.
 const TAB_STATUSES: Record<string, string[]> = {
+  all: [
+    "pending_approval", "clarification_required", "approved", "uploaded_in_bank",
+    "invoice_pending", "payment_processed", "closed", "rejected",
+    "returned_for_correction", "cancelled",
+  ],
   waiting: ["pending_approval", "clarification_required"],
-  approved: ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed", "closed"],
-  rejected: ["rejected"],
+  approved: ["approved", "uploaded_in_bank"],
+  paid: ["invoice_pending", "payment_processed"],
+  rejected: ["rejected", "returned_for_correction", "cancelled"],
+  closed: ["closed"],
 };
 
 export default async function ApprovalsPage({
@@ -93,7 +99,10 @@ export default async function ApprovalsPage({
   const tabs = [
     { key: "waiting", label: "Pending approval", badge: waitingCount },
     { key: "approved", label: "Approved" },
+    { key: "paid", label: "Paid" },
     { key: "rejected", label: "Rejected" },
+    { key: "closed", label: "Closed" },
+    { key: "all", label: "All" },
   ] as const;
 
   return (
@@ -104,8 +113,14 @@ export default async function ApprovalsPage({
           tab === "waiting"
             ? `${rows.length} installment${rows.length === 1 ? "" : "s"} waiting on any Approver to act.`
             : tab === "approved"
-              ? "Everything that has been approved — including paid and closed."
-              : "Rejected installments. Submitters can edit & resubmit these."
+              ? "Approved — awaiting bank upload or payment confirmation."
+              : tab === "paid"
+                ? "Payment done — invoice pending or processed."
+                : tab === "rejected"
+                  ? "Rejected installments. Submitters can edit & resubmit these."
+                  : tab === "closed"
+                    ? "Fully closed installments."
+                    : "Every installment, all statuses."
         }
       />
 
