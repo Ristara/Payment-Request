@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
-import { STATUS_LABEL, formatINR } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
+import RequestsList, { type RequestsRow } from "./requests-list";
 
 type ThreadRow = {
   id: string;
@@ -59,9 +59,6 @@ export default async function MyRequestsPage({
       ? `submitter_id.eq.${user.id},id.in.(${watchedIds.join(",")})`
       : `submitter_id.eq.${user.id}`;
 
-  // The status filter works on the DERIVED latest-installment status, so it
-  // can't be pushed into SQL. All view: paginated. Filtered view: fetch up
-  // to 200 newest threads and filter in memory (small volumes).
   let threadQuery = supabase
     .from("payment_requests")
     .select(
@@ -92,39 +89,40 @@ export default async function MyRequestsPage({
     ]),
   );
 
-  const withSummary = rows.map((r) => {
-    const poValue = r.line_items.reduce((s, l) => s + Number(l.amount), 0);
-    const insts = [...r.installments].sort((a, b) => a.installment_number - b.installment_number);
-    const latest = insts[insts.length - 1];
-    const requestedTotal = insts
-      .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
-      .reduce((s, i) => s + Number(i.requested_amount), 0);
+  const summaryRows: RequestsRow[] = rows
+    .map((r) => {
+      const poValue = r.line_items.reduce((s, l) => s + Number(l.amount), 0);
+      const insts = [...r.installments].sort((a, b) => a.installment_number - b.installment_number);
+      const latest = insts[insts.length - 1];
+      const requestedTotal = insts
+        .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
+        .reduce((s, i) => s + Number(i.requested_amount), 0);
 
-    // Unread = comments by others newer than my read marker (all of them if
-    // I've never opened the thread). Mentioned = one of those tags me.
-    const lastRead = lastReadByThread.get(r.id) ?? 0;
-    const unread = (r.comments ?? []).filter(
-      (c) => c.author_id !== user.id && new Date(c.created_at).getTime() > lastRead,
-    );
-    const mentionedUnread = unread.some((c) =>
-      (c.comment_mentions ?? []).some((m) => m.mentioned_user_id === user.id),
-    );
+      const lastRead = lastReadByThread.get(r.id) ?? 0;
+      const unread = (r.comments ?? []).filter(
+        (c) => c.author_id !== user.id && new Date(c.created_at).getTime() > lastRead,
+      );
 
-    return {
-      ...r,
-      poValue,
-      latestStatus: latest?.status ?? "draft",
-      latestDue: latest?.payment_due_date ?? null,
-      installmentCount: insts.length,
-      requestedTotal,
-      unreadCount: unread.length,
-      mentionedUnread,
-      isCc: r.submitter_id !== user.id,
-    };
-  }).filter((r) => {
-    const allowed = VIEW_FILTERS[view].statuses;
-    return !allowed || allowed.includes(r.latestStatus);
-  });
+      return {
+        id: r.id,
+        requestNumber: r.request_number,
+        vendorName: r.vendor?.name ?? "—",
+        poValue,
+        requestedTotal,
+        installmentCount: insts.length,
+        latestStatus: latest?.status ?? "draft",
+        latestDue: latest?.payment_due_date ?? null,
+        unreadCount: unread.length,
+        mentionedUnread: unread.some((c) =>
+          (c.comment_mentions ?? []).some((m) => m.mentioned_user_id === user.id),
+        ),
+        isCc: r.submitter_id !== user.id,
+      };
+    })
+    .filter((r) => {
+      const allowed = VIEW_FILTERS[view].statuses;
+      return !allowed || allowed.includes(r.latestStatus);
+    });
 
   return (
     <div>
@@ -150,160 +148,32 @@ export default async function MyRequestsPage({
         })}
       </div>
 
-      {withSummary.length === 0 ? (
+      {summaryRows.length === 0 && view === "all" && !pageRaw ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          {view === "all" ? (
-            <>
-              No requests yet.{" "}
-              <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
-            </>
-          ) : (
-            `No ${VIEW_FILTERS[view].label.toLowerCase()} requests.`
-          )}
+          No requests yet.{" "}
+          <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
         </div>
       ) : (
-        <>
-          {/* Mobile card list */}
-          <ul className="mt-6 space-y-3 sm:hidden">
-            {withSummary.map((r) => (
-              <li key={r.id}>
-                <Link
-                  href={`/requests/${r.id}`}
-                  className="block rounded-xl border border-zinc-200 bg-white p-4 active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-mono text-[11px] text-zinc-500">
-                        {r.request_number}
-                        {r.isCc && (
-                          <span className="ml-1.5 rounded bg-zinc-200 px-1 py-0.5 font-sans text-[9px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                            CC
-                          </span>
-                        )}
-                      </p>
-                      <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
-                        {r.vendor?.name ?? "—"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <StatusPill status={r.latestStatus} />
-                      <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
-                    </div>
-                  </div>
-                  <div className="mt-2 flex items-baseline justify-between text-xs">
-                    <span className="font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
-                      PO {formatINR(r.poValue)}
-                    </span>
-                    <span className="text-zinc-500">
-                      {r.installmentCount} inst · {r.latestDue ? `Due ${r.latestDue}` : ""}
-                    </span>
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+        <RequestsList rows={summaryRows} />
+      )}
 
-          {/* Desktop table */}
-          <section className="mt-6 hidden rounded-2xl border border-zinc-200 bg-white sm:block dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                  <tr>
-                    <th className="px-5 py-3">Request #</th>
-                    <th className="px-5 py-3">Vendor</th>
-                    <th className="px-5 py-3 text-right">PO value</th>
-                    <th className="px-5 py-3 text-right">Requested</th>
-                    <th className="px-5 py-3">Installments</th>
-                    <th className="px-5 py-3">Latest status</th>
-                    <th className="px-5 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {withSummary.map((r) => (
-                    <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                      <td className="px-5 py-3 font-mono text-xs">
-                        <span className="inline-flex items-center gap-2">
-                          {r.request_number}
-                          {r.isCc && (
-                            <span className="rounded bg-zinc-200 px-1 py-0.5 font-sans text-[9px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                              CC
-                            </span>
-                          )}
-                          <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
-                        </span>
-                      </td>
-                      <td className="px-5 py-3">{r.vendor?.name ?? "—"}</td>
-                      <td className="px-5 py-3 text-right tabular-nums">{formatINR(r.poValue)}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-zinc-600">{formatINR(r.requestedTotal)}</td>
-                      <td className="px-5 py-3 text-zinc-500">{r.installmentCount}</td>
-                      <td className="px-5 py-3"><StatusPill status={r.latestStatus} /></td>
-                      <td className="px-5 py-3 text-right">
-                        <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">View →</Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-center gap-3 text-sm">
-              {page > 0 && (
-                <Link href={`/requests?page=${page - 1}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
-                  ← Newer
-                </Link>
-              )}
-              <span className="text-xs text-zinc-500">
-                Page {page + 1} of {totalPages}
-              </span>
-              {page + 1 < totalPages && (
-                <Link href={`/requests?page=${page + 1}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
-                  Older →
-                </Link>
-              )}
-            </div>
+      {totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-center gap-3 text-sm">
+          {page > 0 && (
+            <Link href={`/requests?page=${page - 1}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
+              ← Newer
+            </Link>
           )}
-        </>
+          <span className="text-xs text-zinc-500">
+            Page {page + 1} of {totalPages}
+          </span>
+          {page + 1 < totalPages && (
+            <Link href={`/requests?page=${page + 1}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
+              Older →
+            </Link>
+          )}
+        </div>
       )}
     </div>
-  );
-}
-
-/**
- * WhatsApp-style discussion badges: an indigo unread-count pill, plus an
- * amber "@ you" pill when one of the unread comments tags the viewer.
- */
-function DiscussionBadges({ unreadCount, mentioned }: { unreadCount: number; mentioned: boolean }) {
-  if (unreadCount === 0) return null;
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-indigo-600 px-1.5 text-[10px] font-bold text-white">
-        {unreadCount > 99 ? "99+" : unreadCount}
-      </span>
-      {mentioned && (
-        <span className="inline-flex h-5 items-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
-          @ you
-        </span>
-      )}
-    </span>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const color =
-    status === "closed" || status === "payment_processed"
-      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
-      : status === "rejected" || status === "cancelled"
-        ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"
-        : status === "returned_for_correction" || status === "clarification_required"
-          ? "bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-200"
-          : status === "approved" || status === "uploaded_in_bank" || status === "invoice_pending"
-            ? "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-200"
-            : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200";
-  return (
-    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${color}`}>
-      {STATUS_LABEL[status] ?? status}
-    </span>
   );
 }
