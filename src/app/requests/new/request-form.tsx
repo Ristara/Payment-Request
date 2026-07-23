@@ -7,7 +7,7 @@ import HierarchicalPicker from "@/components/HierarchicalPicker";
 import { formatINR } from "@/lib/types";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
-type Outlet = { id: string; code: string; name: string };
+type Outlet = { id: string; code: string; name: string; stage: "upcoming" | "operational" };
 type CoaAccount = { id: string; code: number; subcategory: string; category: string; coa: string };
 
 type LineRow = {
@@ -54,6 +54,9 @@ export default function RequestForm({
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [outletId, setOutletId] = useState("");
+  // "New Store Opening" → upcoming outlets; "Existing Outlet" → operational.
+  const [storeType, setStoreType] = useState<"" | "upcoming" | "operational">("");
+  const visibleOutlets = storeType ? outlets.filter((o) => o.stage === storeType) : [];
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
@@ -112,6 +115,42 @@ export default function RequestForm({
         <input type="hidden" name="request_number" value={reservedNumber} />
       )}
 
+      {/* Store type — decides which outlets are offered below */}
+      <section>
+        <SectionTitle>What is this payment for?</SectionTitle>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {([
+            { key: "upcoming", title: "New Store Opening", hint: "Pick the upcoming outlet" },
+            { key: "operational", title: "Existing Outlet", hint: "Pick the operational outlet" },
+          ] as const).map((opt) => {
+            const active = storeType === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => {
+                  setStoreType(opt.key);
+                  // Reset outlet if it doesn't belong to the newly chosen group.
+                  const stillValid = outlets.some((o) => o.id === outletId && o.stage === opt.key);
+                  if (!stillValid) setOutletId("");
+                }}
+                aria-pressed={active}
+                className={`rounded-xl border px-4 py-3 text-center transition-colors ${
+                  active
+                    ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
+                    : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
+                }`}
+              >
+                <span className={`block text-sm font-semibold ${active ? "text-indigo-700 dark:text-indigo-200" : "text-zinc-900 dark:text-zinc-100"}`}>
+                  {opt.title}
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-500">{opt.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Vendor */}
       <section>
         <SectionTitle>Vendor</SectionTitle>
@@ -143,7 +182,7 @@ export default function RequestForm({
         )}
       </section>
 
-      {/* Outlet */}
+      {/* Outlet — filtered by the store-type choice above */}
       <section>
         <SectionTitle>Outlet</SectionTitle>
         <select
@@ -151,19 +190,23 @@ export default function RequestForm({
           value={outletId}
           onChange={(e) => setOutletId(e.target.value)}
           required
-          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          disabled={!storeType}
+          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
         >
           <option value="" disabled>
-            Pick an outlet…
+            {storeType ? "Pick an outlet…" : "Choose New Store / Existing Outlet first…"}
           </option>
-          {outlets.map((o) => (
+          {visibleOutlets.map((o) => (
             <option key={o.id} value={o.id}>
               {o.name}
             </option>
           ))}
         </select>
-        {outlets.length === 0 && (
-          <p className="mt-2 text-xs text-zinc-500">No outlets yet. Ask your admin to add one.</p>
+        {storeType && visibleOutlets.length === 0 && (
+          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            No {storeType === "upcoming" ? "upcoming" : "operational"} outlets yet — ask your admin
+            to mark one as {storeType === "upcoming" ? "Upcoming" : "Operational"} in Admin → Outlets.
+          </p>
         )}
       </section>
 

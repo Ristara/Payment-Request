@@ -5,7 +5,7 @@ export default async function OutletsPage() {
   const supabase = await createClient();
   const { data: outlets } = await supabase
     .from("outlets")
-    .select("id, code, name, is_active")
+    .select("id, code, name, is_active, stage")
     .order("name");
 
   return (

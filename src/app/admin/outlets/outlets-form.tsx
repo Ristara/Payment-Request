@@ -1,13 +1,14 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { createOutlet, deleteOutlet, toggleOutletActive, updateOutletName } from "@/app/admin/actions";
+import { createOutlet, deleteOutlet, setOutletStage, toggleOutletActive, updateOutletName } from "@/app/admin/actions";
 
 type Outlet = {
   id: string;
   code: string;
   name: string;
   is_active: boolean;
+  stage: "upcoming" | "operational";
 };
 
 export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
@@ -21,7 +22,7 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
       {/* Create form */}
       <form
         action={createAction}
-        className="grid grid-cols-1 gap-3 rounded-2xl border border-zinc-200 bg-white p-6 sm:grid-cols-3 dark:border-zinc-800 dark:bg-zinc-900"
+        className="grid grid-cols-1 gap-3 rounded-2xl border border-zinc-200 bg-white p-6 sm:grid-cols-4 dark:border-zinc-800 dark:bg-zinc-900"
       >
         <div>
           <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Code</label>
@@ -41,6 +42,17 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
         </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Stage</label>
+          <select
+            name="stage"
+            defaultValue="operational"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="operational">Operational (existing)</option>
+            <option value="upcoming">Upcoming (new store)</option>
+          </select>
+        </div>
         <div className="flex items-end">
           <button
             type="submit"
@@ -51,10 +63,10 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
           </button>
         </div>
         {createState?.error && (
-          <p className="text-xs text-red-600 sm:col-span-3 dark:text-red-400">{createState.error}</p>
+          <p className="text-xs text-red-600 sm:col-span-4 dark:text-red-400">{createState.error}</p>
         )}
         {createState?.info && (
-          <p className="text-xs text-emerald-600 sm:col-span-3 dark:text-emerald-400">{createState.info}</p>
+          <p className="text-xs text-emerald-600 sm:col-span-4 dark:text-emerald-400">{createState.info}</p>
         )}
       </form>
 
@@ -76,6 +88,7 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
               <tr>
                 <th className="px-5 py-3">Code</th>
                 <th className="px-5 py-3">Name</th>
+                <th className="px-5 py-3">Stage</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
@@ -83,7 +96,7 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
             <tbody>
               {outlets.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-sm text-zinc-500">
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-zinc-500">
                     No outlets yet. Add your first above.
                   </td>
                 </tr>
@@ -128,6 +141,27 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
                         ) : (
                           <span className="text-zinc-900 dark:text-zinc-100">{o.name}</span>
                         )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <form action={setOutletStage} className="inline">
+                          <input type="hidden" name="id" value={o.id} />
+                          <input
+                            type="hidden"
+                            name="stage"
+                            value={o.stage === "upcoming" ? "operational" : "upcoming"}
+                          />
+                          <button
+                            type="submit"
+                            title="Click to switch stage"
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium hover:ring-1 hover:ring-indigo-300 ${
+                              o.stage === "upcoming"
+                                ? "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-200"
+                                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                            }`}
+                          >
+                            {o.stage === "upcoming" ? "Upcoming" : "Operational"} ⇄
+                          </button>
+                        </form>
                       </td>
                       <td className="px-5 py-3">
                         <span

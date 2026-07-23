@@ -9,7 +9,7 @@ export const getOutlets = cached(
     const admin = createAdminClient();
     const { data } = await admin
       .from("outlets")
-      .select("id, code, name, is_active")
+      .select("id, code, name, is_active, stage")
       .order("name");
     return data ?? [];
   },
@@ -22,7 +22,7 @@ export const getActiveOutlets = cached(
     const admin = createAdminClient();
     const { data } = await admin
       .from("outlets")
-      .select("id, code, name")
+      .select("id, code, name, stage")
       .eq("is_active", true)
       .order("name");
     return data ?? [];

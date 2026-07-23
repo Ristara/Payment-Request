@@ -17,16 +17,28 @@ export async function createOutlet(
 ): Promise<ActionState> {
   const code = String(formData.get("code") ?? "").trim().toUpperCase();
   const name = String(formData.get("name") ?? "").trim();
+  const stageRaw = String(formData.get("stage") ?? "operational");
+  const stage = stageRaw === "upcoming" ? "upcoming" : "operational";
   if (!code || !name) return { error: "Code and name are required." };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("outlets").insert({ code, name });
+  const { error } = await supabase.from("outlets").insert({ code, name, stage });
   if (error) return { error: error.message };
 
   invalidateMasters();
   revalidatePath("/admin/outlets");
   revalidatePath("/admin");
   return { info: `Added ${name}.` };
+}
+
+export async function setOutletStage(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "");
+  const stageRaw = String(formData.get("stage") ?? "");
+  if (!id || !["upcoming", "operational"].includes(stageRaw)) return;
+  const supabase = await createClient();
+  await supabase.from("outlets").update({ stage: stageRaw }).eq("id", id);
+  invalidateMasters();
+  revalidatePath("/admin/outlets");
 }
 
 export async function updateOutletName(
