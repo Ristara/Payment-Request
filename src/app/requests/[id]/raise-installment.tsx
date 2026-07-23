@@ -53,7 +53,7 @@ export default function RaiseInstallmentPanel({
           onClick={() => setOpen(true)}
           className="w-full rounded-md border border-dashed border-indigo-400 bg-indigo-50/50 px-3 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300"
         >
-          + Raise installment #{nextInstallmentNumber} · {formatINR(balanceRemaining)} balance
+          + Raise installment #{nextInstallmentNumber} · {formatINR(balanceRemaining)} left to request
         </button>
       </div>
     );

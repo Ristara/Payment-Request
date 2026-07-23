@@ -163,7 +163,10 @@ export default async function ThreadDetailPage({
   const requestedTotal = installments
     .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
     .reduce((s, i) => s + Number(i.requested_amount), 0);
+  // Two different "balances": what's left to PAY (header chip — the money
+  // question) vs what's left to REQUEST (gates the raise-installment panel).
   const balanceRemaining = Math.max(0, Math.round((poValue - requestedTotal) * 100) / 100);
+  const yetToPay = Math.max(0, Math.round((poValue - paidTotal) * 100) / 100);
 
   const history = (historyRes.data ?? []) as unknown as {
     id: string;
@@ -300,7 +303,7 @@ export default async function ThreadDetailPage({
         <div className="grid grid-cols-3 gap-3 sm:flex-col sm:items-end sm:text-right">
           <MoneyChip label="PO value" value={poValue} />
           <MoneyChip label="Paid" value={paidTotal} tone="emerald" />
-          <MoneyChip label="Balance" value={balanceRemaining} tone={balanceRemaining > 0 ? "amber" : "zinc"} />
+          <MoneyChip label="Yet to pay" value={yetToPay} tone={yetToPay > 0 ? "amber" : "zinc"} />
         </div>
       </div>
 
@@ -469,7 +472,7 @@ export default async function ThreadDetailPage({
             )}
             {!canRaiseInstallment && balanceRemaining <= 0.005 && (
               <p className="mt-4 text-center text-xs text-zinc-500">
-                PO fully requested. No balance remaining.
+                Full PO value has been requested — nothing left to raise. Remaining payments are with approval/accounts.
               </p>
             )}
           </Card>
