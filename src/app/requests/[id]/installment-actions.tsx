@@ -4,7 +4,6 @@ import { useActionState, useState } from "react";
 import {
   approveInstallment,
   rejectInstallment,
-  cancelInstallment,
   editAndResubmitInstallment,
   markInstallmentBankUploaded,
   markInstallmentPaid,
@@ -50,13 +49,12 @@ export default function InstallmentActions({
   const [editState, editAction, editPending] = useActionState(editAndResubmitInstallment, undefined);
   const [approveState, approveAction, approvePending] = useActionState(approveInstallment, undefined);
   const [rejectState, rejectAction, rejectPending] = useActionState(rejectInstallment, undefined);
-  const [cancelState, cancelAction, cancelPending] = useActionState(cancelInstallment, undefined);
   const [bankState, bankAction, bankPending] = useActionState(markInstallmentBankUploaded, undefined);
   const [payState, payAction, payPending] = useActionState(markInstallmentPaid, undefined);
   const [invState, invAction, invPending] = useActionState(uploadInstallmentInvoice, undefined);
   const [closeState, closeAction, closePending] = useActionState(closeInstallment, undefined);
 
-  const [open, setOpen] = useState<null | "reject" | "return" | "cancel" | "bank" | "pay" | "invoice" | "edit">(null);
+  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
   const editAmountNum = Number(editAmount) || 0;
   const editOverMax = editAmountNum - maxAmount > 0.005;
@@ -72,24 +70,18 @@ export default function InstallmentActions({
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = (isAccounts || isAdmin) && ["invoice_pending", "payment_processed"].includes(status);
-  // Cancel is only meaningful before money moves: once uploaded_in_bank or
-  // beyond, the cash is committed and cancelling would free PO balance that
-  // was actually spent.
-  const canCancel =
-    (isSubmitter || isAdmin) &&
-    ["pending_approval", "clarification_required", "returned_for_correction", "approved"].includes(status);
   const canEditResubmit =
     (isSubmitter || isAdmin) && ["rejected", "returned_for_correction"].includes(status);
 
-  if (!canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canCancel && !canEditResubmit) {
+  if (!canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canEditResubmit) {
     return null;
   }
 
   const info =
-    editState?.info || approveState?.info || rejectState?.info || cancelState?.info ||
+    editState?.info || approveState?.info || rejectState?.info ||
     bankState?.info || payState?.info || invState?.info || closeState?.info;
   const err =
-    editState?.error || approveState?.error || rejectState?.error || cancelState?.error ||
+    editState?.error || approveState?.error || rejectState?.error ||
     bankState?.error || payState?.error || invState?.error || closeState?.error;
 
   return (
@@ -138,11 +130,6 @@ export default function InstallmentActions({
               {closePending ? "Closing…" : "Close"}
             </button>
           </form>
-        )}
-        {canCancel && (
-          <button onClick={() => setOpen(open === "cancel" ? null : "cancel")} className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/40">
-            Cancel installment
-          </button>
         )}
       </div>
 
@@ -222,9 +209,6 @@ export default function InstallmentActions({
 
       {open === "reject" && (
         <ReasonBox action={rejectAction} pending={rejectPending} installmentId={installmentId} label="Reason for rejection" submit="Reject" tone="red" />
-      )}
-      {open === "cancel" && (
-        <ReasonBox action={cancelAction} pending={cancelPending} installmentId={installmentId} label="Reason for cancelling" submit="Cancel" tone="red" />
       )}
 
       {open === "bank" && (

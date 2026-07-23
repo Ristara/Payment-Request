@@ -583,25 +583,6 @@ export async function rejectInstallment(
   }
 }
 
-export async function cancelInstallment(
-  _prev: RequestState,
-  formData: FormData,
-): Promise<RequestState> {
-  const installmentId = String(formData.get("installment_id") ?? "");
-  const reason = String(formData.get("reason") ?? "").trim();
-  if (!installmentId || !reason) return { error: "Reason is required." };
-  try {
-    const inst = await transitionInstallment(installmentId, "cancelled", reason, {
-      cancelled_at: new Date().toISOString(),
-      cancellation_reason: reason,
-    });
-    revalidatePath(`/requests/${inst.request_id}`);
-    return { info: "Cancelled." };
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Edit & resubmit a rejected / returned installment (submitter)
 // ---------------------------------------------------------------------------
