@@ -104,16 +104,17 @@ export default function AppShell({
             isAdmin={showAdmin}
           />
 
-          {/* Desktop search */}
+          {/* Desktop search — plain GET form to /search (Enter submits) */}
           <div className="hidden flex-1 sm:block">
-            <div className="relative max-w-lg">
+            <form action="/search" className="relative max-w-lg">
               <SearchIcon />
               <input
                 type="search"
-                placeholder="Search request # / vendor / UTR…"
+                name="q"
+                placeholder="Search request # / title / vendor / UTR…"
                 className="w-full rounded-md border border-zinc-200 bg-zinc-50 py-2 pl-10 pr-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-950 dark:focus:bg-zinc-900"
               />
-            </div>
+            </form>
           </div>
 
           {/* Mobile page title (or empty spacer if no title, so the right
