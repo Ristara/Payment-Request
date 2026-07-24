@@ -217,6 +217,34 @@ export default function RequestForm({
         <input type="hidden" name="payment_kind" value={paymentKind} />
       </section>
 
+      {/* Outlet — filtered by the store-type choice above */}
+      <section>
+        <SectionTitle>Outlet</SectionTitle>
+        <select
+          name="outlet_ids"
+          value={outletId}
+          onChange={(e) => setOutletId(e.target.value)}
+          required
+          disabled={!storeType}
+          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
+        >
+          <option value="" disabled>
+            {storeType ? "Pick an outlet…" : "Choose New Store / Existing Outlet first…"}
+          </option>
+          {visibleOutlets.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        {storeType && visibleOutlets.length === 0 && (
+          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            No {storeType === "upcoming" ? "upcoming" : "operational"} outlets yet — ask your admin
+            to mark one as {storeType === "upcoming" ? "Upcoming" : "Operational"} in Admin → Outlets.
+          </p>
+        )}
+      </section>
+
       {/* Vendor */}
       <section>
         <SectionTitle>Vendor</SectionTitle>
@@ -244,34 +272,6 @@ export default function RequestForm({
         {vendors.length === 0 && (
           <p className="mt-2 text-xs text-zinc-500">
             No vendors yet. <a href="/vendors/new" className="text-indigo-600 underline">Add one</a>.
-          </p>
-        )}
-      </section>
-
-      {/* Outlet — filtered by the store-type choice above */}
-      <section>
-        <SectionTitle>Outlet</SectionTitle>
-        <select
-          name="outlet_ids"
-          value={outletId}
-          onChange={(e) => setOutletId(e.target.value)}
-          required
-          disabled={!storeType}
-          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
-        >
-          <option value="" disabled>
-            {storeType ? "Pick an outlet…" : "Choose New Store / Existing Outlet first…"}
-          </option>
-          {visibleOutlets.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-        {storeType && visibleOutlets.length === 0 && (
-          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-            No {storeType === "upcoming" ? "upcoming" : "operational"} outlets yet — ask your admin
-            to mark one as {storeType === "upcoming" ? "Upcoming" : "Operational"} in Admin → Outlets.
           </p>
         )}
       </section>
