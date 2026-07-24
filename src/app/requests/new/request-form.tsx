@@ -57,6 +57,7 @@ export default function RequestForm({
   // "New Store Opening" → upcoming outlets; "Existing Outlet" → operational.
   const [storeType, setStoreType] = useState<"" | "upcoming" | "operational">("");
   const visibleOutlets = storeType ? outlets.filter((o) => o.stage === storeType) : [];
+  const [paymentKind, setPaymentKind] = useState<"" | "regular" | "milestone">("");
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
@@ -182,6 +183,38 @@ export default function RequestForm({
             );
           })}
         </div>
+      </section>
+
+      {/* Payment kind */}
+      <section>
+        <SectionTitle>Payment kind</SectionTitle>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {([
+            { key: "regular", title: "Regular Payments", hint: "Standard one-off or part payments" },
+            { key: "milestone", title: "Milestone Payments", hint: "Tied to project / work milestones" },
+          ] as const).map((opt) => {
+            const active = paymentKind === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setPaymentKind(opt.key)}
+                aria-pressed={active}
+                className={`rounded-xl border px-4 py-3 text-center transition-colors ${
+                  active
+                    ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
+                    : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
+                }`}
+              >
+                <span className={`block text-sm font-semibold ${active ? "text-indigo-700 dark:text-indigo-200" : "text-zinc-900 dark:text-zinc-100"}`}>
+                  {opt.title}
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-500">{opt.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+        <input type="hidden" name="payment_kind" value={paymentKind} />
       </section>
 
       {/* Vendor */}

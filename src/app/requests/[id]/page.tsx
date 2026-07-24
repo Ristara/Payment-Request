@@ -25,6 +25,7 @@ type ThreadRow = {
   vendor_id: string;
   document_type: "po" | "invoice" | "no_invoice" | "invoice_pending" | null;
   document_reference: string | null;
+  payment_kind: "regular" | "milestone" | null;
   purpose: string;
   created_at: string;
   submitter: { full_name: string; email: string } | null;
@@ -91,7 +92,7 @@ export default async function ThreadDetailPage({
       .from("payment_requests")
       .select(
         `id, request_number, submitter_id, vendor_id,
-         document_type, document_reference, purpose, created_at,
+         document_type, document_reference, payment_kind, purpose, created_at,
          submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
          vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
          outlets:request_outlets(outlet:outlets(name, code))`,
@@ -281,6 +282,11 @@ export default async function ThreadDetailPage({
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                 {DOC_TYPE_LABEL[req.document_type]}
                 {req.document_reference && ` · ${req.document_reference}`}
+              </span>
+            )}
+            {req.payment_kind && (
+              <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950 dark:text-violet-200">
+                {req.payment_kind === "milestone" ? "Milestone" : "Regular"}
               </span>
             )}
           </div>

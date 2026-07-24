@@ -49,6 +49,7 @@ export async function createThread(
   const document_type = String(formData.get("document_type") ?? "") as
     | "po" | "invoice" | "no_invoice" | "invoice_pending" | "";
   const document_reference = String(formData.get("document_reference") ?? "").trim() || null;
+  const payment_kind = String(formData.get("payment_kind") ?? "") as "regular" | "milestone" | "";
   const installment_amount = Number(formData.get("installment_amount") ?? 0);
   const payment_due_date = String(formData.get("payment_due_date") ?? "");
   const date_of_work_completion = String(formData.get("date_of_work_completion") ?? "") || null;
@@ -75,6 +76,7 @@ export async function createThread(
   if (outlet_ids.length === 0) return { error: "Pick at least one outlet." };
   if (!installment_amount || installment_amount <= 0) return { error: "First installment amount must be positive." };
   if (!payment_due_date) return { error: "Payment due date is required." };
+  if (!payment_kind) return { error: "Pick a payment kind — Regular or Milestone." };
   if (!document_type) return { error: "Pick a document type." };
   if ((document_type === "po" || document_type === "invoice") && !document_reference) {
     return { error: `Enter the ${document_type === "po" ? "PO" : "invoice"} number.` };
@@ -149,6 +151,7 @@ export async function createThread(
       document_type,
       document_reference:
         document_type === "po" || document_type === "invoice" ? document_reference : null,
+      payment_kind,
       purpose,
     })
     .select("id, request_number")
