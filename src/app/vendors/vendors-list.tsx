@@ -113,22 +113,25 @@ export default function VendorsList({ vendors }: { vendors: VendorListItem[] }) 
                     <th className="px-5 py-3">PAN</th>
                     <th className="px-5 py-3">Submitted by</th>
                     <th className="px-5 py-3">Status</th>
-                    <th className="px-5 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((v) => (
                     <tr key={v.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                      <td className="px-5 py-3 font-medium text-zinc-900 dark:text-zinc-100">{v.name}</td>
+                      <td className="px-5 py-3 font-medium">
+                        <Link
+                          href={`/vendors/${v.id}`}
+                          className="text-indigo-600 hover:underline dark:text-indigo-400"
+                        >
+                          {v.name}
+                        </Link>
+                      </td>
                       <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
                         {v.gstin ?? <span className="italic text-zinc-400">unregistered</span>}
                       </td>
                       <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{v.pan}</td>
                       <td className="px-5 py-3 text-zinc-600 dark:text-zinc-400">{v.submitter_name ?? "—"}</td>
                       <td className="px-5 py-3"><VendorStatusPill status={v.status} /></td>
-                      <td className="px-5 py-3 text-right">
-                        <Link href={`/vendors/${v.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">View →</Link>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

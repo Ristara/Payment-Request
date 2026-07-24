@@ -105,7 +105,6 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                     <th className="px-5 py-3 text-right">Requested</th>
                     <th className="px-5 py-3">Installments</th>
                     <th className="px-5 py-3">Latest status</th>
-                    <th className="px-5 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -113,7 +112,12 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                     <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                       <td className="px-5 py-3 font-mono text-xs">
                         <span className="inline-flex items-center gap-2">
-                          {r.requestNumber}
+                          <Link
+                            href={`/requests/${r.id}`}
+                            className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                          >
+                            {r.requestNumber}
+                          </Link>
                           {r.isCc && (
                             <span className="rounded bg-zinc-200 px-1 py-0.5 font-sans text-[9px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
                               CC
@@ -136,9 +140,6 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                       <td className="px-5 py-3 text-right tabular-nums text-zinc-600">{formatINR(r.requestedTotal)}</td>
                       <td className="px-5 py-3 text-zinc-500">{r.installmentCount}</td>
                       <td className="px-5 py-3"><StatusPill status={r.latestStatus} /></td>
-                      <td className="px-5 py-3 text-right">
-                        <Link href={`/requests/${r.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">View →</Link>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

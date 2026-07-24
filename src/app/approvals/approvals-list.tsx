@@ -103,7 +103,6 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                     <th className="px-5 py-3 text-right">Amount</th>
                     <th className="px-5 py-3">Requested</th>
                     <th className="px-5 py-3">Status</th>
-                    <th className="px-5 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -111,7 +110,12 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                     <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                       <td className="px-5 py-3 font-mono text-xs">
                         <span className="inline-flex items-center gap-2">
-                          {r.label}
+                          <Link
+                            href={`/requests/${r.threadId}`}
+                            className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                          >
+                            {r.label}
+                          </Link>
                           <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
                         </span>
                       </td>
@@ -141,9 +145,6 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                       <td className="px-5 py-3 text-right font-medium tabular-nums">{formatINR(r.amount)}</td>
                       <td className="px-5 py-3 text-zinc-500">{r.requestedAt}</td>
                       <td className="px-5 py-3"><StatusPill status={r.status} /></td>
-                      <td className="px-5 py-3 text-right">
-                        <Link href={`/requests/${r.threadId}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">Review →</Link>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

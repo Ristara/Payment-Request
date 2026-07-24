@@ -101,7 +101,14 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                     <tbody>
                       {bucket.map((r) => (
                         <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                          <td className="px-5 py-2 font-mono text-xs">{r.label}</td>
+                          <td className="px-5 py-2 font-mono text-xs">
+                            <Link
+                              href={`/requests/${r.threadId}`}
+                              className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                            >
+                              {r.label}
+                            </Link>
+                          </td>
                           <td className="px-5 py-2">
                             {r.requestTitle ? (
                               <>
@@ -115,9 +122,6 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                           <td className="px-5 py-2 text-zinc-500">{r.submitterName}</td>
                           <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.amount)}</td>
                           <td className="px-5 py-2 text-zinc-500">{r.dueDate}</td>
-                          <td className="px-5 py-2 text-right">
-                            <Link href={`/requests/${r.threadId}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">View →</Link>
-                          </td>
                         </tr>
                       ))}
                     </tbody>

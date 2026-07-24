@@ -53,7 +53,6 @@ export default async function InvoicePendingReport() {
               <th className="px-5 py-3 text-right">Amount</th>
               <th className="px-5 py-3">Tentative date</th>
               <th className="px-5 py-3 text-right">Age</th>
-              <th className="px-5 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -69,18 +68,20 @@ export default async function InvoicePendingReport() {
                 const ageColor = age > 30 ? "text-red-600" : age > 15 ? "text-orange-600" : age > 7 ? "text-amber-700" : "text-zinc-500";
                 return (
                   <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                    <td className="px-5 py-2 font-mono text-xs">{shortRequestNumber(r.request?.request_number)} · #{r.installment_number}</td>
+                    <td className="px-5 py-2 font-mono text-xs">
+                      <Link
+                        href={`/requests/${r.request?.id}`}
+                        className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                      >
+                        {shortRequestNumber(r.request?.request_number)} · #{r.installment_number}
+                      </Link>
+                    </td>
                     <td className="px-5 py-2">{r.request?.vendor?.name}</td>
                     <td className="px-5 py-2 text-zinc-500">{r.submitter?.full_name ?? "—"}</td>
                     <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.requested_amount)}</td>
                     <td className="px-5 py-2 text-zinc-500">{r.tentative_invoice_date ?? "—"}</td>
                     <td className={`px-5 py-2 text-right font-medium tabular-nums ${ageColor}`}>
                       {age}d
-                    </td>
-                    <td className="px-5 py-2 text-right">
-                      <Link href={`/requests/${r.request?.id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                        View →
-                      </Link>
                     </td>
                   </tr>
                 );
