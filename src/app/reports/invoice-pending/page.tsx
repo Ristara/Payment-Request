@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatINR } from "@/lib/types";
+import { formatINR, shortRequestNumber } from "@/lib/types";
 
 type Row = {
   id: string;
@@ -69,7 +69,7 @@ export default async function InvoicePendingReport() {
                 const ageColor = age > 30 ? "text-red-600" : age > 15 ? "text-orange-600" : age > 7 ? "text-amber-700" : "text-zinc-500";
                 return (
                   <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                    <td className="px-5 py-2 font-mono text-xs">{r.request?.request_number} · #{r.installment_number}</td>
+                    <td className="px-5 py-2 font-mono text-xs">{shortRequestNumber(r.request?.request_number)} · #{r.installment_number}</td>
                     <td className="px-5 py-2">{r.request?.vendor?.name}</td>
                     <td className="px-5 py-2 text-zinc-500">{r.submitter?.full_name ?? "—"}</td>
                     <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.requested_amount)}</td>

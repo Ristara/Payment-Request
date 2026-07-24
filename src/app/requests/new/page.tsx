@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser } from "@/lib/auth";
 import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
 import RequestForm from "./request-form";
+import { shortRequestNumber } from "@/lib/types";
 
 // Fresh each visit — otherwise the reserved request number below would
 // be cached and every user would see the same one.
@@ -54,7 +55,7 @@ export default async function NewRequestPage() {
               Request ID
             </p>
             <p className="font-mono text-sm font-semibold text-indigo-900 dark:text-indigo-100">
-              {reservedNumber}
+              {shortRequestNumber(reservedNumber)}
             </p>
           </div>
         )}

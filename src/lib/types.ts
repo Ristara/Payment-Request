@@ -34,6 +34,12 @@ export function formatINR(n: number | string | null | undefined): string {
   }).format(num);
 }
 
+/** "PR-2026-00134" → "PR-00134". Stored numbers keep the year (unique,
+ *  sortable); the year is just noise on screen. */
+export function shortRequestNumber(rn: string | null | undefined): string {
+  return (rn ?? "").replace(/^PR-\d{4}-/, "PR-");
+}
+
 // Timestamps are stored in UTC and the server renders in UTC (Vercel), so
 // every display must pin IST explicitly or dates shift by up to a day.
 const IST_TZ = "Asia/Kolkata";

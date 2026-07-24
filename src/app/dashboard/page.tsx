@@ -2,7 +2,7 @@ import Link from "next/link";
 import AppLayoutShell from "@/lib/appLayout";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { ROLE_LABEL, STATUS_LABEL, formatINR } from "@/lib/types";
+import { ROLE_LABEL, STATUS_LABEL, formatINR, shortRequestNumber } from "@/lib/types";
 
 type Row = {
   id: string;
@@ -192,7 +192,7 @@ export default async function DashboardPage() {
                     <li key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                       <Link href={`/requests/${r.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                         <div>
-                          <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
+                          <p className="font-mono text-[11px] text-zinc-500">{shortRequestNumber(r.request_number)}</p>
                           <p className="text-sm text-zinc-900 dark:text-zinc-100">{r.vendor?.name ?? "—"}</p>
                         </div>
                         <div className="flex items-center gap-4">

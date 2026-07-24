@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { formatISTDate } from "@/lib/types";
+import { formatISTDate, shortRequestNumber } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
@@ -92,7 +92,7 @@ export default async function ApprovalsPage({
     return {
       id: r.id,
       threadId: r.request?.id ?? "",
-      label: `${r.request?.request_number ?? "—"} · #${r.installment_number}`,
+      label: `${shortRequestNumber(r.request?.request_number) || "—"} · #${r.installment_number}`,
       requestTitle: r.request?.title ?? "",
       vendorName: r.request?.vendor?.name ?? "—",
       vendorPending: r.request?.vendor?.status !== "approved",

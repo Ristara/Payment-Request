@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
 import { computeRollupIds } from "@/lib/coa";
 import { invalidateMasters } from "@/lib/cache";
+import { shortRequestNumber } from "@/lib/types";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -366,13 +367,13 @@ export async function createThread(
           actor_id: user.id,
           kind: "mentioned",
           request_id: requestId,
-          body: `You were CC'd on ${requestNumber}`,
+          body: `You were CC'd on ${shortRequestNumber(requestNumber)}`,
         })),
       );
       const { data: submitterName } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
       await sendPushToUsers(ccUserIds, {
         title: `${submitterName?.full_name ?? "Someone"} CC'd you`,
-        body: `${requestNumber} · ${formatShortAmount(installment_amount)}`,
+        body: `${shortRequestNumber(requestNumber)} · ${formatShortAmount(installment_amount)}`,
         url: `/requests/${requestId}`,
         tag: `request-${requestId}`,
       });
@@ -592,11 +593,11 @@ async function transitionInstallment(
         actor_id: user.id,
         kind: notifiableKinds[to],
         request_id: inst.request_id,
-        body: `${thread.request_number} · installment #${inst.installment_number} → ${to.replace(/_/g, " ")}`,
+        body: `${shortRequestNumber(thread.request_number as string)} · installment #${inst.installment_number} → ${to.replace(/_/g, " ")}`,
       });
       await sendPushToUsers([thread.submitter_id], {
         title: `${actor?.full_name ?? "Someone"} ${to.replace(/_/g, " ")} installment #${inst.installment_number}`,
-        body: `${thread.request_number}${comment ? " · " + comment.slice(0, 100) : ""}`,
+        body: `${shortRequestNumber(thread.request_number as string)}${comment ? " · " + comment.slice(0, 100) : ""}`,
         url: `/requests/${inst.request_id}`,
         tag: `request-${inst.request_id}`,
       });
@@ -611,11 +612,11 @@ async function transitionInstallment(
           actor_id: user.id,
           kind: "ready_for_payment",
           request_id: inst.request_id,
-          body: `${t?.request_number} · installment #${inst.installment_number} ready`,
+          body: `${shortRequestNumber(t?.request_number as string)} · installment #${inst.installment_number} ready`,
         })));
         await sendPushToUsers(accIds, {
           title: "Installment ready for payment",
-          body: `${t?.request_number} · installment #${inst.installment_number}`,
+          body: `${shortRequestNumber(t?.request_number as string)} · installment #${inst.installment_number}`,
           url: `/requests/${inst.request_id}`,
           tag: `request-${inst.request_id}`,
         });
@@ -644,13 +645,13 @@ async function notifyApprovers(args: {
       actor_id: args.actorId,
       kind: "request_submitted",
       request_id: args.requestId,
-      body: `${args.requestNumber} · installment #${args.installmentNumber} · ${formatShortAmount(args.installmentAmount)}`,
+      body: `${shortRequestNumber(args.requestNumber)} · installment #${args.installmentNumber} · ${formatShortAmount(args.installmentAmount)}`,
     })),
   );
   const { data: submitter } = await admin.from("profiles").select("full_name").eq("id", args.actorId).single();
   await sendPushToUsers(approverIds, {
     title: `Installment #${args.installmentNumber} from ${submitter?.full_name ?? "someone"}`,
-    body: `${args.requestNumber} · ${formatShortAmount(args.installmentAmount)}`,
+    body: `${shortRequestNumber(args.requestNumber)} · ${formatShortAmount(args.installmentAmount)}`,
     url: `/requests/${args.requestId}`,
     tag: `request-${args.requestId}`,
   });

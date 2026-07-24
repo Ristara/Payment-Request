@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
-import { formatISTDate, formatISTDateTime } from "@/lib/types";
+import { formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
@@ -269,7 +269,7 @@ export default async function ThreadDetailPage({
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0">
-          <p className="font-mono text-xs text-zinc-500">{req.request_number}</p>
+          <p className="font-mono text-xs text-zinc-500">{shortRequestNumber(req.request_number)}</p>
           <h1 className="mt-1 text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">
             {req.title || req.vendor?.name}
           </h1>

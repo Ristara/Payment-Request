@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import RequestsList, { type RequestsRow } from "./requests-list";
+import { shortRequestNumber } from "@/lib/types";
 
 type ThreadRow = {
   id: string;
@@ -106,7 +107,7 @@ export default async function MyRequestsPage({
 
       return {
         id: r.id,
-        requestNumber: r.request_number,
+        requestNumber: shortRequestNumber(r.request_number),
         requestTitle: r.title ?? "",
         vendorName: r.vendor?.name ?? "—",
         poValue,
