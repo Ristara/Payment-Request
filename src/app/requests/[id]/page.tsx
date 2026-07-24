@@ -321,7 +321,7 @@ export default async function ThreadDetailPage({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                    <th className="px-2 py-2 font-medium">Subcategory</th>
+                    <th className="px-2 py-2 font-medium">Category / Subcategory</th>
                     <th className="px-2 py-2 text-right font-medium">Qty</th>
                     <th className="px-2 py-2 text-right font-medium">Rate</th>
                     <th className="px-2 py-2 text-right font-medium">Amount</th>
@@ -333,9 +333,16 @@ export default async function ThreadDetailPage({
                       <td className="px-2 py-2">
                         <div className="font-medium text-zinc-900 dark:text-zinc-100">
                           {l.coa_account?.subcategory ?? "—"}
+                          {l.coa_account && l.coa_account.subcategory === l.coa_account.category && (
+                            <span className="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+                              Whole category
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-zinc-500">
-                          {l.coa_account?.category} · {l.coa_account?.coa}
+                          {l.coa_account && l.coa_account.subcategory === l.coa_account.category
+                            ? l.coa_account.coa
+                            : `${l.coa_account?.category} · ${l.coa_account?.coa}`}
                         </div>
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-xs tabular-nums">{l.quantity}</td>

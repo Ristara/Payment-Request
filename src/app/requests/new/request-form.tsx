@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createThread } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
-import HierarchicalPicker from "@/components/HierarchicalPicker";
+import { computeRollupIds } from "@/lib/coa";
 import { formatINR } from "@/lib/types";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
@@ -12,14 +12,17 @@ type CoaAccount = { id: string; code: number; subcategory: string; category: str
 
 type LineRow = {
   key: string;
-  coa_account_id: string;
+  categoryKey: string; // JSON.stringify([coa, category]) — "" = none
+  coa_account_id: string; // subcategory row — optional; empty = category-level
   quantity: string;
   rate: string;
 };
 
+
 function newLine(): LineRow {
   return {
     key: Math.random().toString(36).slice(2),
+    categoryKey: "",
     coa_account_id: "",
     quantity: "1",
     rate: "",
@@ -73,11 +76,57 @@ export default function RequestForm({
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
 
-  const coaById = useMemo(() => {
-    const m = new Map<string, CoaAccount>();
-    coaAccounts.forEach((c) => m.set(c.id, c));
-    return m;
+  const rollupIds = useMemo(() => computeRollupIds(coaAccounts), [coaAccounts]);
+
+  // Distinct (coa, category) pairs. The <option> value is the pair encoded as
+  // a JSON array — printable characters round-trip HTML serialization safely
+  // (a NUL-separator variant did not), and name-based values stay stable if
+  // the CoA list refreshes underneath an open form (indexes would remap).
+  const categoryGroups = useMemo(() => {
+    const byCoa = new Map<string, Set<string>>();
+    for (const a of coaAccounts) {
+      let set = byCoa.get(a.coa);
+      if (!set) {
+        set = new Set();
+        byCoa.set(a.coa, set);
+      }
+      set.add(a.category);
+    }
+    return [...byCoa.keys()].sort((a, b) => a.localeCompare(b)).map((coa) => ({
+      coa,
+      categories: [...(byCoa.get(coa) ?? [])].sort((a, b) => a.localeCompare(b)).map((category) => ({
+        category,
+        pairKey: JSON.stringify([coa, category]),
+      })),
+    }));
   }, [coaAccounts]);
+
+  function parsePairKey(key: string): { coa: string; category: string } | null {
+    if (!key) return null;
+    try {
+      const [coa, category] = JSON.parse(key) as [string, string];
+      return typeof coa === "string" && typeof category === "string" ? { coa, category } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Real spendable subcategories inside a category. Rollup anchors and the
+  // category's self-named row are excluded — that level is reached by leaving
+  // Subcategory blank (the server charges the category itself).
+  function subOptionsFor(categoryKey: string) {
+    const cat = parsePairKey(categoryKey);
+    if (!cat) return [];
+    return coaAccounts
+      .filter(
+        (a) =>
+          a.coa === cat.coa &&
+          a.category === cat.category &&
+          !rollupIds.has(a.id) &&
+          a.subcategory !== a.category,
+      )
+      .sort((x, y) => x.subcategory.localeCompare(y.subcategory));
+  }
 
   function updateLine(idx: number, patch: Partial<LineRow>) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -101,11 +150,18 @@ export default function RequestForm({
   const pctOfPo = poValue > 0 && installmentNum > 0 ? (installmentNum / poValue) * 100 : null;
   const overPo = installmentNum > poValue + 0.01;
 
-  const linesPayload = lines.map((l) => ({
-    coa_account_id: l.coa_account_id,
-    quantity: Number(l.quantity) || 0,
-    rate: Number(l.rate) || 0,
-  }));
+  // The server resolves category-level lines (no subcategory picked) from the
+  // (coa, category) pair — the client never guesses the anchor row id.
+  const linesPayload = lines.map((l) => {
+    const cat = parsePairKey(l.categoryKey);
+    return {
+      coa_account_id: l.coa_account_id,
+      coa: cat?.coa ?? "",
+      category: cat?.category ?? "",
+      quantity: Number(l.quantity) || 0,
+      rate: Number(l.rate) || 0,
+    };
+  });
 
   return (
     <form
@@ -325,7 +381,7 @@ export default function RequestForm({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                <th className="px-2 py-2 font-medium">Subcategory</th>
+                <th className="px-2 py-2 font-medium">Category / Subcategory</th>
                 <th className="px-2 py-2 text-right font-medium w-24">Qty</th>
                 <th className="px-2 py-2 text-right font-medium w-32">Rate (₹)</th>
                 <th className="px-2 py-2 text-right font-medium w-32">Amount</th>
@@ -334,23 +390,54 @@ export default function RequestForm({
             </thead>
             <tbody>
               {lines.map((line, idx) => {
-                const coa = line.coa_account_id ? coaById.get(line.coa_account_id) : undefined;
+                const subs = subOptionsFor(line.categoryKey);
                 return (
                   <tr key={line.key} className="border-b border-zinc-100 align-top dark:border-zinc-800/60">
                     <td className="px-1 py-2">
-                      <HierarchicalPicker
-                        size="sm"
-                        accounts={coaAccounts}
-                        value={line.coa_account_id}
-                        onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                        placeholder="Pick subcategory"
-                        ariaLabel="Subcategory"
-                      />
-                      {coa && (
-                        <p className="mt-1 text-[10px] text-zinc-500">
-                          {coa.category} · {coa.coa}
-                        </p>
-                      )}
+                      <div className="space-y-1.5">
+                        <select
+                          value={line.categoryKey}
+                          onChange={(e) =>
+                            updateLine(idx, { categoryKey: e.target.value, coa_account_id: "" })
+                          }
+                          required
+                          aria-label="Category"
+                          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                        >
+                          <option value="" disabled>
+                            Pick category…
+                          </option>
+                          {categoryGroups.map((g) => (
+                            <optgroup key={g.coa} label={g.coa}>
+                              {g.categories.map((c) => (
+                                <option key={c.category} value={c.pairKey}>
+                                  {c.category}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                        <select
+                          value={line.coa_account_id}
+                          onChange={(e) => updateLine(idx, { coa_account_id: e.target.value })}
+                          disabled={!line.categoryKey}
+                          aria-label="Subcategory (optional)"
+                          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
+                        >
+                          <option value="">
+                            {!line.categoryKey
+                              ? "Pick category first…"
+                              : subs.length
+                                ? "Whole category (no subcategory)"
+                                : "No subcategories — charges to category"}
+                          </option>
+                          {subs.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.subcategory}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </td>
                     <td className="px-1 py-2">
                       <input
@@ -410,7 +497,7 @@ export default function RequestForm({
         {/* Mobile stacked cards */}
         <div className="mt-3 space-y-3 sm:hidden">
           {lines.map((line, idx) => {
-            const coa = line.coa_account_id ? coaById.get(line.coa_account_id) : undefined;
+            const subs = subOptionsFor(line.categoryKey);
             return (
               <div
                 key={line.key}
@@ -431,19 +518,54 @@ export default function RequestForm({
                   </button>
                 </div>
                 <div className="mt-2">
-                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Subcategory</label>
-                  <div className="mt-1">
-                    <HierarchicalPicker
-                      accounts={coaAccounts}
-                      value={line.coa_account_id}
-                      onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                      placeholder="Pick subcategory"
-                      ariaLabel="Subcategory"
-                    />
-                  </div>
-                  {coa && (
-                    <p className="mt-1 text-[10px] text-zinc-500">{coa.category} · {coa.coa}</p>
-                  )}
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Category</label>
+                  <select
+                    value={line.categoryKey}
+                    onChange={(e) =>
+                      updateLine(idx, { categoryKey: e.target.value, coa_account_id: "" })
+                    }
+                    required
+                    aria-label="Category"
+                    className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  >
+                    <option value="" disabled>
+                      Pick category…
+                    </option>
+                    {categoryGroups.map((g) => (
+                      <optgroup key={g.coa} label={g.coa}>
+                        {g.categories.map((c) => (
+                          <option key={c.category} value={c.pairKey}>
+                            {c.category}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <div className="mt-2">
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    Subcategory <span className="font-normal text-zinc-400">(optional)</span>
+                  </label>
+                  <select
+                    value={line.coa_account_id}
+                    onChange={(e) => updateLine(idx, { coa_account_id: e.target.value })}
+                    disabled={!line.categoryKey}
+                    aria-label="Subcategory (optional)"
+                    className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
+                  >
+                    <option value="">
+                      {!line.categoryKey
+                        ? "Pick category first…"
+                        : subs.length
+                          ? "Whole category (no subcategory)"
+                          : "No subcategories — charges to category"}
+                    </option>
+                    {subs.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.subcategory}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>

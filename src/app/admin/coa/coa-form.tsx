@@ -379,6 +379,13 @@ function SubcategoryRow({ row, isRollup }: { row: Row; isRollup: boolean }) {
   const [editState, editAction, editPending] = useActionState(updateCoaAccount, undefined);
   const [deleteState, deleteAction, deletePending] = useActionState(deleteCoaAccount, undefined);
 
+  // Self-named row = the category's anchor: it receives lines charged at
+  // category level ("Whole category" on the raise form). Renaming it alone
+  // would desync it from the category, so rename goes through the category's
+  // own rename. Deactivating it is meaningful: it blocks whole-category
+  // charging while leaving the subcategories usable.
+  const isAnchor = row.subcategory === row.category;
+
   return (
     <li className="flex items-center gap-2 py-1.5 pr-2 text-sm">
       <span className="text-zinc-400">↳</span>
@@ -425,6 +432,14 @@ function SubcategoryRow({ row, isRollup }: { row: Row; isRollup: boolean }) {
               Group anchor
             </span>
           )}
+          {!isRollup && isAnchor && (
+            <span
+              title="Receives requests charged to the whole category (no subcategory picked). Renamed automatically with the category. Deactivate it to force submitters to pick a specific subcategory."
+              className="rounded-full bg-indigo-100 px-1.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200"
+            >
+              Category anchor
+            </span>
+          )}
           <span className="font-mono text-[10px] text-zinc-400 tabular-nums">{row.code}</span>
           {isRollup ? (
             <span className="text-[11px] italic text-zinc-400" title="Rename/Delete disabled on group anchors">
@@ -432,13 +447,15 @@ function SubcategoryRow({ row, isRollup }: { row: Row; isRollup: boolean }) {
             </span>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-              >
-                Rename
-              </button>
+              {!isAnchor && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  Rename
+                </button>
+              )}
               <form action={toggleCoaAccountActive}>
                 <input type="hidden" name="id" value={row.id} />
                 <input type="hidden" name="is_active" value={row.is_active ? "false" : "true"} />

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
 import { computeRollupIds } from "@/lib/coa";
+import { invalidateMasters } from "@/lib/cache";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -56,7 +57,9 @@ export async function createThread(
   const tentative_invoice_date = String(formData.get("tentative_invoice_date") ?? "") || null;
 
   const linesRaw = String(formData.get("line_items") ?? "[]");
-  type LineIn = { coa_account_id: string; quantity: number; rate: number };
+  // coa_account_id empty = category-level line: the server resolves (coa,
+  // category) to the category's self-named anchor row below.
+  type LineIn = { coa_account_id: string; coa?: string; category?: string; quantity: number; rate: number };
   let lines: LineIn[] = [];
   try {
     lines = JSON.parse(linesRaw) as LineIn[];
@@ -86,8 +89,13 @@ export async function createThread(
     return { error: "Tentative invoice date is required for PO / Invoice yet to receive." };
   }
   if (lines.length === 0) return { error: "Add at least one line item." };
-  const badLine = lines.findIndex((l) => !l.coa_account_id || !(l.quantity > 0) || !(l.rate >= 0));
-  if (badLine !== -1) return { error: `Line ${badLine + 1}: subcategory + quantity + rate all required.` };
+  const badLine = lines.findIndex(
+    (l) =>
+      (!l.coa_account_id && !(String(l.coa ?? "").trim() && String(l.category ?? "").trim())) ||
+      !(l.quantity > 0) ||
+      !(l.rate >= 0),
+  );
+  if (badLine !== -1) return { error: `Line ${badLine + 1}: category + quantity + rate all required.` };
 
   const poValue = Math.round(lines.reduce((s, l) => s + l.quantity * l.rate, 0) * 100) / 100;
   if (poValue <= 0) return { error: "PO value must be positive." };
@@ -98,15 +106,112 @@ export async function createThread(
   }
   if (!purpose) return { error: "Purpose / description is required." };
 
-  // ------ CoA validation (existence + rollup guard) ------
+  // ------ Resolve category-level lines (no subcategory picked) ------
+  // Such a line charges the category's SELF-NAMED anchor row (subcategory =
+  // category = the category's own name, so reports bucket it under the right
+  // category). Find-or-create keeps this working for categories added or
+  // renamed after the backfill migration.
+  const adminDb = createAdminClient();
+  const anchorIdByPair = new Map<string, string>();
+  const categoryPairs = Array.from(
+    new Set(
+      lines
+        .filter((l) => !l.coa_account_id)
+        .map((l) => JSON.stringify([String(l.coa ?? "").trim(), String(l.category ?? "").trim()])),
+    ),
+  ).map((s) => JSON.parse(s) as [string, string]);
+  for (const [coaHead, category] of categoryPairs) {
+    // The category must genuinely exist in the active chart of accounts.
+    const { data: catRow, error: catErr } = await supabase
+      .from("coa_accounts")
+      .select("id")
+      .eq("coa", coaHead)
+      .eq("category", category)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    if (catErr) return { error: "Couldn't verify the category — please try again." };
+    if (!catRow) return { error: `Category "${category}" doesn't exist any more — pick another.` };
+
+    // Fetch anchors ACTIVE OR NOT: a deactivated anchor means an admin
+    // deliberately blocked whole-category charging — respect it, don't
+    // resurrect it.
+    const { data: anchorRows, error: anchorErr } = await supabase
+      .from("coa_accounts")
+      .select("id, is_active")
+      .eq("coa", coaHead)
+      .eq("category", category)
+      .eq("subcategory", category)
+      .order("code");
+    if (anchorErr) return { error: "Couldn't verify the category — please try again." };
+    const activeAnchor = (anchorRows ?? []).find((r) => r.is_active);
+    if (activeAnchor) {
+      anchorIdByPair.set(JSON.stringify([coaHead, category]), activeAnchor.id as string);
+    } else if ((anchorRows ?? []).length > 0) {
+      return {
+        error: `"${category}" can't be charged as a whole category — pick a specific subcategory.`,
+      };
+    } else {
+      // Category created after the backfill migration — mint its anchor.
+      // On a concurrent-insert race, fall back to re-reading the winner.
+      const { data: created, error: createErr } = await adminDb
+        .from("coa_accounts")
+        .insert({ subcategory: category, category, coa: coaHead })
+        .select("id")
+        .single();
+      let anchorId = created?.id as string | undefined;
+      if (createErr || !anchorId) {
+        const { data: retry } = await supabase
+          .from("coa_accounts")
+          .select("id")
+          .eq("coa", coaHead)
+          .eq("category", category)
+          .eq("subcategory", category)
+          .eq("is_active", true)
+          .order("code")
+          .limit(1)
+          .maybeSingle();
+        anchorId = retry?.id as string | undefined;
+      }
+      if (!anchorId) return { error: `Couldn't charge to category "${category}" — try picking a subcategory.` };
+      invalidateMasters();
+      anchorIdByPair.set(JSON.stringify([coaHead, category]), anchorId);
+    }
+  }
+  for (const l of lines) {
+    if (!l.coa_account_id) {
+      l.coa_account_id =
+        anchorIdByPair.get(
+          JSON.stringify([String(l.coa ?? "").trim(), String(l.category ?? "").trim()]),
+        ) ?? "";
+    }
+  }
+
+  // ------ CoA validation (existence + active + rollup guard) ------
   const uniqueCoaIds = Array.from(new Set(lines.map((l) => l.coa_account_id)));
   const { data: pickedRows } = await supabase
     .from("coa_accounts")
     .select("id, subcategory, category, coa")
-    .in("id", uniqueCoaIds);
+    .in("id", uniqueCoaIds)
+    .eq("is_active", true);
   if ((pickedRows?.length ?? 0) !== uniqueCoaIds.length) {
-    return { error: "One or more selected accounts don't exist." };
+    return { error: "One or more selected accounts don't exist or are inactive." };
   }
+  // A picked subcategory must belong to the category the form showed —
+  // guards against stale client state and crafted payloads.
+  const rowById = new Map((pickedRows ?? []).map((r) => [r.id as string, r]));
+  const mismatched = lines.findIndex((l) => {
+    const coaHead = String(l.coa ?? "").trim();
+    const category = String(l.category ?? "").trim();
+    if (!coaHead || !category) return false;
+    const row = rowById.get(l.coa_account_id);
+    return !!row && (row.coa !== coaHead || row.category !== category);
+  });
+  if (mismatched !== -1) {
+    return { error: `Line ${mismatched + 1}: the subcategory doesn't belong to the picked category — reselect it.` };
+  }
+  // Rollup knit rows are still not chargeable directly — category-level lines
+  // use the self-named anchors, which are not rollups.
   const coaHeadsInPlay = Array.from(new Set((pickedRows ?? []).map((r) => r.coa as string)));
   const { data: siblingRows } = await supabase
     .from("coa_accounts")

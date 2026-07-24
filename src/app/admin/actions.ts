@@ -213,6 +213,18 @@ export async function renameCategoryGroup(
     .eq("coa", coa)
     .eq("category", oldCategory);
   if (error) return { error: error.message };
+  // Rows NAMED after the category — self-named anchors and rollup knit rows
+  // under a parent — must follow the rename, or category-level charging and
+  // the tree linkage break for the new name. In this name-knit model, ANY row
+  // in the COA head bearing the category's name IS part of its linkage
+  // (computeRollupIds flags it), so renaming all of them is the consistent
+  // behavior.
+  const { error: subErr } = await supabase
+    .from("coa_accounts")
+    .update({ subcategory: newCategory })
+    .eq("coa", coa)
+    .eq("subcategory", oldCategory);
+  if (subErr) return { error: subErr.message };
   invalidateMasters();
   revalidatePath("/admin/coa");
   return { info: "Category renamed." };
