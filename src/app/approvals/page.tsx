@@ -15,6 +15,7 @@ type Row = {
   request: {
     id: string;
     request_number: string;
+    title: string | null;
     vendor: { name: string; status: string } | null;
     comments: {
       id: string;
@@ -58,7 +59,7 @@ export default async function ApprovalsPage({
       .from("request_installments")
       .select(
         `id, installment_number, requested_amount, submitted_at, status, approved_at,
-         request:payment_requests!inner(id, request_number,
+         request:payment_requests!inner(id, request_number, title,
            vendor:vendors(name, status),
            comments(id, created_at, author_id, comment_mentions(mentioned_user_id))),
          submitter:profiles!request_installments_submitted_by_fkey(full_name),
@@ -91,6 +92,7 @@ export default async function ApprovalsPage({
       id: r.id,
       threadId: r.request?.id ?? "",
       label: `${r.request?.request_number ?? "—"} · #${r.installment_number}`,
+      requestTitle: r.request?.title ?? "",
       vendorName: r.request?.vendor?.name ?? "—",
       vendorPending: r.request?.vendor?.status !== "approved",
       submitterName: r.submitter?.full_name ?? "—",

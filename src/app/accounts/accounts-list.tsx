@@ -9,6 +9,7 @@ export type AccountsRow = {
   id: string;
   threadId: string;
   label: string;
+  requestTitle: string;
   vendorName: string;
   submitterName: string;
   amount: number;
@@ -34,6 +35,7 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
     return rows.filter(
       (r) =>
         r.label.toLowerCase().includes(needle) ||
+        r.requestTitle.toLowerCase().includes(needle) ||
         r.vendorName.toLowerCase().includes(needle) ||
         r.submitterName.toLowerCase().includes(needle),
     );
@@ -41,7 +43,7 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
 
   return (
     <div>
-      <SearchBox q={q} setQ={setQ} placeholder="Search request #, vendor, raised by…" />
+      <SearchBox q={q} setQ={setQ} placeholder="Search request #, title, vendor, raised by…" />
       {q && (
         <p className="mt-2 text-xs text-zinc-500">
           {filtered.length} match{filtered.length === 1 ? "" : "es"}
@@ -75,8 +77,12 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <p className="font-mono text-[11px] text-zinc-500">{r.label}</p>
-                          <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">{r.vendorName}</p>
-                          <p className="mt-0.5 truncate text-xs text-zinc-500">by {r.submitterName}</p>
+                          <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
+                            {r.requestTitle || r.vendorName}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-zinc-500">
+                            {r.requestTitle ? `${r.vendorName} · ` : ""}by {r.submitterName}
+                          </p>
                         </div>
                         <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                           {formatINR(r.amount)}
@@ -96,7 +102,16 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                       {bucket.map((r) => (
                         <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
                           <td className="px-5 py-2 font-mono text-xs">{r.label}</td>
-                          <td className="px-5 py-2">{r.vendorName}</td>
+                          <td className="px-5 py-2">
+                            {r.requestTitle ? (
+                              <>
+                                <div className="font-medium text-zinc-900 dark:text-zinc-100">{r.requestTitle}</div>
+                                <div className="text-xs text-zinc-500">{r.vendorName}</div>
+                              </>
+                            ) : (
+                              r.vendorName
+                            )}
+                          </td>
                           <td className="px-5 py-2 text-zinc-500">{r.submitterName}</td>
                           <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.amount)}</td>
                           <td className="px-5 py-2 text-zinc-500">{r.dueDate}</td>

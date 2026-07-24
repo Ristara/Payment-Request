@@ -7,6 +7,7 @@ import RequestsList, { type RequestsRow } from "./requests-list";
 type ThreadRow = {
   id: string;
   request_number: string;
+  title: string | null;
   created_at: string;
   submitter_id: string;
   vendor: { name: string } | null;
@@ -62,7 +63,7 @@ export default async function MyRequestsPage({
   let threadQuery = supabase
     .from("payment_requests")
     .select(
-      `id, request_number, created_at, submitter_id,
+      `id, request_number, title, created_at, submitter_id,
        vendor:vendors(name),
        line_items:request_line_items(amount),
        installments:request_installments(installment_number, status, requested_amount, payment_due_date),
@@ -106,6 +107,7 @@ export default async function MyRequestsPage({
       return {
         id: r.id,
         requestNumber: r.request_number,
+        requestTitle: r.title ?? "",
         vendorName: r.vendor?.name ?? "—",
         poValue,
         requestedTotal,

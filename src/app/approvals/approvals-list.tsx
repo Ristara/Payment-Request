@@ -8,6 +8,7 @@ export type ApprovalRow = {
   id: string;
   threadId: string;
   label: string; // "PR-2026-00052 · #1"
+  requestTitle: string;
   vendorName: string;
   vendorPending: boolean;
   submitterName: string;
@@ -30,6 +31,7 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
     return rows.filter(
       (r) =>
         r.label.toLowerCase().includes(needle) ||
+        r.requestTitle.toLowerCase().includes(needle) ||
         r.vendorName.toLowerCase().includes(needle) ||
         r.submitterName.toLowerCase().includes(needle),
     );
@@ -37,7 +39,7 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
 
   return (
     <div>
-      <SearchBox q={q} setQ={setQ} placeholder="Search request #, vendor, raised by…" />
+      <SearchBox q={q} setQ={setQ} placeholder="Search request #, title, vendor, raised by…" />
       {q && (
         <p className="mt-2 text-xs text-zinc-500">
           {filtered.length} match{filtered.length === 1 ? "" : "es"}
@@ -65,9 +67,11 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                         <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
                       </p>
                       <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
-                        {r.vendorName}
+                        {r.requestTitle || r.vendorName}
                       </p>
-                      <p className="mt-0.5 truncate text-xs text-zinc-500">by {r.submitterName}</p>
+                      <p className="mt-0.5 truncate text-xs text-zinc-500">
+                        {r.requestTitle ? `${r.vendorName} · ` : ""}by {r.submitterName}
+                      </p>
                     </div>
                     <StatusPill status={r.status} />
                   </div>
@@ -94,7 +98,7 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                 <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
                   <tr>
                     <th className="px-5 py-3">Thread · Installment</th>
-                    <th className="px-5 py-3">Vendor</th>
+                    <th className="px-5 py-3">Title / Vendor</th>
                     <th className="px-5 py-3">Raised by</th>
                     <th className="px-5 py-3 text-right">Amount</th>
                     <th className="px-5 py-3">Requested</th>
@@ -112,7 +116,14 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                         </span>
                       </td>
                       <td className="px-5 py-3">
-                        {r.vendorName}
+                        {r.requestTitle ? (
+                          <>
+                            <div className="font-medium text-zinc-900 dark:text-zinc-100">{r.requestTitle}</div>
+                            <div className="text-xs text-zinc-500">{r.vendorName}</div>
+                          </>
+                        ) : (
+                          r.vendorName
+                        )}
                         {r.vendorPending && (
                           <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">
                             vendor pending

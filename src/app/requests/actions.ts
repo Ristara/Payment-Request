@@ -46,6 +46,7 @@ export async function createThread(
   if (!user) return { error: "Not signed in." };
 
   const vendor_id = String(formData.get("vendor_id") ?? "");
+  const title = String(formData.get("title") ?? "").trim().slice(0, 200);
   const outlet_ids = formData.getAll("outlet_ids").map((s) => String(s)).filter(Boolean);
   const document_type = String(formData.get("document_type") ?? "") as
     | "po" | "invoice" | "no_invoice" | "invoice_pending" | "";
@@ -75,6 +76,7 @@ export async function createThread(
   ccUserIds = Array.from(new Set(ccUserIds.filter((s) => typeof s === "string" && s && s !== user.id)));
 
   // ------ Validation ------
+  if (!title) return { error: "Give the request a short title." };
   if (!vendor_id) return { error: "Pick a vendor." };
   if (outlet_ids.length === 0) return { error: "Pick at least one outlet." };
   if (!installment_amount || installment_amount <= 0) return { error: "First installment amount must be positive." };
@@ -252,6 +254,7 @@ export async function createThread(
     .insert({
       request_number: requestNumber,
       submitter_id: user.id,
+      title,
       vendor_id,
       document_type,
       document_reference:

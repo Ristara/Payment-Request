@@ -21,6 +21,7 @@ const DOC_TYPE_LABEL: Record<"po" | "invoice" | "no_invoice" | "invoice_pending"
 type ThreadRow = {
   id: string;
   request_number: string;
+  title: string | null;
   submitter_id: string;
   vendor_id: string;
   document_type: "po" | "invoice" | "no_invoice" | "invoice_pending" | null;
@@ -91,7 +92,7 @@ export default async function ThreadDetailPage({
     supabase
       .from("payment_requests")
       .select(
-        `id, request_number, submitter_id, vendor_id,
+        `id, request_number, title, submitter_id, vendor_id,
          document_type, document_reference, payment_kind, purpose, created_at,
          submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
          vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
@@ -269,8 +270,11 @@ export default async function ThreadDetailPage({
         <div className="min-w-0">
           <p className="font-mono text-xs text-zinc-500">{req.request_number}</p>
           <h1 className="mt-1 text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">
-            {req.vendor?.name}
+            {req.title || req.vendor?.name}
           </h1>
+          {req.title && (
+            <p className="mt-0.5 text-sm text-zinc-500">{req.vendor?.name}</p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusPill status={threadStatus} />
             {req.vendor?.status !== "approved" && (

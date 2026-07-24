@@ -8,6 +8,7 @@ import { SearchBox } from "@/app/approvals/approvals-list";
 export type RequestsRow = {
   id: string;
   requestNumber: string;
+  requestTitle: string;
   vendorName: string;
   poValue: number;
   requestedTotal: number;
@@ -29,13 +30,14 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
     return rows.filter(
       (r) =>
         r.requestNumber.toLowerCase().includes(needle) ||
+        r.requestTitle.toLowerCase().includes(needle) ||
         r.vendorName.toLowerCase().includes(needle),
     );
   }, [rows, q]);
 
   return (
     <div>
-      <SearchBox q={q} setQ={setQ} placeholder="Search request # or vendor…" />
+      <SearchBox q={q} setQ={setQ} placeholder="Search request #, title or vendor…" />
       {q && (
         <p className="mt-2 text-xs text-zinc-500">
           {filtered.length} match{filtered.length === 1 ? "" : "es"}
@@ -67,8 +69,11 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                         )}
                       </p>
                       <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
-                        {r.vendorName}
+                        {r.requestTitle || r.vendorName}
                       </p>
+                      {r.requestTitle && (
+                        <p className="truncate text-xs text-zinc-500">{r.vendorName}</p>
+                      )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <StatusPill status={r.latestStatus} />
@@ -95,7 +100,7 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                 <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
                   <tr>
                     <th className="px-5 py-3">Request #</th>
-                    <th className="px-5 py-3">Vendor</th>
+                    <th className="px-5 py-3">Title / Vendor</th>
                     <th className="px-5 py-3 text-right">PO value</th>
                     <th className="px-5 py-3 text-right">Requested</th>
                     <th className="px-5 py-3">Installments</th>
@@ -117,7 +122,16 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                           <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
                         </span>
                       </td>
-                      <td className="px-5 py-3">{r.vendorName}</td>
+                      <td className="px-5 py-3">
+                        {r.requestTitle ? (
+                          <>
+                            <div className="font-medium text-zinc-900 dark:text-zinc-100">{r.requestTitle}</div>
+                            <div className="text-xs text-zinc-500">{r.vendorName}</div>
+                          </>
+                        ) : (
+                          r.vendorName
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-right tabular-nums">{formatINR(r.poValue)}</td>
                       <td className="px-5 py-3 text-right tabular-nums text-zinc-600">{formatINR(r.requestedTotal)}</td>
                       <td className="px-5 py-3 text-zinc-500">{r.installmentCount}</td>

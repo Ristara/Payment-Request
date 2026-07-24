@@ -283,6 +283,18 @@ export default function RequestForm({
         <input type="hidden" name="payment_kind" value={paymentKind} />
       </section>
 
+      {/* Title — short human-readable label for the thread */}
+      <section>
+        <SectionTitle>Payment request title</SectionTitle>
+        <input
+          name="title"
+          required
+          maxLength={120}
+          placeholder="e.g. Kitchen equipment advance — Indiranagar"
+          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        />
+      </section>
+
       {/* Outlet — filtered by the store-type choice above */}
       <section>
         <SectionTitle>Outlet</SectionTitle>

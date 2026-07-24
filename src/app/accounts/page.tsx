@@ -14,6 +14,7 @@ type Row = {
   request: {
     id: string;
     request_number: string;
+    title: string | null;
     vendor: { name: string; status: string } | null;
   } | null;
   submitter: { full_name: string } | null;
@@ -46,7 +47,7 @@ export default async function AccountsQueuePage({
     .from("request_installments")
     .select(
       `id, installment_number, requested_amount, payment_due_date, status,
-       request:payment_requests!inner(id, request_number,
+       request:payment_requests!inner(id, request_number, title,
          vendor:vendors(name, status)),
        submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
     )
@@ -58,6 +59,7 @@ export default async function AccountsQueuePage({
     id: r.id,
     threadId: r.request?.id ?? "",
     label: `${r.request?.request_number ?? "—"} · #${r.installment_number}`,
+    requestTitle: r.request?.title ?? "",
     vendorName: r.request?.vendor?.name ?? "—",
     submitterName: r.submitter?.full_name ?? "—",
     amount: Number(r.requested_amount),
