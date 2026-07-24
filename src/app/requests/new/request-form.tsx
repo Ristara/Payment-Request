@@ -115,6 +115,39 @@ export default function RequestForm({
         <input type="hidden" name="request_number" value={reservedNumber} />
       )}
 
+      {/* Expense type — CapEx is live; OpEx is a future module */}
+      <section>
+        <SectionTitle>Expense type</SectionTitle>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div
+            aria-pressed="true"
+            className="rounded-xl border border-indigo-600 bg-indigo-50 px-4 py-3 text-center dark:border-indigo-400 dark:bg-indigo-950/40"
+          >
+            <span className="block text-sm font-semibold text-indigo-700 dark:text-indigo-200">
+              CapEx
+            </span>
+            <span className="mt-0.5 block text-xs text-zinc-500">
+              Capital expenditure — assets, construction, equipment
+            </span>
+          </div>
+          <div
+            aria-disabled="true"
+            title="OpEx module is coming soon"
+            className="relative cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-center opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <span className="absolute right-2 top-2 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+              Coming soon
+            </span>
+            <span className="block text-sm font-semibold text-zinc-500 dark:text-zinc-400">
+              OpEx
+            </span>
+            <span className="mt-0.5 block text-xs text-zinc-400">
+              Operating expenses — rent, utilities, consumables
+            </span>
+          </div>
+        </div>
+      </section>
+
       {/* Store type — decides which outlets are offered below */}
       <section>
         <SectionTitle>What is this payment for?</SectionTitle>
