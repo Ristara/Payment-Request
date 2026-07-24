@@ -101,6 +101,16 @@ export default function RequestForm({
     }));
   }, [coaAccounts]);
 
+  // Flat, searchable option list for the category Combobox (hint = COA head,
+  // included in the search haystack).
+  const categoryOptions = useMemo<ComboOption[]>(
+    () =>
+      categoryGroups.flatMap((g) =>
+        g.categories.map((c) => ({ value: c.pairKey, label: c.category, hint: g.coa })),
+      ),
+    [categoryGroups],
+  );
+
   function parsePairKey(key: string): { coa: string; category: string } | null {
     if (!key) return null;
     try {
@@ -395,48 +405,35 @@ export default function RequestForm({
                   <tr key={line.key} className="border-b border-zinc-100 align-top dark:border-zinc-800/60">
                     <td className="px-1 py-2">
                       <div className="space-y-1.5">
-                        <select
+                        <Combobox
+                          size="sm"
+                          options={categoryOptions}
                           value={line.categoryKey}
-                          onChange={(e) =>
-                            updateLine(idx, { categoryKey: e.target.value, coa_account_id: "" })
+                          onChange={(v) => updateLine(idx, { categoryKey: v, coa_account_id: "" })}
+                          placeholder="Search category…"
+                          ariaLabel="Category"
+                        />
+                        <Combobox
+                          size="sm"
+                          options={
+                            line.categoryKey
+                              ? [
+                                  {
+                                    value: "",
+                                    label: subs.length
+                                      ? "Whole category (no subcategory)"
+                                      : "No subcategories — charges to category",
+                                  },
+                                  ...subs.map((s) => ({ value: s.id, label: s.subcategory })),
+                                ]
+                              : []
                           }
-                          required
-                          aria-label="Category"
-                          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                        >
-                          <option value="" disabled>
-                            Pick category…
-                          </option>
-                          {categoryGroups.map((g) => (
-                            <optgroup key={g.coa} label={g.coa}>
-                              {g.categories.map((c) => (
-                                <option key={c.category} value={c.pairKey}>
-                                  {c.category}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                        <select
                           value={line.coa_account_id}
-                          onChange={(e) => updateLine(idx, { coa_account_id: e.target.value })}
+                          onChange={(v) => updateLine(idx, { coa_account_id: v })}
                           disabled={!line.categoryKey}
-                          aria-label="Subcategory (optional)"
-                          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
-                        >
-                          <option value="">
-                            {!line.categoryKey
-                              ? "Pick category first…"
-                              : subs.length
-                                ? "Whole category (no subcategory)"
-                                : "No subcategories — charges to category"}
-                          </option>
-                          {subs.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.subcategory}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder={line.categoryKey ? "Search subcategory…" : "Pick category first…"}
+                          ariaLabel="Subcategory (optional)"
+                        />
                       </div>
                     </td>
                     <td className="px-1 py-2">
@@ -519,53 +516,42 @@ export default function RequestForm({
                 </div>
                 <div className="mt-2">
                   <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Category</label>
-                  <select
-                    value={line.categoryKey}
-                    onChange={(e) =>
-                      updateLine(idx, { categoryKey: e.target.value, coa_account_id: "" })
-                    }
-                    required
-                    aria-label="Category"
-                    className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                  >
-                    <option value="" disabled>
-                      Pick category…
-                    </option>
-                    {categoryGroups.map((g) => (
-                      <optgroup key={g.coa} label={g.coa}>
-                        {g.categories.map((c) => (
-                          <option key={c.category} value={c.pairKey}>
-                            {c.category}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <div className="mt-1">
+                    <Combobox
+                      options={categoryOptions}
+                      value={line.categoryKey}
+                      onChange={(v) => updateLine(idx, { categoryKey: v, coa_account_id: "" })}
+                      placeholder="Search category…"
+                      ariaLabel="Category"
+                    />
+                  </div>
                 </div>
                 <div className="mt-2">
                   <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
                     Subcategory <span className="font-normal text-zinc-400">(optional)</span>
                   </label>
-                  <select
-                    value={line.coa_account_id}
-                    onChange={(e) => updateLine(idx, { coa_account_id: e.target.value })}
-                    disabled={!line.categoryKey}
-                    aria-label="Subcategory (optional)"
-                    className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
-                  >
-                    <option value="">
-                      {!line.categoryKey
-                        ? "Pick category first…"
-                        : subs.length
-                          ? "Whole category (no subcategory)"
-                          : "No subcategories — charges to category"}
-                    </option>
-                    {subs.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.subcategory}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mt-1">
+                    <Combobox
+                      options={
+                        line.categoryKey
+                          ? [
+                              {
+                                value: "",
+                                label: subs.length
+                                  ? "Whole category (no subcategory)"
+                                  : "No subcategories — charges to category",
+                              },
+                              ...subs.map((s) => ({ value: s.id, label: s.subcategory })),
+                            ]
+                          : []
+                      }
+                      value={line.coa_account_id}
+                      onChange={(v) => updateLine(idx, { coa_account_id: v })}
+                      disabled={!line.categoryKey}
+                      placeholder={line.categoryKey ? "Search subcategory…" : "Pick category first…"}
+                      ariaLabel="Subcategory (optional)"
+                    />
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
