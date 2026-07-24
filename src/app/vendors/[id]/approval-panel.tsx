@@ -11,9 +11,11 @@ import { approveVendor, rejectVendor } from "@/app/vendors/actions";
 export default function ApprovalPanel({
   vendorId,
   hasBank,
+  hasPhone,
 }: {
   vendorId: string;
   hasBank: boolean;
+  hasPhone: boolean;
 }) {
   const [approveState, approveAction, approvePending] = useActionState(approveVendor, undefined);
 
@@ -23,14 +25,30 @@ export default function ApprovalPanel({
         Verify this vendor
       </h2>
       <p className="mt-1 text-sm text-indigo-900 dark:text-indigo-200">
-        {hasBank
+        {hasBank && hasPhone
           ? "Check GSTIN + bank details + cheque match. Then approve or reject."
-          : "Fill in the bank details below (required to approve), then hit Approve."}
+          : "Fill in the missing details below (required to approve), then hit Approve."}
       </p>
 
-      {/* Approve form — includes bank fields when missing */}
+      {/* Approve form — includes bank/contact fields when missing */}
       <form action={approveAction} className="mt-4 space-y-3">
         <input type="hidden" name="id" value={vendorId} />
+
+        {!hasPhone && (
+          <div className="rounded-md border border-indigo-200 bg-white p-4 dark:border-indigo-900 dark:bg-zinc-900">
+            <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              Vendor mobile number <span className="text-red-500">*</span>
+            </label>
+            <input
+              name="phone"
+              required
+              type="tel"
+              inputMode="numeric"
+              placeholder="98765 43210"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm sm:max-w-xs dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+        )}
 
         {!hasBank && (
           <div className="grid grid-cols-1 gap-3 rounded-md border border-indigo-200 bg-white p-4 sm:grid-cols-2 dark:border-indigo-900 dark:bg-zinc-900">

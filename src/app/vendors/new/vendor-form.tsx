@@ -79,6 +79,32 @@ export default function VendorForm() {
         </div>
         <Field label="PAN" name="pan" required placeholder="AAAAA0000A" mono />
       </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            Mobile number <span className="ml-0.5 text-red-500">*</span>
+          </label>
+          <input
+            name="phone"
+            required
+            type="tel"
+            inputMode="numeric"
+            placeholder="98765 43210"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            Email (optional)
+          </label>
+          <input
+            name="email"
+            type="email"
+            placeholder="accounts@vendor.com"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </div>
+      </div>
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
           Bank details (optional — Accounts will add when they approve)

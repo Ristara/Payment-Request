@@ -11,6 +11,8 @@ type VendorRow = {
   name: string;
   gstin: string | null;
   pan: string;
+  phone: string | null;
+  email: string | null;
   bank_account_number: string | null;
   bank_ifsc: string | null;
   bank_name: string | null;
@@ -39,7 +41,7 @@ export default async function VendorDetailPage({
   const { data } = await supabase
     .from("vendors")
     .select(
-      `id, name, gstin, pan, bank_account_number, bank_ifsc, bank_name, bank_branch,
+      `id, name, gstin, pan, phone, email, bank_account_number, bank_ifsc, bank_name, bank_branch,
        cancelled_cheque_path, status, rejection_reason, created_at, submitted_by, verified_at,
        submitter:profiles!vendors_submitted_by_fkey(full_name, email),
        verifier:profiles!vendors_verified_by_fkey(full_name)`,
@@ -79,9 +81,11 @@ export default async function VendorDetailPage({
       </div>
 
       <section className="mt-6 grid grid-cols-1 gap-4 sm:mt-8 sm:grid-cols-2 sm:gap-6">
-        <Card title="Tax IDs">
+        <Card title="Tax IDs & contact">
           <Row label="GSTIN" value={v.gstin ?? "Not registered"} mono={!!v.gstin} />
           <Row label="PAN" value={v.pan} mono />
+          <Row label="Mobile" value={v.phone ?? "—"} mono={!!v.phone} />
+          <Row label="Email" value={v.email ?? "—"} />
         </Card>
         <Card title="Bank">
           {v.bank_account_number || v.bank_ifsc ? (
@@ -134,6 +138,7 @@ export default async function VendorDetailPage({
         <ApprovalPanel
           vendorId={v.id}
           hasBank={!!(v.bank_account_number && v.bank_ifsc)}
+          hasPhone={!!v.phone}
         />
       )}
     </div>
