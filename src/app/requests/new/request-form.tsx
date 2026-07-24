@@ -119,31 +119,31 @@ export default function RequestForm({
       {/* Expense type — CapEx is live; OpEx is a future module */}
       <section>
         <SectionTitle>Expense type</SectionTitle>
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-2 gap-2">
           <div
             aria-pressed="true"
-            className="rounded-xl border border-indigo-600 bg-indigo-50 px-4 py-3 text-center dark:border-indigo-400 dark:bg-indigo-950/40"
+            className="rounded-xl border border-indigo-600 bg-indigo-50 px-3 py-2.5 text-center dark:border-indigo-400 dark:bg-indigo-950/40"
           >
             <span className="block text-sm font-semibold text-indigo-700 dark:text-indigo-200">
               CapEx
             </span>
-            <span className="mt-0.5 block text-xs text-zinc-500">
-              Capital expenditure — assets, construction, equipment
+            <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+              Assets &amp; construction
             </span>
           </div>
           <div
             aria-disabled="true"
             title="OpEx module is coming soon"
-            className="relative cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-center opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+            className="relative cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-center opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <span className="absolute right-2 top-2 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-              Coming soon
+            <span className="absolute right-1.5 top-1.5 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+              Soon
             </span>
             <span className="block text-sm font-semibold text-zinc-500 dark:text-zinc-400">
               OpEx
             </span>
-            <span className="mt-0.5 block text-xs text-zinc-400">
-              Operating expenses — rent, utilities, consumables
+            <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+              Rent &amp; utilities
             </span>
           </div>
         </div>
@@ -152,10 +152,10 @@ export default function RequestForm({
       {/* Store type — decides which outlets are offered below */}
       <section>
         <SectionTitle>What is this payment for?</SectionTitle>
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-2 gap-2">
           {([
-            { key: "upcoming", title: "New Store Opening", hint: "Pick the upcoming outlet" },
-            { key: "operational", title: "Existing Outlet", hint: "Pick the operational outlet" },
+            { key: "upcoming", title: "New Store", hint: "Upcoming outlet" },
+            { key: "operational", title: "Existing Outlet", hint: "Operational outlet" },
           ] as const).map((opt) => {
             const active = storeType === opt.key;
             return (
@@ -169,16 +169,16 @@ export default function RequestForm({
                   if (!stillValid) setOutletId("");
                 }}
                 aria-pressed={active}
-                className={`rounded-xl border px-4 py-3 text-center transition-colors ${
+                className={`rounded-xl border px-3 py-2.5 text-center transition-colors ${
                   active
                     ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
                     : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
                 }`}
               >
-                <span className={`block text-sm font-semibold ${active ? "text-indigo-700 dark:text-indigo-200" : "text-zinc-900 dark:text-zinc-100"}`}>
+                <span className={`block truncate text-sm font-semibold ${active ? "text-indigo-700 dark:text-indigo-200" : "text-zinc-900 dark:text-zinc-100"}`}>
                   {opt.title}
                 </span>
-                <span className="mt-0.5 block text-xs text-zinc-500">{opt.hint}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-zinc-500">{opt.hint}</span>
               </button>
             );
           })}
@@ -188,10 +188,10 @@ export default function RequestForm({
       {/* Payment kind */}
       <section>
         <SectionTitle>Payment kind</SectionTitle>
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-2 gap-2">
           {([
-            { key: "regular", title: "Regular Payments", hint: "Standard one-off or part payments" },
-            { key: "milestone", title: "Milestone Payments", hint: "Tied to project / work milestones" },
+            { key: "regular", title: "Regular", hint: "One-off / part payments" },
+            { key: "milestone", title: "Milestone", hint: "Project milestones" },
           ] as const).map((opt) => {
             const active = paymentKind === opt.key;
             return (
@@ -200,16 +200,16 @@ export default function RequestForm({
                 type="button"
                 onClick={() => setPaymentKind(opt.key)}
                 aria-pressed={active}
-                className={`rounded-xl border px-4 py-3 text-center transition-colors ${
+                className={`rounded-xl border px-3 py-2.5 text-center transition-colors ${
                   active
                     ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
                     : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
                 }`}
               >
-                <span className={`block text-sm font-semibold ${active ? "text-indigo-700 dark:text-indigo-200" : "text-zinc-900 dark:text-zinc-100"}`}>
+                <span className={`block truncate text-sm font-semibold ${active ? "text-indigo-700 dark:text-indigo-200" : "text-zinc-900 dark:text-zinc-100"}`}>
                   {opt.title}
                 </span>
-                <span className="mt-0.5 block text-xs text-zinc-500">{opt.hint}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-zinc-500">{opt.hint}</span>
               </button>
             );
           })}
