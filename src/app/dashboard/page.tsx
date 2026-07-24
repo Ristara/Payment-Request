@@ -13,7 +13,7 @@ type Row = {
 };
 
 function monthLabel(d: Date): string {
-  return d.toLocaleString(undefined, { month: "short" });
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", month: "short" });
 }
 
 export default async function DashboardPage() {

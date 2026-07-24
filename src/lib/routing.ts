@@ -47,7 +47,9 @@ export function avatarColor(seed: string): string {
 }
 
 export function timeShort(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  // Pin IST: SSR runs in UTC, and pinning also avoids hydration mismatches.
+  return new Date(iso).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     month: "short",
     day: "numeric",
     hour: "numeric",

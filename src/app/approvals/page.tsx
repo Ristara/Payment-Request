@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { formatISTDate } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
@@ -99,7 +100,7 @@ export default async function ApprovalsPage({
       approverName: r.approver?.full_name ?? null,
       approvedAt: r.approved_at,
       amount: Number(r.requested_amount),
-      requestedAt: (r.submitted_at ?? "").slice(0, 10),
+      requestedAt: formatISTDate(r.submitted_at),
       status: r.status,
       unreadCount: unread.length,
       mentionedUnread: unread.some((c) =>

@@ -33,3 +33,32 @@ export function formatINR(n: number | string | null | undefined): string {
     maximumFractionDigits: 2,
   }).format(num);
 }
+
+// Timestamps are stored in UTC and the server renders in UTC (Vercel), so
+// every display must pin IST explicitly or dates shift by up to a day.
+const IST_TZ = "Asia/Kolkata";
+
+/** "24 Jul 2026" in IST. */
+export function formatISTDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-IN", {
+    timeZone: IST_TZ,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** "24 Jul 2026, 3:41 pm" in IST. */
+export function formatISTDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-IN", {
+    timeZone: IST_TZ,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}

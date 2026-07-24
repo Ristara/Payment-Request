@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { VENDOR_STATUS_LABEL } from "@/lib/routing";
 import ApprovalPanel from "./approval-panel";
+import { formatISTDate, formatISTDateTime } from "@/lib/types";
 
 type VendorRow = {
   id: string;
@@ -74,7 +75,7 @@ export default async function VendorDetailPage({
         <div className="min-w-0">
           <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">{v.name}</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Submitted by {v.submitter?.full_name ?? "—"} · {new Date(v.created_at).toLocaleDateString()}
+            Submitted by {v.submitter?.full_name ?? "—"} · {formatISTDate(v.created_at)}
           </p>
         </div>
         <VendorStatusPill status={v.status} />
@@ -130,7 +131,7 @@ export default async function VendorDetailPage({
 
       {v.status === "approved" && v.verifier && (
         <p className="mt-6 text-sm text-emerald-700 dark:text-emerald-300">
-          Approved by {v.verifier.full_name} · {v.verified_at ? new Date(v.verified_at).toLocaleString() : ""}
+          Approved by {v.verifier.full_name} · {v.verified_at ? formatISTDateTime(v.verified_at) : ""}
         </p>
       )}
 

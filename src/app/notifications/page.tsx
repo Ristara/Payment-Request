@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { markAllNotificationsRead, markNotificationRead } from "@/app/requests/actions";
 import PushToggle from "@/components/PushToggle";
+import { formatISTDateTime } from "@/lib/types";
 
 type Row = {
   id: string;
@@ -89,7 +90,7 @@ export default async function NotificationsPage() {
                         {n.actor && <span className="ml-1 font-normal text-zinc-500">by {n.actor.full_name}</span>}
                       </p>
                       <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">{n.body}</p>
-                      <p className="mt-1 text-xs text-zinc-500">{new Date(n.created_at).toLocaleString()}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{formatISTDateTime(n.created_at)}</p>
                     </div>
                   </Link>
                   {!n.read_at && (

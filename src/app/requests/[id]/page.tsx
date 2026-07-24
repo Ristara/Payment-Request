@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
+import { formatISTDate, formatISTDateTime } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
@@ -295,7 +296,7 @@ export default async function ThreadDetailPage({
             )}
           </div>
           <p className="mt-2 text-xs text-zinc-500 sm:text-sm">
-            Raised by {req.submitter?.full_name} · {new Date(req.created_at).toLocaleDateString()}
+            Raised by {req.submitter?.full_name} · {formatISTDate(req.created_at)}
           </p>
           {req.outlets.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
@@ -397,11 +398,11 @@ export default async function ThreadDetailPage({
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-zinc-600 sm:grid-cols-2 dark:text-zinc-400">
                     <p>Due {inst.payment_due_date}</p>
-                    <p>Raised by {inst.submitter?.full_name ?? "—"} · {new Date(inst.submitted_at).toLocaleDateString()}</p>
+                    <p>Raised by {inst.submitter?.full_name ?? "—"} · {formatISTDate(inst.submitted_at)}</p>
                     {inst.date_of_work_completion && <p>Work completed {inst.date_of_work_completion}</p>}
                     {inst.tentative_invoice_date && <p>Tentative invoice {inst.tentative_invoice_date}</p>}
                     {inst.approved_at && inst.approver && (
-                      <p>Approved by {inst.approver.full_name} · {new Date(inst.approved_at).toLocaleDateString()}</p>
+                      <p>Approved by {inst.approver.full_name} · {formatISTDate(inst.approved_at)}</p>
                     )}
                   </div>
                   {inst.purpose && (
@@ -520,7 +521,7 @@ export default async function ThreadDetailPage({
                     {STATUS_LABEL[h.to_status] ?? h.to_status}
                   </p>
                   <p className="text-xs text-zinc-500">
-                    {h.actor?.full_name ?? "—"} · {new Date(h.created_at).toLocaleString()}
+                    {h.actor?.full_name ?? "—"} · {formatISTDateTime(h.created_at)}
                   </p>
                   {h.comment && (
                     <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">{h.comment}</p>
