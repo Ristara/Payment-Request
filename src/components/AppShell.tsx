@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AssistantWidget from "@/components/AssistantWidget";
 import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
 import ProfileMenu from "@/components/ProfileMenu";
 import SidebarNav from "@/components/SidebarNav";
@@ -159,6 +160,9 @@ export default function AppShell({
       <main className="sm:pl-56">
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</div>
       </main>
+
+      {/* AI assistant — private per user, chats never stored */}
+      <AssistantWidget />
     </div>
   );
 }
