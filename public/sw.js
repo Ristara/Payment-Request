@@ -3,7 +3,7 @@
 // - Push notification handler
 // - Notification click → open the request URL
 
-const CACHE = "pay-app-v2";
+const CACHE = "pay-app-v3";
 // Precache ONLY truly static files. Never SSR HTML — install-time HTML
 // snapshots go stale, can capture a login redirect, and every install
 // would re-run the server's full query fan-out for pages nobody asked for.
@@ -18,9 +18,18 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))),
+    (async () => {
+      // Navigation preload starts the network request in parallel with the
+      // worker booting — without it, a cold PWA launch waits for the SW to
+      // spin up before it even asks for the page.
+      if (self.registration.navigationPreload) {
+        try { await self.registration.navigationPreload.enable(); } catch {}
+      }
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      await self.clients.claim();
+    })(),
   );
-  self.clients.claim();
 });
 
 // Network-first for HTML navigations; cache-first for static assets.
@@ -33,9 +42,25 @@ self.addEventListener("fetch", (event) => {
 
   if (req.mode === "navigate") {
     // Network-first; offline fallback is a static page, never a stale
-    // personalized snapshot.
+    // personalized snapshot. The FIRST request of a session on mobile often
+    // fails while the radio wakes up (or a sleeping serverless function is
+    // starting), so retry once before declaring the user offline — otherwise
+    // opening the installed app cold shows "You\u0027re offline" every time.
     event.respondWith(
-      fetch(req).catch(() => caches.match("/offline.html").then((r) => r || Response.error())),
+      (async () => {
+        try {
+          const preloaded = await event.preloadResponse;
+          if (preloaded) return preloaded;
+          return await fetch(req);
+        } catch {
+          try {
+            return await fetch(req, { cache: "reload" });
+          } catch {
+            const fallback = await caches.match("/offline.html");
+            return fallback || Response.error();
+          }
+        }
+      })(),
     );
     return;
   }

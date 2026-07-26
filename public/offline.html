@@ -21,5 +21,21 @@
     <p>Payment Requests needs a connection. Check your network and try again.</p>
     <button onclick="location.reload()">Retry</button>
   </div>
+  <script>
+    // Self-heal: this page is usually shown because ONE request failed while
+    // the phone's connection was still coming up. Retry once automatically,
+    // and again the moment the browser reports it is back online. The
+    // sessionStorage guard stops any reload loop.
+    (function () {
+      var KEY = "offline-auto-retry";
+      function retry() {
+        if (sessionStorage.getItem(KEY)) return;
+        sessionStorage.setItem(KEY, "1");
+        location.reload();
+      }
+      if (navigator.onLine) setTimeout(retry, 1200);
+      window.addEventListener("online", retry);
+    })();
+  </script>
 </body>
 </html>
