@@ -12,7 +12,7 @@ type CoaAccount = { id: string; code: number; subcategory: string; category: str
 
 type LineRow = {
   key: string;
-  categoryKey: string; // JSON.stringify([coa, category]) — "" = none
+  categoryKey: string; // the COA head name — "" = none picked
   coa_account_id: string; // subcategory row — optional; empty = category-level
   quantity: string;
   rate: string;
@@ -78,60 +78,24 @@ export default function RequestForm({
 
   const rollupIds = useMemo(() => computeRollupIds(coaAccounts), [coaAccounts]);
 
-  // Distinct (coa, category) pairs. The <option> value is the pair encoded as
-  // a JSON array — printable characters round-trip HTML serialization safely
-  // (a NUL-separator variant did not), and name-based values stay stable if
-  // the CoA list refreshes underneath an open form (indexes would remap).
-  const categoryGroups = useMemo(() => {
-    const byCoa = new Map<string, Set<string>>();
-    for (const a of coaAccounts) {
-      let set = byCoa.get(a.coa);
-      if (!set) {
-        set = new Set();
-        byCoa.set(a.coa, set);
-      }
-      set.add(a.category);
-    }
-    return [...byCoa.keys()].sort((a, b) => a.localeCompare(b)).map((coa) => ({
-      coa,
-      categories: [...(byCoa.get(coa) ?? [])].sort((a, b) => a.localeCompare(b)).map((category) => ({
-        category,
-        pairKey: JSON.stringify([coa, category]),
-      })),
-    }));
-  }, [coaAccounts]);
-
-  // Flat, searchable option list for the category Combobox (hint = COA head,
-  // included in the search haystack).
+  // Two levels only: Category = COA head, Subcategory = a real spendable item
+  // under it. The chart's intermediate grouping rows (rollups) and the
+  // self-named anchors used for whole-category charges are never offered —
+  // item names already carry their group prefix, so nothing is lost.
   const categoryOptions = useMemo<ComboOption[]>(
     () =>
-      categoryGroups.flatMap((g) =>
-        g.categories.map((c) => ({ value: c.pairKey, label: c.category, hint: g.coa })),
-      ),
-    [categoryGroups],
+      [...new Set(coaAccounts.map((a) => a.coa))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((coa) => ({ value: coa, label: coa })),
+    [coaAccounts],
   );
 
-  function parsePairKey(key: string): { coa: string; category: string } | null {
-    if (!key) return null;
-    try {
-      const [coa, category] = JSON.parse(key) as [string, string];
-      return typeof coa === "string" && typeof category === "string" ? { coa, category } : null;
-    } catch {
-      return null;
-    }
-  }
-
-  // Real spendable subcategories inside a category. Rollup anchors and the
-  // category's self-named row are excluded — that level is reached by leaving
-  // Subcategory blank (the server charges the category itself).
-  function subOptionsFor(categoryKey: string) {
-    const cat = parsePairKey(categoryKey);
-    if (!cat) return [];
+  function subOptionsFor(coaHead: string) {
+    if (!coaHead) return [];
     return coaAccounts
       .filter(
         (a) =>
-          a.coa === cat.coa &&
-          a.category === cat.category &&
+          a.coa === coaHead &&
           !rollupIds.has(a.id) &&
           a.subcategory !== a.category,
       )
@@ -161,17 +125,14 @@ export default function RequestForm({
   const overPo = installmentNum > poValue + 0.01;
 
   // The server resolves category-level lines (no subcategory picked) from the
-  // (coa, category) pair — the client never guesses the anchor row id.
-  const linesPayload = lines.map((l) => {
-    const cat = parsePairKey(l.categoryKey);
-    return {
-      coa_account_id: l.coa_account_id,
-      coa: cat?.coa ?? "",
-      category: cat?.category ?? "",
-      quantity: Number(l.quantity) || 0,
-      rate: Number(l.rate) || 0,
-    };
-  });
+  // COA head — the client never guesses the anchor row id.
+  const linesPayload = lines.map((l) => ({
+    coa_account_id: l.coa_account_id,
+    coa: l.categoryKey,
+    category: l.categoryKey,
+    quantity: Number(l.quantity) || 0,
+    rate: Number(l.rate) || 0,
+  }));
 
   return (
     <form

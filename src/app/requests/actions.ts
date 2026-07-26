@@ -200,18 +200,19 @@ export async function createThread(
   if ((pickedRows?.length ?? 0) !== uniqueCoaIds.length) {
     return { error: "One or more selected accounts don't exist or are inactive." };
   }
-  // A picked subcategory must belong to the category the form showed —
-  // guards against stale client state and crafted payloads.
+  // A picked item must belong to the COA head the form showed — guards
+  // against stale client state and crafted payloads. (Only the head is
+  // compared: the UI is two-level, so a leaf's stored `category` is its
+  // intermediate group, not the head the user selected.)
   const rowById = new Map((pickedRows ?? []).map((r) => [r.id as string, r]));
   const mismatched = lines.findIndex((l) => {
     const coaHead = String(l.coa ?? "").trim();
-    const category = String(l.category ?? "").trim();
-    if (!coaHead || !category) return false;
+    if (!coaHead) return false;
     const row = rowById.get(l.coa_account_id);
-    return !!row && (row.coa !== coaHead || row.category !== category);
+    return !!row && row.coa !== coaHead;
   });
   if (mismatched !== -1) {
-    return { error: `Line ${mismatched + 1}: the subcategory doesn't belong to the picked category — reselect it.` };
+    return { error: `Line ${mismatched + 1}: that item doesn't belong to the picked category — reselect it.` };
   }
   // Rollup knit rows are still not chargeable directly — category-level lines
   // use the self-named anchors, which are not rollups.
