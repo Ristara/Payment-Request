@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
+import { getCurrentUserRoles } from "@/lib/auth";
 
 export type VendorState = { error?: string; info?: string } | undefined;
 
@@ -223,4 +224,78 @@ export async function rejectVendor(formData: FormData): Promise<void> {
 
   revalidatePath("/vendors");
   revalidatePath(`/vendors/${id}`);
+}
+
+/**
+ * Edit a vendor's master details. Accounts/Admin can edit any vendor at any
+ * time; the submitter may correct their own vendor only while it is still
+ * pending or rejected (once approved, the record is the accounts team's).
+ */
+export async function updateVendor(
+  _prev: VendorState,
+  formData: FormData,
+): Promise<VendorState> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing vendor." };
+
+  const { data: existing } = await supabase
+    .from("vendors")
+    .select("id, status, submitted_by")
+    .eq("id", id)
+    .maybeSingle();
+  if (!existing) return { error: "Vendor not found." };
+
+  const { roles } = await getCurrentUserRoles();
+  const isStaff = roles.includes("accounts") || roles.includes("admin");
+  const isOwner = (existing.submitted_by as string) === user.id;
+  const ownerMayEdit = isOwner && existing.status !== "approved";
+  if (!isStaff && !ownerMayEdit) {
+    return { error: "You can't edit this vendor. Ask Accounts to make the change." };
+  }
+
+  const name = String(formData.get("name") ?? "").trim();
+  const is_gst_registered = formData.get("is_gst_registered") !== "no";
+  const gstinRaw = String(formData.get("gstin") ?? "").trim().toUpperCase();
+  const gstin = is_gst_registered ? gstinRaw : null;
+  const pan = String(formData.get("pan") ?? "").trim().toUpperCase();
+  const phoneRaw = String(formData.get("phone") ?? "").replace(/[\s-]/g, "");
+  const email = String(formData.get("email") ?? "").trim().toLowerCase() || null;
+  const bank_account_number = String(formData.get("bank_account_number") ?? "").trim() || null;
+  const bank_ifsc = String(formData.get("bank_ifsc") ?? "").trim().toUpperCase() || null;
+  const bank_name = String(formData.get("bank_name") ?? "").trim() || null;
+  const bank_branch = String(formData.get("bank_branch") ?? "").trim() || null;
+
+  if (!name) return { error: "Vendor name is required." };
+  if (is_gst_registered && !GSTIN_RE.test(gstinRaw)) {
+    return { error: "GSTIN doesn't look right. Format: 22AAAAA0000A1Z5." };
+  }
+  if (!PAN_RE.test(pan)) return { error: "PAN doesn't look right. Format: AAAAA0000A." };
+  if (!PHONE_RE.test(phoneRaw)) {
+    return { error: "Mobile number is required — 10 digits starting 6-9 (e.g. 98765 43210)." };
+  }
+  const phone = phoneRaw.replace(/^(\+91|91|0)/, "");
+  if (email && !EMAIL_RE.test(email)) return { error: "Email doesn't look right." };
+  if (bank_account_number && bank_account_number.length < 6) {
+    return { error: "Bank account number looks too short." };
+  }
+  if (bank_ifsc && !IFSC_RE.test(bank_ifsc)) {
+    return { error: "IFSC doesn't look right. Format: HDFC0001234." };
+  }
+
+  const { error } = await supabase
+    .from("vendors")
+    .update({ name, gstin, pan, phone, email, bank_account_number, bank_ifsc, bank_name, bank_branch })
+    .eq("id", id);
+  if (error) {
+    if (error.code === "23505") return { error: "Another vendor already has this GSTIN." };
+    return { error: error.message };
+  }
+
+  revalidatePath("/vendors");
+  revalidatePath(`/vendors/${id}`);
+  redirect(`/vendors/${id}`);
 }

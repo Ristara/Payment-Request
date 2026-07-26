@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { VENDOR_STATUS_LABEL } from "@/lib/routing";
 import ApprovalPanel from "./approval-panel";
-import { formatISTDate, formatISTDateTime } from "@/lib/types";
+import { formatISTDate, formatISTDateTime, formatINR, shortRequestNumber } from "@/lib/types";
 
 type VendorRow = {
   id: string;
@@ -28,6 +28,20 @@ type VendorRow = {
   verified_at: string | null;
 };
 
+type ThreadRow = {
+  id: string;
+  request_number: string;
+  title: string | null;
+  created_at: string;
+  line_items: { amount: number }[];
+  installments: {
+    installment_number: number;
+    status: string;
+    requested_amount: number;
+    payment_record: { paid_amount: number | null }[] | { paid_amount: number | null } | null;
+  }[];
+};
+
 export default async function VendorDetailPage({
   params,
 }: {
@@ -35,23 +49,62 @@ export default async function VendorDetailPage({
 }) {
   const { id } = await params;
   await requireUser();
-  const { roles } = await getCurrentUserRoles();
+  const { user, roles } = await getCurrentUserRoles();
   const canApprove = roles.includes("accounts") || roles.includes("admin");
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("vendors")
-    .select(
-      `id, name, gstin, pan, phone, email, bank_account_number, bank_ifsc, bank_name, bank_branch,
-       cancelled_cheque_path, status, rejection_reason, created_at, submitted_by, verified_at,
-       submitter:profiles!vendors_submitted_by_fkey(full_name, email),
-       verifier:profiles!vendors_verified_by_fkey(full_name)`,
-    )
-    .eq("id", id)
-    .maybeSingle();
+  const [vendorRes, threadRes] = await Promise.all([
+    supabase
+      .from("vendors")
+      .select(
+        `id, name, gstin, pan, phone, email, bank_account_number, bank_ifsc, bank_name, bank_branch,
+         cancelled_cheque_path, status, rejection_reason, created_at, submitted_by, verified_at,
+         submitter:profiles!vendors_submitted_by_fkey(full_name, email),
+         verifier:profiles!vendors_verified_by_fkey(full_name)`,
+      )
+      .eq("id", id)
+      .maybeSingle(),
+    // Every thread raised against this vendor, with the numbers needed for
+    // the money summary. RLS scopes this: a submitter sees only their own.
+    supabase
+      .from("payment_requests")
+      .select(
+        `id, request_number, title, created_at,
+         line_items:request_line_items(amount),
+         installments:request_installments(installment_number, status, requested_amount,
+           payment_record:payment_records(paid_amount))`,
+      )
+      .eq("vendor_id", id)
+      .order("created_at", { ascending: false }),
+  ]);
 
-  if (!data) notFound();
-  const v = data as unknown as VendorRow;
+  if (!vendorRes.data) notFound();
+  const v = vendorRes.data as unknown as VendorRow;
+
+  const isStaff = roles.includes("accounts") || roles.includes("admin");
+  const canEdit = isStaff || (v.submitted_by === user!.id && v.status !== "approved");
+
+  const threads = (threadRes.data ?? []) as unknown as ThreadRow[];
+  const txns = threads.map((t) => {
+    const poValue = t.line_items.reduce((s, l) => s + Number(l.amount), 0);
+    const paid = t.installments.reduce((s, i) => {
+      const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
+      return s + (pr?.paid_amount ? Number(pr.paid_amount) : 0);
+    }, 0);
+    return {
+      id: t.id,
+      number: shortRequestNumber(t.request_number),
+      title: t.title,
+      createdAt: t.created_at,
+      installmentCount: t.installments.length,
+      poValue,
+      paid,
+      balance: Math.max(0, Math.round((poValue - paid) * 100) / 100),
+    };
+  });
+  const totalPo = txns.reduce((s, t) => s + t.poValue, 0);
+  const totalPaid = txns.reduce((s, t) => s + t.paid, 0);
+  const totalBalance = Math.max(0, Math.round((totalPo - totalPaid) * 100) / 100);
 
   // Signed URL for cheque
   let chequeUrl: string | null = null;
@@ -73,13 +126,31 @@ export default async function VendorDetailPage({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">{v.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl dark:text-zinc-50">{v.name}</h1>
+            {canEdit && (
+              <Link
+                href={`/vendors/${v.id}/edit`}
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-indigo-400 hover:text-indigo-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-indigo-300"
+              >
+                <PencilIcon />
+                Edit
+              </Link>
+            )}
+          </div>
           <p className="mt-1 text-sm text-zinc-500">
             Submitted by {v.submitter?.full_name ?? "—"} · {formatISTDate(v.created_at)}
           </p>
         </div>
         <VendorStatusPill status={v.status} />
       </div>
+
+      {/* Money summary across every request raised for this vendor */}
+      <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <MoneyTile label="PO value" value={totalPo} hint={`${txns.length} request${txns.length === 1 ? "" : "s"}`} />
+        <MoneyTile label="Paid" value={totalPaid} tone="emerald" />
+        <MoneyTile label="Yet to pay" value={totalBalance} tone="amber" />
+      </section>
 
       <section className="mt-6 grid grid-cols-1 gap-4 sm:mt-8 sm:grid-cols-2 sm:gap-6">
         <Card title="Tax IDs & contact">
@@ -142,7 +213,122 @@ export default async function VendorDetailPage({
           hasPhone={!!v.phone}
         />
       )}
+
+      {/* Transactions */}
+      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            Transactions <span className="font-normal text-zinc-500">({txns.length})</span>
+          </h2>
+        </div>
+
+        {txns.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-zinc-500">
+            No payment requests raised for this vendor yet.
+          </p>
+        ) : (
+          <>
+            {/* Mobile cards */}
+            <ul className="divide-y divide-zinc-100 sm:hidden dark:divide-zinc-800">
+              {txns.map((t) => (
+                <li key={t.id}>
+                  <Link href={`/requests/${t.id}`} className="block px-4 py-3 active:bg-zinc-50 dark:active:bg-zinc-800/60">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-mono text-xs font-medium text-indigo-600 dark:text-indigo-400">{t.number}</span>
+                      <span className="text-[11px] text-zinc-500">{formatISTDate(t.createdAt)}</span>
+                    </div>
+                    <p className="mt-0.5 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {t.title || "—"}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums">
+                      <span className="text-zinc-500">PO <span className="text-zinc-900 dark:text-zinc-100">{formatINR(t.poValue)}</span></span>
+                      <span className="text-zinc-500">Paid <span className="text-emerald-700 dark:text-emerald-400">{formatINR(t.paid)}</span></span>
+                      <span className="text-zinc-500">Balance <span className="text-amber-700 dark:text-amber-400">{formatINR(t.balance)}</span></span>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead className="border-b border-zinc-100 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                  <tr>
+                    <th className="px-5 py-2">Request</th>
+                    <th className="px-5 py-2">Raised</th>
+                    <th className="px-5 py-2 text-center">Inst.</th>
+                    <th className="px-5 py-2 text-right">PO value</th>
+                    <th className="px-5 py-2 text-right">Paid</th>
+                    <th className="px-5 py-2 text-right">Yet to pay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {txns.map((t) => (
+                    <tr key={t.id} className="border-b border-zinc-50 last:border-b-0 dark:border-zinc-800/60">
+                      <td className="px-5 py-2">
+                        <Link href={`/requests/${t.id}`} className="font-mono text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+                          {t.number}
+                        </Link>
+                        {t.title && <div className="truncate text-xs text-zinc-500">{t.title}</div>}
+                      </td>
+                      <td className="px-5 py-2 text-xs text-zinc-500">{formatISTDate(t.createdAt)}</td>
+                      <td className="px-5 py-2 text-center text-xs text-zinc-500">{t.installmentCount}</td>
+                      <td className="px-5 py-2 text-right tabular-nums">{formatINR(t.poValue)}</td>
+                      <td className="px-5 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatINR(t.paid)}</td>
+                      <td className="px-5 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatINR(t.balance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-zinc-200 font-semibold dark:border-zinc-700">
+                    <td className="px-5 py-2 text-xs uppercase tracking-wide text-zinc-500" colSpan={3}>Total</td>
+                    <td className="px-5 py-2 text-right tabular-nums">{formatINR(totalPo)}</td>
+                    <td className="px-5 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatINR(totalPaid)}</td>
+                    <td className="px-5 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatINR(totalBalance)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
     </div>
+  );
+}
+
+function MoneyTile({
+  label,
+  value,
+  hint,
+  tone = "zinc",
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  tone?: "zinc" | "emerald" | "amber";
+}) {
+  const color =
+    tone === "emerald"
+      ? "text-emerald-700 dark:text-emerald-400"
+      : tone === "amber"
+        ? "text-amber-700 dark:text-amber-400"
+        : "text-zinc-900 dark:text-zinc-100";
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-0.5 text-lg font-semibold tabular-nums ${color}`}>{formatINR(value)}</p>
+      {hint && <p className="text-[11px] text-zinc-500">{hint}</p>}
+    </div>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+    </svg>
   );
 }
 
