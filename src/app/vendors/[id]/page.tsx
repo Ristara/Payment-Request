@@ -159,7 +159,16 @@ export default async function VendorDetailPage({
             Submitted by {v.submitter?.full_name ?? "—"} · {formatISTDate(v.created_at)}
           </p>
         </div>
-        <VendorStatusPill status={v.status} />
+        <div className="flex flex-col items-start gap-1 sm:items-end">
+          <VendorStatusPill status={v.status} />
+          {canApprove && v.status === "pending" && (
+            <ApprovalPanel
+              vendorId={v.id}
+              hasBank={!!(v.bank_account_number && v.bank_ifsc)}
+              hasPhone={!!v.phone}
+            />
+          )}
+        </div>
       </div>
 
       {/* Money summary across the requests raised for this vendor */}
@@ -236,14 +245,6 @@ export default async function VendorDetailPage({
         <p className="mt-6 text-sm text-emerald-700 dark:text-emerald-300">
           Approved by {v.verifier.full_name} · {v.verified_at ? formatISTDateTime(v.verified_at) : ""}
         </p>
-      )}
-
-      {canApprove && v.status === "pending" && (
-        <ApprovalPanel
-          vendorId={v.id}
-          hasBank={!!(v.bank_account_number && v.bank_ifsc)}
-          hasPhone={!!v.phone}
-        />
       )}
 
       {/* Transactions */}
