@@ -440,10 +440,20 @@ export async function POST(req: Request) {
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       console.error("[assistant] Gemini error", res.status, detail.slice(0, 500));
-      const friendly =
-        res.status === 429
-          ? "The assistant is a bit busy right now (free-tier limit). Try again in a minute."
-          : "The assistant had a problem answering. Try again.";
+      // Setup problems (bad key, API not enabled) are actionable by an admin,
+      // so name them instead of hiding behind a generic message. No key
+      // material or upstream payload is ever echoed to the browser.
+      let friendly: string;
+      if (res.status === 429) {
+        friendly = "The assistant is a bit busy right now (free-tier limit). Try again in a minute.";
+      } else if (res.status === 401 || res.status === 403) {
+        friendly =
+          "The AI key isn't valid. An admin needs to set GEMINI_API_KEY in Vercel to a Google AI Studio key (starts with AIza) and redeploy.";
+      } else if (res.status === 400) {
+        friendly = "The assistant couldn't process that request. Please report this — it's a setup issue, not your question.";
+      } else {
+        friendly = "The assistant had a problem answering. Try again.";
+      }
       return NextResponse.json({ error: friendly }, { status: 502 });
     }
 
