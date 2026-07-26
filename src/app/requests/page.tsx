@@ -115,6 +115,8 @@ export default async function MyRequestsPage({
         requestedTotal,
         installmentCount: insts.length,
         latestStatus: latest?.status ?? "draft",
+        allStatuses: insts.map((i) => i.status),
+        hasDraft: insts.some((i) => i.status === "draft"),
         latestDue: latest?.payment_due_date ?? null,
         unreadCount: unread.length,
         mentionedUnread: unread.some((c) =>
@@ -125,7 +127,9 @@ export default async function MyRequestsPage({
     })
     .filter((r) => {
       const allowed = VIEW_FILTERS[view].statuses;
-      return !allowed || allowed.includes(r.latestStatus);
+      // Match on ANY installment so a recalled draft sitting behind a newer
+      // installment still shows under its tab.
+      return !allowed || r.allStatuses.some((st) => allowed.includes(st));
     });
 
   return (

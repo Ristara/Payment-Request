@@ -24,6 +24,7 @@ const KIND_LABEL: Record<string, string> = {
   vendor_pending: "New vendor to verify",
   payment_processed: "Payment processed",
   invoice_reminder: "Invoice pending",
+  approval_withdrawn: "Approval withdrawn",
 };
 
 export default async function NotificationsPage() {

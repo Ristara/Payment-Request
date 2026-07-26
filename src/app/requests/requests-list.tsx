@@ -14,6 +14,8 @@ export type RequestsRow = {
   requestedTotal: number;
   installmentCount: number;
   latestStatus: string;
+  allStatuses: string[];
+  hasDraft: boolean;
   latestDue: string | null;
   unreadCount: number;
   mentionedUnread: boolean;
@@ -77,6 +79,7 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <StatusPill status={r.latestStatus} />
+                      {r.hasDraft && r.latestStatus !== "draft" && <DraftChip />}
                       <DiscussionBadges unreadCount={r.unreadCount} mentioned={r.mentionedUnread} />
                     </div>
                   </div>
@@ -139,7 +142,12 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
                       <td className="px-5 py-3 text-right tabular-nums">{formatINR(r.poValue)}</td>
                       <td className="px-5 py-3 text-right tabular-nums text-zinc-600">{formatINR(r.requestedTotal)}</td>
                       <td className="px-5 py-3 text-zinc-500">{r.installmentCount}</td>
-                      <td className="px-5 py-3"><StatusPill status={r.latestStatus} /></td>
+                      <td className="px-5 py-3">
+                        <span className="inline-flex items-center gap-1.5">
+                          <StatusPill status={r.latestStatus} />
+                          {r.hasDraft && r.latestStatus !== "draft" && <DraftChip />}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -168,6 +176,18 @@ function StatusPill({ status }: { status: string }) {
   return (
     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${color}`}>
       {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+/** A thread can hold a recalled draft behind a newer installment. */
+function DraftChip() {
+  return (
+    <span
+      title="This thread has a recalled installment sitting in draft"
+      className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+    >
+      + draft
     </span>
   );
 }

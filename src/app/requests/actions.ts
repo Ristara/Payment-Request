@@ -23,6 +23,21 @@ function formatExactAmount(n: number): string {
   return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Role gate for actions that move an installment. The installments UPDATE
+ * policy also admits the thread's own submitter, so without this a submitter
+ * could POST straight at approve/reject/close and clear their own payment.
+ */
+async function requireRole(...allowed: string[]) {
+  const { supabase, user } = await currentUserOrThrow();
+  const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = new Set(((data ?? []) as { role: string }[]).map((r) => r.role));
+  if (!allowed.some((r) => roles.has(r))) {
+    throw new Error("You don't have permission to do that.");
+  }
+  return { supabase, user, roles };
+}
+
 async function currentUserOrThrow() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -672,7 +687,7 @@ export async function approveInstallment(
   const installmentId = String(formData.get("installment_id") ?? "");
   if (!installmentId) return { error: "Missing installment." };
   try {
-    const { user } = await currentUserOrThrow();
+    const { user } = await requireRole("approver", "admin");
     const inst = await transitionInstallment(installmentId, "approved", null, {
       approver_id: user.id,
       approved_at: new Date().toISOString(),
@@ -694,6 +709,7 @@ export async function rejectInstallment(
   if (!installmentId) return { error: "Missing installment." };
   if (!reason) return { error: "Reason is required." };
   try {
+    await requireRole("approver", "admin");
     const inst = await transitionInstallment(installmentId, "rejected", reason, { rejection_reason: reason });
     revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/approvals");
@@ -779,7 +795,7 @@ export async function editAndResubmitInstallment(
       return_reason: null,
     })
     .eq("id", installmentId)
-    .in("status", ["rejected", "returned_for_correction"])
+    .in("status", ["rejected", "returned_for_correction", "draft"])
     .select("id");
   if (upErr) return { error: upErr.message };
   if (!updated || updated.length === 0) {
@@ -1008,7 +1024,23 @@ export async function markInstallmentPaid(
     return { error: "Vendor is not approved. Verify the vendor before recording payment." };
   }
 
-  await supabase
+  // Move the status FIRST. transitionInstallment re-reads and guards on the
+  // from-status, so if an approver pulled the approval back while this form
+  // was open we fail here — before any money row or proof is written.
+  const { count: invCount } = await admin
+    .from("attachments")
+    .select("id", { count: "exact", head: true })
+    .eq("request_id", inst.request_id)
+    .eq("stage", "invoice")
+    .like("storage_path", `%/installments/${installmentId}/%`);
+  const nextStatus = (invCount ?? 0) > 0 ? "payment_processed" : "invoice_pending";
+  try {
+    await transitionInstallment(installmentId, nextStatus, "Payment processed");
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const { error: recErr } = await supabase
     .from("payment_records")
     .upsert({
       installment_id: installmentId,
@@ -1019,6 +1051,7 @@ export async function markInstallmentPaid(
       paying_bank_account,
       recorded_by: user.id,
     }, { onConflict: "installment_id" });
+  if (recErr) return { error: `Status moved but the payment details didn't save: ${recErr.message}` };
 
   if (proof instanceof File && proof.size > 0) {
     const safe = proof.name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -1038,23 +1071,6 @@ export async function markInstallmentPaid(
         uploaded_by: user.id,
       });
     }
-  }
-
-  try {
-    // Invoice must belong to THIS installment — the storage path embeds the
-    // installment id (…/installments/<id>/invoice/…), so filter on it.
-    // A thread-mate's invoice must not skip this installment past
-    // invoice_pending.
-    const { count: invCount } = await admin
-      .from("attachments")
-      .select("id", { count: "exact", head: true })
-      .eq("request_id", inst.request_id)
-      .eq("stage", "invoice")
-      .like("storage_path", `%/installments/${installmentId}/%`);
-    const nextStatus = (invCount ?? 0) > 0 ? "payment_processed" : "invoice_pending";
-    await transitionInstallment(installmentId, nextStatus, "Payment processed");
-  } catch (e) {
-    return { error: (e as Error).message };
   }
 
   revalidatePath(`/requests/${inst.request_id}`);
@@ -1152,6 +1168,14 @@ export async function recallInstallment(
   if (!thread || thread.submitter_id !== user.id) {
     return { error: "Only the person who raised it can recall it." };
   }
+  // Defence in depth: never let a recall free up money that already moved.
+  const { count: payCount } = await admin
+    .from("payment_records")
+    .select("installment_id", { count: "exact", head: true })
+    .eq("installment_id", installmentId);
+  if ((payCount ?? 0) > 0) {
+    return { error: "A payment is already recorded against this installment — it can't be recalled." };
+  }
 
   try {
     await transitionInstallment(installmentId, "draft", "Recalled by submitter");
@@ -1213,6 +1237,35 @@ export async function unapproveInstallment(
     });
   } catch (e) {
     return { error: (e as Error).message };
+  }
+
+  // Nobody is watching the approvals queue for a row that silently reappeared
+  // — tell the submitter, and Accounts, that it left their queue.
+  const { data: thread } = await admin
+    .from("payment_requests")
+    .select("request_number, submitter_id")
+    .eq("id", inst.request_id)
+    .single();
+  const { data: accRows } = await admin.from("user_roles").select("user_id").eq("role", "accounts");
+  const recipients = Array.from(new Set([
+    thread?.submitter_id as string | undefined,
+    ...((accRows ?? []) as { user_id: string }[]).map((r) => r.user_id),
+  ].filter((x): x is string => !!x && x !== user.id)));
+  if (recipients.length > 0) {
+    const label = `${shortRequestNumber(thread?.request_number as string)} · installment #${inst.installment_number}`;
+    await admin.from("notifications").insert(recipients.map((recipient_id) => ({
+      recipient_id,
+      actor_id: user.id,
+      kind: "approval_withdrawn",
+      request_id: inst.request_id,
+      body: `Approval withdrawn on ${label}${reason ? ` — ${reason}` : ""}`,
+    })));
+    await sendPushToUsers(recipients, {
+      title: "Approval withdrawn",
+      body: label,
+      url: `/requests/${inst.request_id}`,
+      tag: `inst-${installmentId}`,
+    });
   }
 
   revalidatePath(`/requests/${inst.request_id}`);
@@ -1301,6 +1354,7 @@ export async function closeInstallment(
   const installmentId = String(formData.get("installment_id") ?? "");
   if (!installmentId) return { error: "Missing installment." };
   try {
+    await requireRole("accounts", "admin");
     const inst = await transitionInstallment(installmentId, "closed", "Verified and closed");
     revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/accounts");

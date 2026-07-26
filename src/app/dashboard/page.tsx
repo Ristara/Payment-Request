@@ -186,7 +186,7 @@ export default async function DashboardPage() {
                   const insts = [...(r.installments ?? [])].sort((a, b) => a.installment_number - b.installment_number);
                   const latest = insts[insts.length - 1];
                   const requestedTotal = insts
-                    .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
+                    .filter((i) => !["cancelled", "rejected", "draft"].includes(i.status))
                     .reduce((s, i) => s + Number(i.requested_amount), 0);
                   return (
                     <li key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">

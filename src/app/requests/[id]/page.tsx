@@ -465,8 +465,7 @@ export default async function ThreadDetailPage({
                               .filter(
                                 (o) =>
                                   o.id !== inst.id &&
-                                  o.status !== "cancelled" &&
-                                  o.status !== "rejected",
+                                  !["cancelled", "rejected", "draft"].includes(o.status),
                               )
                               .reduce((s, o) => s + Number(o.requested_amount), 0)) * 100,
                         ) / 100,
@@ -555,7 +554,6 @@ export default async function ThreadDetailPage({
 function deriveThreadStatus(statuses: string[]): string {
   if (statuses.length === 0) return "draft";
   const priority = [
-    "draft",
     "clarification_required",
     "pending_approval",
     "returned_for_correction",
@@ -566,6 +564,8 @@ function deriveThreadStatus(statuses: string[]): string {
     "closed",
     "rejected",
     "cancelled",
+    // Last: a recalled draft shouldn't mask a paid or pending sibling.
+    "draft",
   ];
   for (const s of priority) {
     if (statuses.includes(s)) return s;
