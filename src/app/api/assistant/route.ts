@@ -450,9 +450,11 @@ export async function POST(req: Request) {
         friendly =
           "The AI key isn't valid. An admin needs to set GEMINI_API_KEY in Vercel to a Google AI Studio key (starts with AIza) and redeploy.";
       } else if (res.status === 400) {
-        friendly = "The assistant couldn't process that request. Please report this — it's a setup issue, not your question.";
+        friendly = "The assistant couldn't process that request (code 400) — a setup issue, not your question.";
+      } else if (res.status === 404) {
+        friendly = "The AI model isn't available to this key (code 404). An admin should check the Gemini API is enabled for the key's project.";
       } else {
-        friendly = "The assistant had a problem answering. Try again.";
+        friendly = `The assistant had a problem answering (code ${res.status}). Try again.`;
       }
       return NextResponse.json({ error: friendly }, { status: 502 });
     }
