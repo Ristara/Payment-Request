@@ -244,7 +244,7 @@ export async function updateVendor(
 
   const { data: existing } = await supabase
     .from("vendors")
-    .select("id, status, submitted_by")
+    .select("id, name, status, submitted_by, phone, bank_account_number, bank_ifsc, gstin, pan")
     .eq("id", id)
     .maybeSingle();
   if (!existing) return { error: "Vendor not found." };
@@ -274,10 +274,17 @@ export async function updateVendor(
     return { error: "GSTIN doesn't look right. Format: 22AAAAA0000A1Z5." };
   }
   if (!PAN_RE.test(pan)) return { error: "PAN doesn't look right. Format: AAAAA0000A." };
-  if (!PHONE_RE.test(phoneRaw)) {
-    return { error: "Mobile number is required — 10 digits starting 6-9 (e.g. 98765 43210)." };
+  // Phone is mandatory for NEW vendors, but the legacy imports have none —
+  // requiring it here would block every edit to them. Rule: never allow a
+  // phone to be removed, and validate whatever is entered.
+  const hadPhone = !!(existing.phone as string | null);
+  if (!phoneRaw && hadPhone) {
+    return { error: "Mobile number can't be removed once set." };
   }
-  const phone = phoneRaw.replace(/^(\+91|91|0)/, "");
+  if (phoneRaw && !PHONE_RE.test(phoneRaw)) {
+    return { error: "Mobile number must be 10 digits starting 6-9 (e.g. 98765 43210)." };
+  }
+  const phone = phoneRaw ? phoneRaw.replace(/^(\+91|91|0)/, "") : null;
   if (email && !EMAIL_RE.test(email)) return { error: "Email doesn't look right." };
   if (bank_account_number && bank_account_number.length < 6) {
     return { error: "Bank account number looks too short." };
@@ -286,13 +293,76 @@ export async function updateVendor(
     return { error: "IFSC doesn't look right. Format: HDFC0001234." };
   }
 
-  const { error } = await supabase
+  // A submitter correcting a REJECTED vendor puts it back in the queue —
+  // otherwise the fix sits there with nothing able to approve it.
+  const reopening = isOwner && existing.status === "rejected";
+  const patch: Record<string, unknown> = {
+    name, gstin, pan, phone, email,
+    bank_account_number, bank_ifsc, bank_name, bank_branch,
+  };
+  if (reopening) {
+    patch.status = "pending";
+    patch.rejection_reason = null;
+    patch.verified_by = null;
+    patch.verified_at = null;
+  }
+
+  // The vendors UPDATE policy is accounts/admin-only, so an owner's edit
+  // would silently match zero rows through the user client. Permission is
+  // already enforced above, so perform the write with the service client and
+  // assert a row actually changed.
+  const admin = createAdminClient();
+  const { data: updated, error } = await admin
     .from("vendors")
-    .update({ name, gstin, pan, phone, email, bank_account_number, bank_ifsc, bank_name, bank_branch })
-    .eq("id", id);
+    .update(patch)
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
   if (error) {
     if (error.code === "23505") return { error: "Another vendor already has this GSTIN." };
     return { error: error.message };
+  }
+  if (!updated) return { error: "Couldn't save the changes — please try again." };
+
+  // Money-relevant edits are audited: this is a payments master record.
+  const audited: [string, unknown, unknown][] = [
+    ["bank_account_number", existing.bank_account_number, bank_account_number],
+    ["bank_ifsc", existing.bank_ifsc, bank_ifsc],
+    ["gstin", existing.gstin, gstin],
+    ["pan", existing.pan, pan],
+    ["name", existing.name, name],
+  ];
+  const changes = audited
+    .filter(([, before, after]) => (before ?? null) !== (after ?? null))
+    .map(([field_name, before, after]) => ({
+      vendor_id: id,
+      actor_id: user.id,
+      action: "vendor_edit",
+      field_name,
+      old_value: before === null || before === undefined ? null : String(before),
+      new_value: after === null || after === undefined ? null : String(after),
+    }));
+  if (changes.length > 0) await admin.from("audit_log").insert(changes);
+
+  // Re-submitted after a rejection — put it back on the Accounts radar.
+  if (reopening) {
+    const { data: acc } = await admin.from("user_roles").select("user_id").eq("role", "accounts");
+    const accIds = ((acc ?? []) as { user_id: string }[]).map((r) => r.user_id);
+    if (accIds.length > 0) {
+      await admin.from("notifications").insert(accIds.map((recipient_id) => ({
+        recipient_id,
+        actor_id: user.id,
+        kind: "vendor_pending",
+        vendor_id: id,
+        body: `Vendor corrected and re-submitted: ${name}`,
+      })));
+      await sendPushToUsers(accIds, {
+        title: "Vendor re-submitted",
+        body: name,
+        url: `/vendors/${id}`,
+        tag: `vendor-${id}`,
+      });
+    }
   }
 
   revalidatePath("/vendors");

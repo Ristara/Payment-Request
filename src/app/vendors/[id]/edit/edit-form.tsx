@@ -20,6 +20,20 @@ export type EditableVendor = {
 export default function VendorEditForm({ vendor }: { vendor: EditableVendor }) {
   const [state, formAction, pending] = useActionState(updateVendor, undefined);
   const [isGstRegistered, setIsGstRegistered] = useState(!!vendor.gstin);
+  // Controlled inputs: React resets an uncontrolled form when the action
+  // runs, so a validation error would otherwise wipe everything typed.
+  const [f, setF] = useState({
+    name: vendor.name,
+    gstin: vendor.gstin ?? "",
+    pan: vendor.pan,
+    phone: vendor.phone ?? "",
+    email: vendor.email ?? "",
+    bank_account_number: vendor.bank_account_number ?? "",
+    bank_ifsc: vendor.bank_ifsc ?? "",
+    bank_name: vendor.bank_name ?? "",
+    bank_branch: vendor.bank_branch ?? "",
+  });
+  const set = (k: keyof typeof f) => (value: string) => setF((p) => ({ ...p, [k]: value }));
 
   return (
     <form
@@ -28,7 +42,7 @@ export default function VendorEditForm({ vendor }: { vendor: EditableVendor }) {
     >
       <input type="hidden" name="id" value={vendor.id} />
 
-      <Field label="Vendor name" name="name" required defaultValue={vendor.name} />
+      <Field label="Vendor name" name="name" required value={f.name} onChange={set("name")} />
 
       <div>
         <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
@@ -64,28 +78,31 @@ export default function VendorEditForm({ vendor }: { vendor: EditableVendor }) {
             label="GSTIN"
             name="gstin"
             required
-            defaultValue={vendor.gstin ?? ""}
+            value={f.gstin} onChange={set("gstin")}
             placeholder="29AAAAA0000A1Z5"
             mono
           />
         )}
-        <Field label="PAN" name="pan" required defaultValue={vendor.pan} placeholder="AAAAA0000A" mono />
+        <Field label="PAN" name="pan" required value={f.pan} onChange={set("pan")} placeholder="AAAAA0000A" mono />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field
-          label="Mobile number"
+          // Legacy vendors were imported without a number. Requiring it here
+          // would lock them out of every other edit; it can never be removed
+          // once set, and new vendors still require it at creation.
+          label={vendor.phone ? "Mobile number" : "Mobile number (add if known)"}
           name="phone"
-          required
+          required={!!vendor.phone}
           type="tel"
-          defaultValue={vendor.phone ?? ""}
+          value={f.phone} onChange={set("phone")}
           placeholder="98765 43210"
         />
         <Field
           label="Email (optional)"
           name="email"
           type="email"
-          defaultValue={vendor.email ?? ""}
+          value={f.email} onChange={set("email")}
           placeholder="accounts@vendor.com"
         />
       </div>
@@ -96,12 +113,12 @@ export default function VendorEditForm({ vendor }: { vendor: EditableVendor }) {
           <Field
             label="Account number"
             name="bank_account_number"
-            defaultValue={vendor.bank_account_number ?? ""}
+            value={f.bank_account_number} onChange={set("bank_account_number")}
             mono
           />
-          <Field label="IFSC" name="bank_ifsc" defaultValue={vendor.bank_ifsc ?? ""} placeholder="HDFC0001234" mono />
-          <Field label="Bank name" name="bank_name" defaultValue={vendor.bank_name ?? ""} />
-          <Field label="Branch" name="bank_branch" defaultValue={vendor.bank_branch ?? ""} />
+          <Field label="IFSC" name="bank_ifsc" value={f.bank_ifsc} onChange={set("bank_ifsc")} placeholder="HDFC0001234" mono />
+          <Field label="Bank name" name="bank_name" value={f.bank_name} onChange={set("bank_name")} />
+          <Field label="Branch" name="bank_branch" value={f.bank_branch} onChange={set("bank_branch")} />
         </div>
       </div>
 
@@ -134,7 +151,8 @@ function Field({
   label,
   name,
   required,
-  defaultValue,
+  value,
+  onChange,
   placeholder,
   type = "text",
   mono = false,
@@ -142,7 +160,8 @@ function Field({
   label: string;
   name: string;
   required?: boolean;
-  defaultValue?: string;
+  value: string;
+  onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
   mono?: boolean;
@@ -158,7 +177,8 @@ function Field({
         name={name}
         type={type}
         required={required}
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={`mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 ${
           mono ? "font-mono uppercase" : ""

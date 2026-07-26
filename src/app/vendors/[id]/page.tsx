@@ -28,6 +28,9 @@ type VendorRow = {
   verified_at: string | null;
 };
 
+// Bound the fetch: a long-running vendor could otherwise pull every thread.
+const THREAD_LIMIT = 100;
+
 type ThreadRow = {
   id: string;
   request_number: string;
@@ -75,7 +78,8 @@ export default async function VendorDetailPage({
            payment_record:payment_records(paid_amount))`,
       )
       .eq("vendor_id", id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(THREAD_LIMIT + 1),
   ]);
 
   if (!vendorRes.data) notFound();
@@ -84,27 +88,40 @@ export default async function VendorDetailPage({
   const isStaff = roles.includes("accounts") || roles.includes("admin");
   const canEdit = isStaff || (v.submitted_by === user!.id && v.status !== "approved");
 
-  const threads = (threadRes.data ?? []) as unknown as ThreadRow[];
+  const allThreads = (threadRes.data ?? []) as unknown as ThreadRow[];
+  const truncated = allThreads.length > THREAD_LIMIT;
+  const threads = allThreads.slice(0, THREAD_LIMIT);
+
+  // A thread with no live installment (all cancelled / rejected) is a dead
+  // commitment — it still gets listed, marked, but must not inflate what the
+  // company owes this vendor.
+  const DEAD = new Set(["cancelled", "rejected"]);
   const txns = threads.map((t) => {
     const poValue = t.line_items.reduce((s, l) => s + Number(l.amount), 0);
     const paid = t.installments.reduce((s, i) => {
       const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
       return s + (pr?.paid_amount ? Number(pr.paid_amount) : 0);
     }, 0);
+    const live = t.installments.filter((i) => !DEAD.has(i.status));
+    const isDead = t.installments.length > 0 && live.length === 0;
     return {
       id: t.id,
       number: shortRequestNumber(t.request_number),
       title: t.title,
       createdAt: t.created_at,
-      installmentCount: t.installments.length,
+      installmentCount: live.length,
+      isDead,
       poValue,
       paid,
-      balance: Math.max(0, Math.round((poValue - paid) * 100) / 100),
+      balance: isDead ? 0 : Math.max(0, Math.round((poValue - paid) * 100) / 100),
     };
   });
-  const totalPo = txns.reduce((s, t) => s + t.poValue, 0);
-  const totalPaid = txns.reduce((s, t) => s + t.paid, 0);
-  const totalBalance = Math.max(0, Math.round((totalPo - totalPaid) * 100) / 100);
+  const counted = txns.filter((t) => !t.isDead);
+  const totalPo = counted.reduce((s, t) => s + t.poValue, 0);
+  const totalPaid = counted.reduce((s, t) => s + t.paid, 0);
+  // Sum the per-row balances so the column adds up to its own total — netting
+  // raw totals would let one overpaid thread cancel another's outstanding.
+  const totalBalance = Math.round(counted.reduce((s, t) => s + t.balance, 0) * 100) / 100;
 
   // Signed URL for cheque
   let chequeUrl: string | null = null;
@@ -145,12 +162,27 @@ export default async function VendorDetailPage({
         <VendorStatusPill status={v.status} />
       </div>
 
-      {/* Money summary across every request raised for this vendor */}
+      {/* Money summary across the requests raised for this vendor */}
       <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <MoneyTile label="PO value" value={totalPo} hint={`${txns.length} request${txns.length === 1 ? "" : "s"}`} />
+        <MoneyTile
+          label="PO value"
+          value={totalPo}
+          hint={`${counted.length} live request${counted.length === 1 ? "" : "s"}`}
+        />
         <MoneyTile label="Paid" value={totalPaid} tone="emerald" />
         <MoneyTile label="Yet to pay" value={totalBalance} tone="amber" />
       </section>
+      {!isStaff && txns.length > 0 && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Covers only the requests you raised or were CC&rsquo;d on — not the vendor&rsquo;s
+          company-wide totals.
+        </p>
+      )}
+      {truncated && (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+          Showing the {THREAD_LIMIT} most recent requests — totals cover these only.
+        </p>
+      )}
 
       <section className="mt-6 grid grid-cols-1 gap-4 sm:mt-8 sm:grid-cols-2 sm:gap-6">
         <Card title="Tax IDs & contact">
@@ -234,7 +266,10 @@ export default async function VendorDetailPage({
                 <li key={t.id}>
                   <Link href={`/requests/${t.id}`} className="block px-4 py-3 active:bg-zinc-50 dark:active:bg-zinc-800/60">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-mono text-xs font-medium text-indigo-600 dark:text-indigo-400">{t.number}</span>
+                      <span className="font-mono text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                        {t.number}
+                        {t.isDead && <span className="ml-1.5 font-sans text-[9px] font-semibold uppercase text-zinc-500">not proceeding</span>}
+                      </span>
                       <span className="text-[11px] text-zinc-500">{formatISTDate(t.createdAt)}</span>
                     </div>
                     <p className="mt-0.5 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
@@ -270,11 +305,16 @@ export default async function VendorDetailPage({
                         <Link href={`/requests/${t.id}`} className="font-mono text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
                           {t.number}
                         </Link>
+                        {t.isDead && (
+                          <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800">
+                            not proceeding
+                          </span>
+                        )}
                         {t.title && <div className="truncate text-xs text-zinc-500">{t.title}</div>}
                       </td>
                       <td className="px-5 py-2 text-xs text-zinc-500">{formatISTDate(t.createdAt)}</td>
                       <td className="px-5 py-2 text-center text-xs text-zinc-500">{t.installmentCount}</td>
-                      <td className="px-5 py-2 text-right tabular-nums">{formatINR(t.poValue)}</td>
+                      <td className={`px-5 py-2 text-right tabular-nums ${t.isDead ? "text-zinc-400 line-through" : ""}`}>{formatINR(t.poValue)}</td>
                       <td className="px-5 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatINR(t.paid)}</td>
                       <td className="px-5 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatINR(t.balance)}</td>
                     </tr>
