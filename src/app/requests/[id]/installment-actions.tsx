@@ -9,6 +9,9 @@ import {
   markInstallmentPaid,
   uploadInstallmentInvoice,
   closeInstallment,
+  recallInstallment,
+  unapproveInstallment,
+  submitDraftInstallment,
 } from "@/app/requests/actions";
 import { formatINR } from "@/lib/types";
 
@@ -53,6 +56,9 @@ export default function InstallmentActions({
   const [payState, payAction, payPending] = useActionState(markInstallmentPaid, undefined);
   const [invState, invAction, invPending] = useActionState(uploadInstallmentInvoice, undefined);
   const [closeState, closeAction, closePending] = useActionState(closeInstallment, undefined);
+  const [recallState, recallAction, recallPending] = useActionState(recallInstallment, undefined);
+  const [unapproveState, unapproveAction, unapprovePending] = useActionState(unapproveInstallment, undefined);
+  const [submitState, submitAction, submitPending] = useActionState(submitDraftInstallment, undefined);
 
   const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
@@ -71,28 +77,76 @@ export default function InstallmentActions({
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = (isAccounts || isAdmin) && ["invoice_pending", "payment_processed"].includes(status);
   const canEditResubmit =
-    (isSubmitter || isAdmin) && ["rejected", "returned_for_correction"].includes(status);
+    (isSubmitter || isAdmin) && ["rejected", "returned_for_correction", "draft"].includes(status);
+  // Withdraw your own ask while it's still waiting on a decision.
+  const canRecall = isSubmitter && ["pending_approval", "clarification_required"].includes(status);
+  // Pull an approval back — only until Accounts picks it up for the bank.
+  const canUnapprove = (isApprover || isAdmin) && status === "approved";
+  const canSubmitDraft = isSubmitter && status === "draft";
 
-  if (!canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canClose && !canEditResubmit) {
+  if (
+    !canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice &&
+    !canClose && !canEditResubmit && !canRecall && !canUnapprove && !canSubmitDraft
+  ) {
     return null;
   }
 
   const info =
     editState?.info || approveState?.info || rejectState?.info ||
-    bankState?.info || payState?.info || invState?.info || closeState?.info;
+    bankState?.info || payState?.info || invState?.info || closeState?.info ||
+    recallState?.info || unapproveState?.info || submitState?.info;
   const err =
     editState?.error || approveState?.error || rejectState?.error ||
-    bankState?.error || payState?.error || invState?.error || closeState?.error;
+    bankState?.error || payState?.error || invState?.error || closeState?.error ||
+    recallState?.error || unapproveState?.error || submitState?.error;
 
   return (
     <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
       <div className="flex flex-wrap gap-2">
+        {canSubmitDraft && (
+          <form action={submitAction}>
+            <input type="hidden" name="installment_id" value={installmentId} />
+            <button
+              type="submit"
+              disabled={submitPending}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {submitPending ? "Submitting…" : "Submit for approval"}
+            </button>
+          </form>
+        )}
+        {canRecall && (
+          <form action={recallAction}>
+            <input type="hidden" name="installment_id" value={installmentId} />
+            <button
+              type="submit"
+              disabled={recallPending}
+              title="Withdraw this from the approver's queue and keep it as a draft"
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+            >
+              {recallPending ? "Recalling…" : "↩ Recall to draft"}
+            </button>
+          </form>
+        )}
+        {canUnapprove && (
+          <form action={unapproveAction}>
+            <input type="hidden" name="installment_id" value={installmentId} />
+            <button
+              type="submit"
+              disabled={unapprovePending}
+              title="Send this back to the approval queue — only possible until Accounts uploads it to the bank"
+              className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-60 dark:border-amber-700 dark:bg-zinc-900 dark:text-amber-200"
+            >
+              {unapprovePending ? "Reverting…" : "↩ Back to pending"}
+            </button>
+          </form>
+        )}
         {canEditResubmit && (
           <button
             onClick={() => setOpen(open === "edit" ? null : "edit")}
             className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
           >
-            ✎ Edit &amp; resubmit
+            ✎ {status === "draft" ? "Edit draft" : "Edit \u0026 resubmit"}
           </button>
         )}
         {canApprove && (

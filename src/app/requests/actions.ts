@@ -429,7 +429,9 @@ export async function raiseInstallment(
   if (!threadRes.data) return { error: "Thread not found." };
 
   const poValue = Math.round((linesRes.data ?? []).reduce((s, l) => s + Number(l.quantity) * Number(l.rate), 0) * 100) / 100;
-  const nonCancelledInstallments = (instRes.data ?? []).filter((i) => i.status !== "cancelled" && i.status !== "rejected");
+  const nonCancelledInstallments = (instRes.data ?? []).filter(
+    (i) => !["cancelled", "rejected", "draft"].includes(i.status as string),
+  );
   const alreadyRequested = nonCancelledInstallments.reduce((s, i) => s + Number(i.requested_amount), 0);
   const remaining = Math.round((poValue - alreadyRequested) * 100) / 100;
 
@@ -536,7 +538,12 @@ async function transitionInstallment(
     rejected: ["pending_approval", "clarification_required"],
     returned_for_correction: ["pending_approval", "clarification_required"],
     clarification_required: ["pending_approval"],
-    pending_approval: ["clarification_required", "returned_for_correction", "rejected"],
+    // pending_approval is also reachable backwards: a submitter re-submits a
+    // recalled draft, or an approver pulls an approval back before Accounts
+    // has uploaded it to the bank.
+    pending_approval: ["clarification_required", "returned_for_correction", "rejected", "draft", "approved"],
+    // Recalled by the submitter while it is still awaiting a decision.
+    draft: ["pending_approval", "clarification_required"],
     uploaded_in_bank: ["approved"],
     invoice_pending: ["uploaded_in_bank", "approved"],
     payment_processed: ["uploaded_in_bank", "approved", "invoice_pending"],
@@ -726,8 +733,8 @@ export async function editAndResubmitInstallment(
     .eq("id", installmentId)
     .single();
   if (!inst) return { error: "Installment not found." };
-  if (!["rejected", "returned_for_correction"].includes(inst.status as string)) {
-    return { error: "Only rejected or returned installments can be edited and resubmitted." };
+  if (!["rejected", "returned_for_correction", "draft"].includes(inst.status as string)) {
+    return { error: "Only a draft, rejected or returned installment can be edited and resubmitted." };
   }
 
   // Only the thread's submitter (or admin) may resubmit.
@@ -750,7 +757,7 @@ export async function editAndResubmitInstallment(
   ]);
   const poValue = Math.round((linesRes.data ?? []).reduce((s, l) => s + Number(l.quantity) * Number(l.rate), 0) * 100) / 100;
   const othersRequested = (instRes.data ?? [])
-    .filter((i) => i.id !== installmentId && i.status !== "cancelled" && i.status !== "rejected")
+    .filter((i) => i.id !== installmentId && !["cancelled", "rejected", "draft"].includes(i.status as string))
     .reduce((s, i) => s + Number(i.requested_amount), 0);
   const remaining = Math.round((poValue - othersRequested) * 100) / 100;
   if (requestedAmount - remaining > 0.005) {
@@ -1104,6 +1111,187 @@ export async function uploadInstallmentInvoice(
 
   revalidatePath(`/requests/${inst.request_id}`);
   return { info: "Invoice uploaded." };
+}
+
+// ---------------------------------------------------------------------------
+// Recall / un-approve — pulling a request back before money moves
+// ---------------------------------------------------------------------------
+
+/**
+ * Submitter withdraws their own installment while it is still awaiting a
+ * decision. It becomes a draft they can edit and re-submit; approvers stop
+ * seeing it in their queue and its amount frees up on the PO.
+ */
+export async function recallInstallment(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const installmentId = String(formData.get("installment_id") ?? "");
+  if (!installmentId) return { error: "Missing installment." };
+
+  const admin = createAdminClient();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id, installment_number, status")
+    .eq("id", installmentId)
+    .single();
+  if (!inst) return { error: "Installment not found." };
+  if (!["pending_approval", "clarification_required"].includes(inst.status as string)) {
+    return { error: "Only an installment still awaiting approval can be recalled." };
+  }
+
+  const { data: thread } = await admin
+    .from("payment_requests")
+    .select("id, submitter_id")
+    .eq("id", inst.request_id)
+    .single();
+  if (!thread || thread.submitter_id !== user.id) {
+    return { error: "Only the person who raised it can recall it." };
+  }
+
+  try {
+    await transitionInstallment(installmentId, "draft", "Recalled by submitter");
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  revalidatePath(`/requests/${inst.request_id}`);
+  revalidatePath("/requests");
+  revalidatePath("/approvals");
+  return { info: `Installment #${inst.installment_number} recalled — it's now a draft.` };
+}
+
+/**
+ * Approver takes an approval back while Accounts has not yet uploaded the
+ * payment to the bank. The installment returns to the approval queue.
+ */
+export async function unapproveInstallment(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const installmentId = String(formData.get("installment_id") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim() || null;
+  if (!installmentId) return { error: "Missing installment." };
+
+  const admin = createAdminClient();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
+  if (!roles.has("approver") && !roles.has("admin")) {
+    return { error: "Only an approver can pull an approval back." };
+  }
+
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id, installment_number, status")
+    .eq("id", installmentId)
+    .single();
+  if (!inst) return { error: "Installment not found." };
+  if (inst.status !== "approved") {
+    return { error: "Only an approved installment that Accounts hasn't picked up yet can be pulled back." };
+  }
+  // Belt and braces: if a payment record exists, money is already in motion.
+  const { count } = await admin
+    .from("payment_records")
+    .select("installment_id", { count: "exact", head: true })
+    .eq("installment_id", installmentId);
+  if ((count ?? 0) > 0) {
+    return { error: "Accounts has already started processing this payment — it can't be pulled back." };
+  }
+
+  try {
+    await transitionInstallment(installmentId, "pending_approval", reason ?? "Approval withdrawn", {
+      approver_id: null,
+      approved_at: null,
+    });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  revalidatePath(`/requests/${inst.request_id}`);
+  revalidatePath("/approvals");
+  revalidatePath("/accounts");
+  return { info: `Installment #${inst.installment_number} is back with the approvers.` };
+}
+
+/**
+ * Submit a recalled draft back for approval, unchanged. (To change the
+ * amount or dates first, use edit & resubmit.)
+ */
+export async function submitDraftInstallment(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const installmentId = String(formData.get("installment_id") ?? "");
+  if (!installmentId) return { error: "Missing installment." };
+
+  const admin = createAdminClient();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id, installment_number, status, requested_amount")
+    .eq("id", installmentId)
+    .single();
+  if (!inst) return { error: "Installment not found." };
+  if (inst.status !== "draft") return { error: "This installment isn't a draft." };
+
+  const { data: thread } = await admin
+    .from("payment_requests")
+    .select("id, request_number, submitter_id, vendor_id")
+    .eq("id", inst.request_id)
+    .single();
+  if (!thread || thread.submitter_id !== user.id) {
+    return { error: "Only the person who raised it can submit it." };
+  }
+
+  // Re-check the PO ceiling: other installments may have moved while this sat
+  // in draft.
+  const [linesRes, instRes] = await Promise.all([
+    admin.from("request_line_items").select("quantity, rate").eq("request_id", inst.request_id),
+    admin.from("request_installments").select("id, requested_amount, status").eq("request_id", inst.request_id),
+  ]);
+  const poValue = Math.round((linesRes.data ?? []).reduce((s, l) => s + Number(l.quantity) * Number(l.rate), 0) * 100) / 100;
+  const othersRequested = (instRes.data ?? [])
+    .filter((i) => i.id !== installmentId && !["cancelled", "rejected", "draft"].includes(i.status as string))
+    .reduce((s, i) => s + Number(i.requested_amount), 0);
+  const remaining = Math.round((poValue - othersRequested) * 100) / 100;
+  const amount = Number(inst.requested_amount);
+  if (amount - remaining > 0.005) {
+    return {
+      error: `Only ${formatExactAmount(remaining)} is left on this PO — edit the amount before submitting.`,
+    };
+  }
+
+  try {
+    await transitionInstallment(installmentId, "pending_approval", "Draft submitted", {
+      submitted_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  await notifyApprovers({
+    requestId: inst.request_id,
+    requestNumber: thread.request_number as string,
+    installmentAmount: amount,
+    installmentNumber: inst.installment_number as number,
+    actorId: user.id,
+  });
+
+  revalidatePath(`/requests/${inst.request_id}`);
+  revalidatePath("/requests");
+  revalidatePath("/approvals");
+  return { info: `Installment #${inst.installment_number} submitted for approval.` };
 }
 
 export async function closeInstallment(

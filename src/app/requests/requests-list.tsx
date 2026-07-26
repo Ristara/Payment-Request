@@ -154,7 +154,9 @@ export default function RequestsList({ rows }: { rows: RequestsRow[] }) {
 
 function StatusPill({ status }: { status: string }) {
   const color =
-    status === "closed" || status === "payment_processed"
+    status === "draft"
+      ? "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+      : status === "closed" || status === "payment_processed"
       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
       : status === "rejected" || status === "cancelled"
         ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200"

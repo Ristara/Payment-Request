@@ -32,6 +32,7 @@ const PAGE_SIZE = 50;
 // Filter tab → which latest-installment statuses a thread must be in.
 const VIEW_FILTERS: Record<string, { label: string; statuses: string[] | null }> = {
   all: { label: "All", statuses: null },
+  draft: { label: "Draft", statuses: ["draft"] },
   pending: { label: "Pending", statuses: ["pending_approval", "clarification_required"] },
   approved: { label: "Approved", statuses: ["approved", "uploaded_in_bank"] },
   paid: { label: "Paid", statuses: ["invoice_pending", "payment_processed"] },
@@ -97,7 +98,7 @@ export default async function MyRequestsPage({
       const insts = [...r.installments].sort((a, b) => a.installment_number - b.installment_number);
       const latest = insts[insts.length - 1];
       const requestedTotal = insts
-        .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
+        .filter((i) => !["cancelled", "rejected", "draft"].includes(i.status))
         .reduce((s, i) => s + Number(i.requested_amount), 0);
 
       const lastRead = lastReadByThread.get(r.id) ?? 0;

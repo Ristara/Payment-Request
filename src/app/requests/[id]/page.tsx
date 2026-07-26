@@ -164,7 +164,7 @@ export default async function ThreadDetailPage({
     0,
   );
   const requestedTotal = installments
-    .filter((i) => i.status !== "cancelled" && i.status !== "rejected")
+    .filter((i) => !["cancelled", "rejected", "draft"].includes(i.status))
     .reduce((s, i) => s + Number(i.requested_amount), 0);
   // Two different "balances": what's left to PAY (header chip — the money
   // question) vs what's left to REQUEST (gates the raise-installment panel).
@@ -555,6 +555,7 @@ export default async function ThreadDetailPage({
 function deriveThreadStatus(statuses: string[]): string {
   if (statuses.length === 0) return "draft";
   const priority = [
+    "draft",
     "clarification_required",
     "pending_approval",
     "returned_for_correction",
