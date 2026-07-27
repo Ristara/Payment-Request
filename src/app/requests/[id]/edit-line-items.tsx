@@ -77,6 +77,27 @@ export default function EditLineItems({
       .map((c) => ({ value: c, label: c }));
   }
 
+  /** All spendable subcategories, so a line can be started bottom-up. */
+  const allSubOptions = useMemo<ComboOption[]>(
+    () =>
+      coaAccounts
+        .filter((a) => !rollupIds.has(a.id) && a.subcategory !== a.category)
+        .sort((x, y) => x.subcategory.localeCompare(y.subcategory))
+        .map((a) => ({ value: a.id, label: a.subcategory, hint: `${a.coa} › ${a.category}` })),
+    [coaAccounts, rollupIds],
+  );
+
+  /** Picking a subcategory fills in the two levels above it. */
+  function pickSubcategory(idx: number, accountId: string) {
+    if (!accountId) {
+      update(idx, { coa_account_id: "" });
+      return;
+    }
+    const a = coaAccounts.find((x) => x.id === accountId);
+    if (!a) return;
+    update(idx, { coaHead: a.coa, category: a.category, coa_account_id: a.id });
+  }
+
   function subOptionsFor(coaHead: string, category: string) {
     if (!coaHead || !category) return [];
     return coaAccounts
@@ -183,12 +204,11 @@ export default function EditLineItems({
                           },
                           ...subs.map((sub) => ({ value: sub.id, label: sub.subcategory })),
                         ]
-                      : []
+                      : allSubOptions
                   }
                   value={line.coa_account_id}
-                  onChange={(v) => update(idx, { coa_account_id: v })}
-                  disabled={!line.category}
-                  placeholder={line.category ? "Subcategory (optional)…" : "Pick category first…"}
+                  onChange={(v) => pickSubcategory(idx, v)}
+                  placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
                   ariaLabel="Subcategory (optional)"
                 />
               </div>

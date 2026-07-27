@@ -97,6 +97,32 @@ export default function RequestForm({
       .map((c) => ({ value: c, label: c }));
   }
 
+  /** Real spendable rows — anchors and knit rows are never offered. */
+  const spendable = useMemo(
+    () => coaAccounts.filter((a) => !rollupIds.has(a.id) && a.subcategory !== a.category),
+    [coaAccounts, rollupIds],
+  );
+
+  /** All subcategories, so a line can be started from the bottom level. */
+  const allSubOptions = useMemo<ComboOption[]>(
+    () =>
+      [...spendable]
+        .sort((x, y) => x.subcategory.localeCompare(y.subcategory))
+        .map((a) => ({ value: a.id, label: a.subcategory, hint: `${a.coa} › ${a.category}` })),
+    [spendable],
+  );
+
+  /** Picking a subcategory fills in the two levels above it. */
+  function pickSubcategory(idx: number, accountId: string) {
+    if (!accountId) {
+      updateLine(idx, { coa_account_id: "" });
+      return;
+    }
+    const a = coaAccounts.find((x) => x.id === accountId);
+    if (!a) return;
+    updateLine(idx, { coaHead: a.coa, category: a.category, coa_account_id: a.id });
+  }
+
   function subOptionsFor(coaHead: string, category: string) {
     if (!coaHead || !category) return [];
     return coaAccounts
@@ -420,12 +446,11 @@ export default function RequestForm({
                                   },
                                   ...subs.map((s) => ({ value: s.id, label: s.subcategory })),
                                 ]
-                              : []
+                              : allSubOptions
                           }
                           value={line.coa_account_id}
-                          onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                          disabled={!line.category}
-                          placeholder={line.category ? "Subcategory (optional)…" : "Pick category first…"}
+                          onChange={(v) => pickSubcategory(idx, v)}
+                          placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
                           ariaLabel="Subcategory (optional)"
                         />
                       </div>
@@ -556,12 +581,11 @@ export default function RequestForm({
                               },
                               ...subs.map((s) => ({ value: s.id, label: s.subcategory })),
                             ]
-                          : []
+                          : allSubOptions
                       }
                       value={line.coa_account_id}
-                      onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                      disabled={!line.category}
-                      placeholder={line.category ? "Subcategory (optional)…" : "Pick category first…"}
+                      onChange={(v) => pickSubcategory(idx, v)}
+                      placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
                       ariaLabel="Subcategory (optional)"
                     />
                   </div>
