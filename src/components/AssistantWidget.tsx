@@ -32,6 +32,20 @@ function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
 
 /**
  * Ria (Raghav Intelligent Assistant) — the floating in-app assistant.
+ *
+ * Voice today uses the BROWSER's Web Speech API for both listening and
+ * speaking, with Gemini only handling the text in between. That keeps it free
+ * and simple, at the cost of a flat system voice and a speak-wait-listen
+ * rhythm.
+ *
+ * PLANNED: move to Gemini's Live API for a real spoken conversation — natural
+ * voice, interruption mid-sentence, no transcribe-then-reply lag. It's a
+ * different shape: a persistent WebSocket streaming audio both ways, relayed
+ * through our server so the key never reaches the browser, and billed per
+ * minute of audio rather than per message. Models already available on our
+ * key (bidiGenerateContent): gemini-2.5-flash-native-audio-latest and
+ * gemini-3.1-flash-live-preview. Roughly 2-3 days of work.
+ *
  * Privacy: the transcript lives only in
  * this component's state, nothing is stored on the server, so no user can
  * ever see another user's chat.
