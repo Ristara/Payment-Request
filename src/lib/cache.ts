@@ -1,4 +1,4 @@
-import { unstable_cache, updateTag } from "next/cache";
+import { revalidateTag, unstable_cache, updateTag } from "next/cache";
 
 /**
  * Tags used to invalidate specific slices of cached data.
@@ -15,7 +15,7 @@ export const CACHE_TAGS = {
 
 /** Cache lifetimes in seconds. */
 export const CACHE_TTL = {
-  masters: 300,      // 5 min — barely change
+  masters: 60,       // 1 min — small queries; keeps admin edits feeling live
   counts: 30,        // 30 sec — quick refresh for badges/tiles
   spend: 60,         // 1 min for the dashboard chart
   vendors: 60,
@@ -32,12 +32,30 @@ export function cached<Args extends unknown[], T>(
 
 /**
  * Call from server actions after a mutation to bust the relevant cache tags.
+ *
+ * These caches are unstable_cache entries, whose tags are invalidated by
+ * revalidateTag — updateTag belongs to the newer `use cache` / cacheTag API
+ * and does NOT clear them. Both are issued: revalidateTag does the real work
+ * here, updateTag keeps read-your-own-writes semantics if a helper is ever
+ * migrated to `use cache`. updateTag throws outside a Server Action, so it is
+ * guarded.
  */
-export function invalidateMasters() { updateTag(CACHE_TAGS.masters); }
-export function invalidateVendors() { updateTag(CACHE_TAGS.vendors); }
-export function invalidateRequests() { updateTag(CACHE_TAGS.requests); }
-export function invalidateApprovals() { updateTag(CACHE_TAGS.approvals); }
-export function invalidateAccounts() { updateTag(CACHE_TAGS.accounts); }
+function bust(tag: string) {
+  // expire: 0 — an admin editing a master should see it on the next page
+  // load, not after a stale-while-revalidate round trip.
+  revalidateTag(tag, { expire: 0 });
+  try {
+    updateTag(tag);
+  } catch {
+    // Not in a Server Action (route handler, etc.) — revalidateTag is enough.
+  }
+}
+
+export function invalidateMasters() { bust(CACHE_TAGS.masters); }
+export function invalidateVendors() { bust(CACHE_TAGS.vendors); }
+export function invalidateRequests() { bust(CACHE_TAGS.requests); }
+export function invalidateApprovals() { bust(CACHE_TAGS.approvals); }
+export function invalidateAccounts() { bust(CACHE_TAGS.accounts); }
 export function invalidateNotifications(userId: string) {
-  updateTag(CACHE_TAGS.notifications(userId));
+  bust(CACHE_TAGS.notifications(userId));
 }
