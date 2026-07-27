@@ -445,6 +445,35 @@ function isRateLimited(userId: string): boolean {
   return false;
 }
 
+/**
+ * Gemini returns 503 ("model overloaded") and 429 under load. Both are
+ * transient and clear in under a second, so ride them out rather than
+ * surfacing a scary error for what is a momentary blip. Permanent failures
+ * (bad key, bad request, missing model) are returned immediately.
+ */
+async function callGemini(url: string, body: string): Promise<Response> {
+  const BACKOFF_MS = [400, 1200];
+  let res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  for (const wait of BACKOFF_MS) {
+    if (res.status !== 503 && res.status !== 429) return res;
+    // A hard "no quota at all" will never succeed — don't waste retries.
+    const peek = res.clone();
+    const text = await peek.text().catch(() => "");
+    if (res.status === 429 && text.includes("limit: 0")) return res;
+    await new Promise((r) => setTimeout(r, wait));
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  }
+  return res;
+}
+
 // ------ Route handler ------
 
 export async function POST(req: Request) {
@@ -521,10 +550,9 @@ export async function POST(req: Request) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const res = await callGemini(
+      url,
+      JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents,
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
@@ -536,7 +564,7 @@ export async function POST(req: Request) {
           maxOutputTokens: 4096,
         },
       }),
-    });
+    );
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -545,7 +573,9 @@ export async function POST(req: Request) {
       // so name them instead of hiding behind a generic message. No key
       // material or upstream payload is ever echoed to the browser.
       let friendly: string;
-      if (res.status === 429) {
+      if (res.status === 503) {
+        friendly = "Google's AI service is busy at the moment. Give it a few seconds and ask again.";
+      } else if (res.status === 429) {
         friendly = "The assistant is a bit busy right now (free-tier limit). Try again in a minute.";
       } else if (res.status === 401 || res.status === 403) {
         friendly =
