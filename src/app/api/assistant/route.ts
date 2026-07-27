@@ -13,7 +13,9 @@ export const runtime = "nodejs";
 // app does (submitters see their own threads; approvers/accounts see all).
 // ---------------------------------------------------------------------------
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Alias that tracks Google's current Flash model — pinning an exact version
+// breaks when it's retired (gemini-2.5-flash is already closed to new keys).
+const GEMINI_MODEL = "gemini-flash-latest";
 const MAX_TOOL_ROUNDS = 6;
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -552,6 +554,8 @@ export async function POST(req: Request) {
         friendly = "The assistant couldn't process that request (code 400) — a setup issue, not your question.";
       } else if (res.status === 404) {
         friendly = "The AI model isn't available to this key (code 404). An admin should check the Gemini API is enabled for the key's project.";
+      } else if (res.status === 429 && detail.includes("limit: 0")) {
+        friendly = "This Gemini key has no request quota (free-tier limit is 0). An admin should create the key from Google AI Studio, or enable billing on its Google Cloud project.";
       } else {
         friendly = `The assistant had a problem answering (code ${res.status}). Try again.`;
       }
