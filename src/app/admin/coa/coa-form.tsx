@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useRef, useState } from "react";
 import {
   createCoaAccount,
+  renameCategoryGroup,
   deleteCoaAccount,
   renameCoaGroup,
   toggleCoaAccountActive,
@@ -21,7 +22,7 @@ type Row = {
 
 type Tree = {
   coa: string;
-  subs: Row[];
+  categories: { category: string; subs: Row[] }[];
 }[];
 
 /**
@@ -33,13 +34,11 @@ type Tree = {
  * updates every row that shares that label (via the rename* actions).
  *
  *   COA head
- *     ↳ Subcategory (leaf: the real DB row)
+ *     ↳ Category
+ *         ↳ Subcategory (leaf: the real DB row)
  *
- * The table also stores an intermediate `category` label, but the UI is
- * deliberately two-level: leaf names already carry their group prefix
- * (e.g. "Structural & Civil Works-Labor"), so showing the middle level only
- * added noise. Non-spendable plumbing rows — group/rollup anchors and the
- * self-named rows used for whole-head charges — are hidden here.
+ * A category is chargeable on its own — that lands on a self-named anchor
+ * row (subcategory = category), which is plumbing and stays hidden here.
  */
 export default function CoaForm({ rows }: { rows: Row[] }) {
   const [query, setQuery] = useState("");
@@ -50,30 +49,48 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
 
   const tree: Tree = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const byCoa = new Map<string, Row[]>();
+    const byCoa = new Map<string, Map<string, Row[]>>();
     for (const r of rows) {
-      // Hide plumbing rows: group/rollup anchors and self-named head rows.
+      // Group/rollup anchors and the self-named category rows are plumbing.
       if (rollupIds.has(r.id) || r.subcategory === r.category) continue;
       if (
         q &&
         !r.subcategory.toLowerCase().includes(q) &&
+        !r.category.toLowerCase().includes(q) &&
         !r.coa.toLowerCase().includes(q) &&
         !String(r.code).includes(q)
       ) continue;
-      const subs = byCoa.get(r.coa) ?? [];
+      let cats = byCoa.get(r.coa);
+      if (!cats) { cats = new Map(); byCoa.set(r.coa, cats); }
+      const subs = cats.get(r.category) ?? [];
       subs.push(r);
-      byCoa.set(r.coa, subs);
+      cats.set(r.category, subs);
     }
-    // Every head stays listed even when the search hides all its items, so
-    // "+ Add" is always reachable.
-    for (const r of rows) if (!byCoa.has(r.coa) && !q) byCoa.set(r.coa, []);
+    // Categories with no subcategories of their own still need a node — they
+    // are charged at category level.
+    if (!q) {
+      for (const r of rows) {
+        if (!r.is_active) continue;
+        let cats = byCoa.get(r.coa);
+        if (!cats) { cats = new Map(); byCoa.set(r.coa, cats); }
+        if (!cats.has(r.category)) cats.set(r.category, []);
+      }
+    }
     return [...byCoa.keys()].sort((a, b) => a.localeCompare(b)).map((coa) => ({
       coa,
-      subs: [...(byCoa.get(coa) ?? [])].sort((x, y) => x.subcategory.localeCompare(y.subcategory)),
+      categories: [...(byCoa.get(coa) ?? new Map()).entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([category, subs]) => ({
+          category,
+          subs: [...subs].sort((x, y) => x.subcategory.localeCompare(y.subcategory)),
+        })),
     }));
   }, [rows, query, rollupIds]);
 
-  const totalMatches = tree.reduce((s, coa) => s + coa.subs.length, 0);
+  const totalMatches = tree.reduce(
+    (s, coa) => s + coa.categories.reduce((ss, c) => ss + c.subs.length, 0),
+    0,
+  );
 
   const [addingNewCoa, setAddingNewCoa] = useState(false);
   const treeRef = useRef<HTMLDivElement>(null);
@@ -141,7 +158,8 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
           heading="New COA head"
           fields={[
             { name: "coa", label: "COA head", placeholder: "e.g. Marketing" },
-            { name: "subcategory", label: "First item", placeholder: "e.g. Google Ads" },
+            { name: "category", label: "Category", placeholder: "e.g. Digital Ads" },
+            { name: "subcategory", label: "Subcategory", placeholder: "e.g. Google Ads" },
           ]}
           onDone={() => setAddingNewCoa(false)}
         />
@@ -220,7 +238,7 @@ function CoaNode({
             <>
               <span className="flex-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{node.coa}</span>
               <span className="text-[11px] text-zinc-500">
-                {node.subs.length} item{node.subs.length === 1 ? "" : "s"}
+                {node.categories.length} cat · {node.categories.reduce((t, c) => t + c.subs.length, 0)} sub
               </span>
               <RowMenu
                 onRename={() => setRenaming(true)}
@@ -235,19 +253,25 @@ function CoaNode({
 
         <div className="pb-2 pl-6">
           <ul>
-            {node.subs.map((s) => (
-              <SubcategoryRow key={s.id} row={s} isRollup={rollupIds.has(s.id)} />
+            {node.categories.map((cat) => (
+              <CategoryNode
+                key={cat.category}
+                coa={node.coa}
+                node={cat}
+                openByDefault={openByDefault}
+                rollupIds={rollupIds}
+              />
             ))}
           </ul>
 
           <div className="mt-1 pl-4">
             {addingCategory ? (
               <AddInlineForm
-                heading={`New item under ${node.coa}`}
-                // Two-level UI: a new item's group label is the head itself.
-                fixed={{ coa: node.coa, category: node.coa }}
+                heading={`New category under ${node.coa}`}
+                fixed={{ coa: node.coa }}
                 fields={[
-                  { name: "subcategory", label: "Name", placeholder: "e.g. Delivery Bikes" },
+                  { name: "category", label: "Category", placeholder: "e.g. Delivery Fleet" },
+                  { name: "subcategory", label: "First subcategory", placeholder: "e.g. Delivery Bikes" },
                 ]}
                 onDone={() => setAddingCategory(false)}
               />
@@ -257,10 +281,101 @@ function CoaNode({
                 onClick={() => setAddingCategory(true)}
                 className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
               >
-                + Add item
+                + Add category
               </button>
             )}
           </div>
+        </div>
+      </details>
+    </li>
+  );
+}
+
+function CategoryNode({
+  coa,
+  node,
+  openByDefault,
+  rollupIds,
+}: {
+  coa: string;
+  node: { category: string; subs: Row[] };
+  openByDefault: boolean;
+  rollupIds: Set<string>;
+}) {
+  const [addingSub, setAddingSub] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameState, renameAction, renamePending] = useActionState(renameCategoryGroup, undefined);
+
+  return (
+    <li className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800/60">
+      <details open={openByDefault} className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+          <Chevron />
+          {renaming ? (
+            <form action={renameAction} onClick={(e) => e.preventDefault()} className="flex flex-1 items-center gap-2">
+              <input type="hidden" name="coa" value={coa} />
+              <input type="hidden" name="old_category" value={node.category} />
+              <input
+                name="new_category"
+                defaultValue={node.category}
+                required
+                autoFocus
+                className="flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              />
+              <button
+                type="submit"
+                disabled={renamePending}
+                onClick={() => setRenaming(false)}
+                className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white disabled:opacity-60"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenaming(false)}
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <>
+              <span className="flex-1 truncate text-sm text-zinc-800 dark:text-zinc-200">{node.category}</span>
+              <span className="text-[11px] text-zinc-500">
+                {node.subs.length === 0 ? "charged at category level" : node.subs.length}
+              </span>
+              <RowMenu onRename={() => setRenaming(true)} />
+            </>
+          )}
+        </summary>
+
+        {renameState?.error && (
+          <p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400">{renameState.error}</p>
+        )}
+
+        <ul className="pb-1 pl-6">
+          {node.subs.map((s) => (
+            <SubcategoryRow key={s.id} row={s} isRollup={rollupIds.has(s.id)} />
+          ))}
+        </ul>
+
+        <div className="pb-2 pl-6">
+          {addingSub ? (
+            <AddInlineForm
+              heading={`New subcategory under ${node.category}`}
+              fixed={{ coa, category: node.category }}
+              fields={[{ name: "subcategory", label: "Subcategory", placeholder: "e.g. Delivery Bikes" }]}
+              onDone={() => setAddingSub(false)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingSub(true)}
+              className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              + Add subcategory
+            </button>
+          )}
         </div>
       </details>
     </li>

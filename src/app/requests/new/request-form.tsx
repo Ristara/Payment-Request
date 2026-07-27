@@ -12,17 +12,18 @@ type CoaAccount = { id: string; code: number; subcategory: string; category: str
 
 type LineRow = {
   key: string;
-  categoryKey: string; // the COA head name — "" = none picked
-  coa_account_id: string; // subcategory row — optional; empty = category-level
+  coaHead: string;        // level 1 — required
+  category: string;       // level 2 — required
+  coa_account_id: string; // level 3 — optional; empty charges the category
   quantity: string;
   rate: string;
 };
 
-
 function newLine(): LineRow {
   return {
     key: Math.random().toString(36).slice(2),
-    categoryKey: "",
+    coaHead: "",
+    category: "",
     coa_account_id: "",
     quantity: "1",
     rate: "",
@@ -78,11 +79,10 @@ export default function RequestForm({
 
   const rollupIds = useMemo(() => computeRollupIds(coaAccounts), [coaAccounts]);
 
-  // Two levels only: Category = COA head, Subcategory = a real spendable item
-  // under it. The chart's intermediate grouping rows (rollups) and the
-  // self-named anchors used for whole-category charges are never offered —
-  // item names already carry their group prefix, so nothing is lost.
-  const categoryOptions = useMemo<ComboOption[]>(
+  // Three levels: COA head → Category (both required) → Subcategory
+  // (optional). Rows where subcategory === category are the anchors a
+  // category-level charge lands on, so they're never offered as a choice.
+  const coaOptions = useMemo<ComboOption[]>(
     () =>
       [...new Set(coaAccounts.map((a) => a.coa))]
         .sort((a, b) => a.localeCompare(b))
@@ -90,12 +90,20 @@ export default function RequestForm({
     [coaAccounts],
   );
 
-  function subOptionsFor(coaHead: string) {
+  function categoryOptionsFor(coaHead: string): ComboOption[] {
     if (!coaHead) return [];
+    return [...new Set(coaAccounts.filter((a) => a.coa === coaHead).map((a) => a.category))]
+      .sort((a, b) => a.localeCompare(b))
+      .map((c) => ({ value: c, label: c }));
+  }
+
+  function subOptionsFor(coaHead: string, category: string) {
+    if (!coaHead || !category) return [];
     return coaAccounts
       .filter(
         (a) =>
           a.coa === coaHead &&
+          a.category === category &&
           !rollupIds.has(a.id) &&
           a.subcategory !== a.category,
       )
@@ -128,8 +136,8 @@ export default function RequestForm({
   // COA head — the client never guesses the anchor row id.
   const linesPayload = lines.map((l) => ({
     coa_account_id: l.coa_account_id,
-    coa: l.categoryKey,
-    category: l.categoryKey,
+    coa: l.coaHead,
+    category: l.category,
     quantity: Number(l.quantity) || 0,
     rate: Number(l.rate) || 0,
   }));
@@ -364,7 +372,7 @@ export default function RequestForm({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                <th className="px-2 py-2 font-medium">Category / Subcategory</th>
+                <th className="px-2 py-2 font-medium">COA · Category · Subcategory</th>
                 <th className="px-2 py-2 text-right font-medium w-24">Qty</th>
                 <th className="px-2 py-2 text-right font-medium w-32">Rate (₹)</th>
                 <th className="px-2 py-2 text-right font-medium w-32">Amount</th>
@@ -373,23 +381,34 @@ export default function RequestForm({
             </thead>
             <tbody>
               {lines.map((line, idx) => {
-                const subs = subOptionsFor(line.categoryKey);
+                const subs = subOptionsFor(line.coaHead, line.category);
                 return (
                   <tr key={line.key} className="border-b border-zinc-100 align-top dark:border-zinc-800/60">
                     <td className="px-1 py-2">
                       <div className="space-y-1.5">
                         <Combobox
                           size="sm"
-                          options={categoryOptions}
-                          value={line.categoryKey}
-                          onChange={(v) => updateLine(idx, { categoryKey: v, coa_account_id: "" })}
-                          placeholder="Search category…"
+                          options={coaOptions}
+                          value={line.coaHead}
+                          onChange={(v) =>
+                            updateLine(idx, { coaHead: v, category: "", coa_account_id: "" })
+                          }
+                          placeholder="Search COA head…"
+                          ariaLabel="COA head"
+                        />
+                        <Combobox
+                          size="sm"
+                          options={categoryOptionsFor(line.coaHead)}
+                          value={line.category}
+                          onChange={(v) => updateLine(idx, { category: v, coa_account_id: "" })}
+                          disabled={!line.coaHead}
+                          placeholder={line.coaHead ? "Search category…" : "Pick COA head first…"}
                           ariaLabel="Category"
                         />
                         <Combobox
                           size="sm"
                           options={
-                            line.categoryKey
+                            line.category
                               ? [
                                   {
                                     value: "",
@@ -403,8 +422,8 @@ export default function RequestForm({
                           }
                           value={line.coa_account_id}
                           onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                          disabled={!line.categoryKey}
-                          placeholder={line.categoryKey ? "Search subcategory…" : "Pick category first…"}
+                          disabled={!line.category}
+                          placeholder={line.category ? "Subcategory (optional)…" : "Pick category first…"}
                           ariaLabel="Subcategory (optional)"
                         />
                       </div>
@@ -467,7 +486,7 @@ export default function RequestForm({
         {/* Mobile stacked cards */}
         <div className="mt-3 space-y-3 sm:hidden">
           {lines.map((line, idx) => {
-            const subs = subOptionsFor(line.categoryKey);
+            const subs = subOptionsFor(line.coaHead, line.category);
             return (
               <div
                 key={line.key}
@@ -488,13 +507,32 @@ export default function RequestForm({
                   </button>
                 </div>
                 <div className="mt-2">
-                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Category</label>
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    COA head <span className="text-red-500">*</span>
+                  </label>
                   <div className="mt-1">
                     <Combobox
-                      options={categoryOptions}
-                      value={line.categoryKey}
-                      onChange={(v) => updateLine(idx, { categoryKey: v, coa_account_id: "" })}
-                      placeholder="Search category…"
+                      options={coaOptions}
+                      value={line.coaHead}
+                      onChange={(v) =>
+                        updateLine(idx, { coaHead: v, category: "", coa_account_id: "" })
+                      }
+                      placeholder="Search COA head…"
+                      ariaLabel="COA head"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <div className="mt-1">
+                    <Combobox
+                      options={categoryOptionsFor(line.coaHead)}
+                      value={line.category}
+                      onChange={(v) => updateLine(idx, { category: v, coa_account_id: "" })}
+                      disabled={!line.coaHead}
+                      placeholder={line.coaHead ? "Search category…" : "Pick COA head first…"}
                       ariaLabel="Category"
                     />
                   </div>
@@ -506,7 +544,7 @@ export default function RequestForm({
                   <div className="mt-1">
                     <Combobox
                       options={
-                        line.categoryKey
+                        line.category
                           ? [
                               {
                                 value: "",
@@ -520,8 +558,8 @@ export default function RequestForm({
                       }
                       value={line.coa_account_id}
                       onChange={(v) => updateLine(idx, { coa_account_id: v })}
-                      disabled={!line.categoryKey}
-                      placeholder={line.categoryKey ? "Search subcategory…" : "Pick category first…"}
+                      disabled={!line.category}
+                      placeholder={line.category ? "Subcategory (optional)…" : "Pick category first…"}
                       ariaLabel="Subcategory (optional)"
                     />
                   </div>
