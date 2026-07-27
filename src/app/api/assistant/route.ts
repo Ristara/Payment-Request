@@ -5,7 +5,8 @@ import { shortRequestNumber } from "@/lib/types";
 export const runtime = "nodejs";
 
 // ---------------------------------------------------------------------------
-// AI assistant backed by Google Gemini (free tier) with function calling.
+// Ria — Raghav Intelligent Assistant — backed by Google Gemini with function
+// calling.
 //
 // Privacy model: chats are NEVER stored — the client keeps the transcript in
 // memory only and sends it with each request. Every data lookup below runs
@@ -531,6 +532,7 @@ export async function POST(req: Request) {
   const todayIST = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
   const systemInstruction =
     `You are Ria, the in-app assistant for Ristara Foods' Payment Request system. `
+    + `Ria stands for Raghav Intelligent Assistant — say so if anyone asks what your name means or where it comes from, and don't volunteer it otherwise. `
     + `Answer as Ria — warm and direct, never robotic. Only introduce yourself if asked who you are. ` +
     `Answer questions about payment requests, approvals, vendors, payments and spend using ONLY the provided tools — never invent data. ` +
     `The tools already run with the current user's permissions. ` +

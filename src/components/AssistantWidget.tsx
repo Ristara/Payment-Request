@@ -26,7 +26,8 @@ function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
 }
 
 /**
- * Ria — the floating in-app assistant. Privacy: the transcript lives only in
+ * Ria (Raghav Intelligent Assistant) — the floating in-app assistant.
+ * Privacy: the transcript lives only in
  * this component's state, nothing is stored on the server, so no user can
  * ever see another user's chat.
  */
