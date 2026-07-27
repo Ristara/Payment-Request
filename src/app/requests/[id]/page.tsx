@@ -9,6 +9,7 @@ import InstallmentActions from "./installment-actions";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
 import DiscussionThread from "./discussion";
+import EditLineItems from "./edit-line-items";
 import { deleteAttachment } from "@/app/requests/actions";
 import type { CommentItem, ThreadAttachment } from "./discussion";
 
@@ -89,7 +90,7 @@ export default async function ThreadDetailPage({
 
   // One parallel wave — every query filters by the route id alone, so the
   // main thread row doesn't need to resolve first.
-  const [threadRes, instRes, historyRes, attRes, commentRes, mentionCandRes, lineRes] = await Promise.all([
+  const [threadRes, instRes, historyRes, attRes, commentRes, mentionCandRes, coaRes, lineRes] = await Promise.all([
     supabase
       .from("payment_requests")
       .select(
@@ -134,6 +135,11 @@ export default async function ThreadDetailPage({
       .eq("request_id", id)
       .order("created_at"),
     supabase.from("profiles").select("id, full_name, email").eq("is_active", true).order("full_name"),
+    supabase
+      .from("coa_accounts")
+      .select("id, subcategory, category, coa")
+      .eq("is_active", true)
+      .order("coa"),
     supabase
       .from("request_line_items")
       .select(
@@ -254,6 +260,12 @@ export default async function ThreadDetailPage({
   // as paid, not "Rejected".
   const threadStatus = deriveThreadStatus(installments.map((i) => i.status));
 
+  // The PO can only be rewritten while no installment has been approved —
+  // an approver's sign-off must not shift underneath them.
+  const PO_LOCKED = ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed", "closed"];
+  const canEditPo =
+    (isSubmitter || isAdmin) && !installments.some((i) => PO_LOCKED.includes(i.status));
+
   // Whether the submitter can raise another installment.
   const canRaiseInstallment = isSubmitter && balanceRemaining > 0.005;
 
@@ -321,7 +333,23 @@ export default async function ThreadDetailPage({
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-6">
           {/* Line items = PO breakdown */}
-          <Card title={`Line items (${lineItems.length})`}>
+          <Card
+            title={`Line items (${lineItems.length})`}
+            action={
+              canEditPo ? (
+                <EditLineItems
+                  requestId={req.id}
+                  coaAccounts={(coaRes.data ?? []) as { id: string; subcategory: string; category: string; coa: string }[]}
+                  initial={lineItems.map((l) => ({
+                    coaAccountId: l.coa_account?.id ?? "",
+                    quantity: Number(l.quantity),
+                    rate: Number(l.rate),
+                  }))}
+                  minPoValue={requestedTotal}
+                />
+              ) : undefined
+            }
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -573,7 +601,15 @@ function deriveThreadStatus(statuses: string[]): string {
   return statuses[statuses.length - 1];
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h2>

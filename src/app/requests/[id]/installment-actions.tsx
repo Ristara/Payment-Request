@@ -12,6 +12,7 @@ import {
   recallInstallment,
   unapproveInstallment,
   submitDraftInstallment,
+  deleteDraftInstallment,
 } from "@/app/requests/actions";
 import { formatINR } from "@/lib/types";
 
@@ -59,6 +60,7 @@ export default function InstallmentActions({
   const [recallState, recallAction, recallPending] = useActionState(recallInstallment, undefined);
   const [unapproveState, unapproveAction, unapprovePending] = useActionState(unapproveInstallment, undefined);
   const [submitState, submitAction, submitPending] = useActionState(submitDraftInstallment, undefined);
+  const [dropState, dropAction, dropPending] = useActionState(deleteDraftInstallment, undefined);
 
   const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
@@ -94,11 +96,11 @@ export default function InstallmentActions({
   const info =
     editState?.info || approveState?.info || rejectState?.info ||
     bankState?.info || payState?.info || invState?.info || closeState?.info ||
-    recallState?.info || unapproveState?.info || submitState?.info;
+    recallState?.info || unapproveState?.info || submitState?.info || dropState?.info;
   const err =
     editState?.error || approveState?.error || rejectState?.error ||
     bankState?.error || payState?.error || invState?.error || closeState?.error ||
-    recallState?.error || unapproveState?.error || submitState?.error;
+    recallState?.error || unapproveState?.error || submitState?.error || dropState?.error;
 
   return (
     <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
@@ -112,6 +114,25 @@ export default function InstallmentActions({
               className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               {submitPending ? "Submitting…" : "Submit for approval"}
+            </button>
+          </form>
+        )}
+        {canSubmitDraft && (
+          <form
+            action={dropAction}
+            onSubmit={(e) => {
+              if (!confirm("Delete this draft? If it's the only installment, the whole request is removed. This can't be undone.")) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <input type="hidden" name="installment_id" value={installmentId} />
+            <button
+              type="submit"
+              disabled={dropPending}
+              className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:bg-zinc-900 dark:text-red-300"
+            >
+              {dropPending ? "Deleting…" : "Delete draft"}
             </button>
           </form>
         )}
