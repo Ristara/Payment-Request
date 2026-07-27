@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import {
   approveInstallment,
@@ -26,6 +27,7 @@ export default function InstallmentActions({
   requestId,
   status,
   vendorStatus,
+  vendorId,
   isSubmitter,
   isApprover,
   isAccounts,
@@ -42,6 +44,7 @@ export default function InstallmentActions({
   requestId: string;
   status: string;
   vendorStatus: string;
+  vendorId: string;
   isSubmitter: boolean;
   isApprover: boolean;
   isAccounts: boolean;
@@ -78,6 +81,12 @@ export default function InstallmentActions({
     ["pending_approval", "clarification_required"].includes(status) &&
     vendorStatus === "approved";
   const canReject = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
+  // Approve is deliberately withheld until the vendor is verified — say so,
+  // rather than leaving an approver staring at a lone Reject button.
+  const approveBlockedByVendor =
+    (isApprover || isAdmin) &&
+    ["pending_approval", "clarification_required"].includes(status) &&
+    vendorStatus !== "approved";
   const canBankUpload = (isAccounts || isAdmin) && status === "approved";
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
@@ -108,6 +117,16 @@ export default function InstallmentActions({
 
   return (
     <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+      {approveBlockedByVendor && (
+        <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          Approve is unavailable because this vendor is{" "}
+          {vendorStatus === "rejected" ? "rejected" : "still awaiting verification"} — Accounts must
+          verify it (bank details + mobile) first.{" "}
+          <Link href={`/vendors/${vendorId}`} className="font-medium underline">
+            Open vendor
+          </Link>
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         {canSubmitDraft && (
           <form action={submitAction}>

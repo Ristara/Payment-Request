@@ -477,6 +477,7 @@ export default async function ThreadDetailPage({
                       requestId={req.id}
                       status={inst.status}
                       vendorStatus={req.vendor?.status ?? "approved"}
+                      vendorId={req.vendor_id}
                       isSubmitter={isSubmitter}
                       isApprover={isApprover}
                       isAccounts={isAccounts}
