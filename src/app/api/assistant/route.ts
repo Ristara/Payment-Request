@@ -530,10 +530,10 @@ export async function POST(req: Request) {
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 2048,
-          // 2.5-flash thinks by default and thought tokens eat the output
-          // budget — disable it; this assistant doesn't need deep reasoning.
-          thinkingConfig: { thinkingBudget: 0 },
+          // Thinking can't be switched off on Gemini 3 (thinkingBudget: 0 is
+          // rejected outright), and thought tokens are charged against this
+          // budget — so leave enough room for reasoning AND the answer.
+          maxOutputTokens: 4096,
         },
       }),
     });
@@ -586,7 +586,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ reply: fallback });
     }
 
-    // Execute every requested tool, echo the model turn + results, loop.
+    // Echo the model's parts back VERBATIM — Gemini 3 rejects a follow-up
+    // whose functionCall has lost its thought_signature, so these objects
+    // must never be rebuilt field by field.
     contents.push({ role: "model", parts });
     const responses: GeminiPart[] = [];
     for (const call of calls) {
