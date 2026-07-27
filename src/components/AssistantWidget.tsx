@@ -110,8 +110,14 @@ export default function AssistantWidget() {
   }
 
   function toggleMic() {
-    if (listening) stopListening();
-    else startListening();
+    if (listening) {
+      stopListening();
+      return;
+    }
+    // Interrupt a long answer rather than waiting it out.
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    setSpeaking(false);
+    startListening();
   }
 
   /** Turning voice mode off must silence anything mid-sentence. */
@@ -277,23 +283,6 @@ export default function AssistantWidget() {
             </div>
           </div>
 
-          {voiceMode && (
-            <p className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50/70 px-4 py-1.5 text-[11px] font-medium text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-              <span
-                className={`inline-block h-1.5 w-1.5 rounded-full ${
-                  listening ? "animate-pulse bg-red-500" : speaking ? "animate-pulse bg-emerald-500" : "bg-indigo-400"
-                }`}
-              />
-              {listening
-                ? "Listening — just speak"
-                : speaking
-                  ? "Ria is speaking…"
-                  : busy
-                    ? "Thinking…"
-                    : "Paused — tap Voice on to stop"}
-            </p>
-          )}
-
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {messages.length === 0 && (
@@ -365,52 +354,107 @@ export default function AssistantWidget() {
             )}
           </div>
 
-          {/* Input */}
+          {/* Input — the typing box, or the voice bar during a conversation */}
           <div className="border-t border-zinc-100 p-3 dark:border-zinc-800">
-            <div className="flex items-end gap-2">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                rows={1}
-                maxLength={4000}
-                placeholder={listening ? "Listening…" : "Ask a question…"}
-                className="max-h-24 flex-1 resize-none rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
-              />
-              {voiceSupported && (
+            {voiceMode ? (
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={toggleMic}
-                  aria-label={listening ? "Stop listening" : "Speak your question"}
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                  aria-label={listening ? "Stop listening" : "Start listening"}
+                  className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
                     listening
-                      ? "animate-pulse bg-red-500 text-white"
+                      ? "bg-indigo-600 text-white"
                       : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
                   }`}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {listening && (
+                    <span className="absolute inset-0 animate-ping rounded-full bg-indigo-500/30" />
+                  )}
+                  <svg className="relative" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
                     <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
                   </svg>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={busy || !input.trim()}
-                aria-label="Send"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white disabled:opacity-40"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                </svg>
-              </button>
-            </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
+                    <span
+                      className={`inline-block h-1.5 w-1.5 rounded-full ${
+                        listening
+                          ? "animate-pulse bg-red-500"
+                          : speaking
+                            ? "animate-pulse bg-emerald-500"
+                            : busy
+                              ? "animate-pulse bg-indigo-500"
+                              : "bg-zinc-300"
+                      }`}
+                    />
+                    {listening ? "Listening" : speaking ? "Ria is speaking" : busy ? "Thinking" : "Tap the mic to talk"}
+                  </p>
+                  <p className="truncate text-sm text-zinc-900 dark:text-zinc-100">
+                    {input || (
+                      <span className="text-zinc-400">
+                        {speaking ? "Tap the mic to interrupt." : "Just speak — it sends when you pause."}
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={toggleVoiceMode}
+                  className="shrink-0 rounded-full bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
+                >
+                  End
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  rows={1}
+                  maxLength={4000}
+                  placeholder="Ask a question…"
+                  className="max-h-24 flex-1 resize-none rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+                />
+                {voiceSupported && (
+                  <button
+                    type="button"
+                    onClick={toggleMic}
+                    aria-label={listening ? "Stop listening" : "Speak your question"}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                      listening
+                        ? "animate-pulse bg-red-500 text-white"
+                        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+                    }`}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={busy || !input.trim()}
+                  aria-label="Send"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white disabled:opacity-40"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
