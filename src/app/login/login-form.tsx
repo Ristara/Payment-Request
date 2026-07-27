@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function LoginForm({ nextPath }: { nextPath?: string }) {
   const [state, formAction, pending] = useActionState(login, undefined);
+  // Kept in state so a failed submit doesn't wipe what was typed.
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [googlePending, setGooglePending] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
 
@@ -61,6 +64,8 @@ export default function LoginForm({ nextPath }: { nextPath?: string }) {
           <input
             id="email"
             name="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
             type="email"
             required
             autoComplete="email"
@@ -74,6 +79,8 @@ export default function LoginForm({ nextPath }: { nextPath?: string }) {
           <input
             id="password"
             name="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
             type="password"
             required
             autoComplete="current-password"

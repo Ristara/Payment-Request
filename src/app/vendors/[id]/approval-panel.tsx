@@ -21,6 +21,8 @@ export default function ApprovalPanel({
 }) {
   const [approveState, approveAction, approvePending] = useActionState(approveVendor, undefined);
   const [rejecting, setRejecting] = useState(false);
+  // Survives a failed submit.
+  const [reason, setReason] = useState("");
   const ready = hasBank && hasPhone;
 
   const missing = [!hasPhone && "mobile number", !hasBank && "bank details"]
@@ -64,6 +66,8 @@ export default function ApprovalPanel({
           <input type="hidden" name="id" value={vendorId} />
           <input
             name="reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
             required
             autoFocus
             placeholder="Reason for rejection"

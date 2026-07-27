@@ -16,6 +16,10 @@ const ROLES = ["requester", "approver", "accounts", "admin"] as const;
 
 export default function UsersForm({ users }: { users: UserRow[] }) {
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
+  // Kept in state so a failed submit doesn't wipe what was typed.
+  const [fullName, setFullName] = useState("");
+  const [emailLocal, setEmailLocal] = useState("");
+  const [password, setPassword] = useState("");
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -39,6 +43,8 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
           <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Full name</label>
           <input
             name="full_name"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
             required
             placeholder="Ravi Morampudi"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -49,6 +55,8 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
           <div className="mt-1 flex overflow-hidden rounded-md border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900">
             <input
               name="email_local"
+          value={emailLocal}
+          onChange={(e) => setEmailLocal(e.target.value)}
               required
               placeholder="ravi"
               className="min-w-0 flex-1 px-3 py-2 text-sm focus:outline-none dark:bg-zinc-900"
@@ -62,6 +70,8 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
           <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Temporary password</label>
           <input
             name="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
             required
             placeholder="Min 8 chars"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"

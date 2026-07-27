@@ -65,6 +65,13 @@ export default function RequestForm({
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
+  // React resets an uncontrolled form when a server action runs, so every
+  // field must live in state — otherwise a validation error empties the form
+  // and the user retypes everything.
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [workDone, setWorkDone] = useState("");
+  const [purpose, setPurpose] = useState("");
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
   const [ccIds, setCcIds] = useState<string[]>([]);
   const ccPeople = people.filter((p) => ccIds.includes(p.id));
@@ -304,6 +311,8 @@ export default function RequestForm({
         <SectionTitle>Payment request title</SectionTitle>
         <input
           name="title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
           required
           maxLength={120}
           placeholder="e.g. Kitchen equipment advance — Indiranagar"
@@ -728,6 +737,8 @@ export default function RequestForm({
           <SectionTitle>Payment due date</SectionTitle>
           <input
             name="payment_due_date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
             type="date"
             required
             className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -737,6 +748,8 @@ export default function RequestForm({
           <SectionTitle>Work completion date</SectionTitle>
           <input
             name="date_of_work_completion"
+            value={workDone}
+            onChange={(e) => setWorkDone(e.target.value)}
             type="date"
             className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
@@ -765,6 +778,8 @@ export default function RequestForm({
         <SectionTitle>Purpose / description</SectionTitle>
         <textarea
           name="purpose"
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
           required
           rows={3}
           placeholder="Business justification, scope of work, period covered…"
@@ -854,11 +869,32 @@ function AttachmentsField() {
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
 
+  // Mirror our state into the real <input type="file">, which is what the
+  // form actually submits.
   useEffect(() => {
     if (!inputRef.current) return;
     const dt = new DataTransfer();
     files.forEach((f) => dt.items.add(f));
     inputRef.current.files = dt.files;
+  }, [files]);
+
+  // React resets the form when a server action runs, which empties the file
+  // input while our list still shows the files — they'd look attached but
+  // silently arrive empty on the retry. Re-apply them after any reset.
+  useEffect(() => {
+    const input = inputRef.current;
+    const form = input?.form;
+    if (!input || !form) return;
+    const reapply = () => {
+      queueMicrotask(() => {
+        if (!inputRef.current) return;
+        const dt = new DataTransfer();
+        files.forEach((f) => dt.items.add(f));
+        inputRef.current.files = dt.files;
+      });
+    };
+    form.addEventListener("reset", reapply);
+    return () => form.removeEventListener("reset", reapply);
   }, [files]);
 
   function addFiles(incoming: FileList | File[] | null | undefined) {

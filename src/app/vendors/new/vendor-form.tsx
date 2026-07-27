@@ -2,10 +2,14 @@
 
 import { useActionState, useState } from "react";
 import { createVendor } from "@/app/vendors/actions";
+import PersistentFileInput from "@/components/PersistentFileInput";
 
 export default function VendorForm() {
   const [state, formAction, pending] = useActionState(createVendor, undefined);
   const [isGstRegistered, setIsGstRegistered] = useState(true);
+  const [gstin, setGstin] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
 
   return (
     <form
@@ -64,6 +68,8 @@ export default function VendorForm() {
           </label>
           <input
             name="gstin"
+              value={gstin}
+              onChange={(e) => setGstin(e.target.value)}
             required={isGstRegistered}
             disabled={!isGstRegistered}
             placeholder={isGstRegistered ? "22AAAAA0000A1Z5" : "Not applicable"}
@@ -86,6 +92,8 @@ export default function VendorForm() {
           </label>
           <input
             name="phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
             required
             type="tel"
             inputMode="numeric"
@@ -99,6 +107,8 @@ export default function VendorForm() {
           </label>
           <input
             name="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             type="email"
             placeholder="accounts@vendor.com"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -122,8 +132,7 @@ export default function VendorForm() {
         <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
           Cancelled cheque (optional but recommended)
         </label>
-        <input
-          type="file"
+        <PersistentFileInput
           name="cancelled_cheque"
           accept="image/*,application/pdf"
           className="mt-1 block w-full text-sm text-zinc-700 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:text-zinc-300"

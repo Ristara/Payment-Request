@@ -13,6 +13,9 @@ type Outlet = {
 
 export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
   const [createState, createAction, createPending] = useActionState(createOutlet, undefined);
+  // Kept in state so a failed submit doesn't wipe what was typed.
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, editAction, editPending] = useActionState(updateOutletName, undefined);
   const [deleteState, deleteAction, deletePending] = useActionState(deleteOutlet, undefined);
@@ -28,6 +31,8 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
           <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Code</label>
           <input
             name="code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
             required
             placeholder="HSR"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -37,6 +42,8 @@ export default function OutletsForm({ outlets }: { outlets: Outlet[] }) {
           <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Name</label>
           <input
             name="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
             required
             placeholder="Babai Tiffins HSR"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"

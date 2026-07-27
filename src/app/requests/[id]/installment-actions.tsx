@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PersistentFileInput from "@/components/PersistentFileInput";
 import { useActionState, useState } from "react";
 import {
   approveInstallment,
@@ -71,6 +72,18 @@ export default function InstallmentActions({
 
   const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
+  // Every field lives in state: React resets the form when an action runs,
+  // so anything uncontrolled is wiped the moment the server rejects it.
+  const [editDue, setEditDue] = useState(paymentDueDate);
+  const [editWork, setEditWork] = useState(dateOfWorkCompletion ?? "");
+  const [editTentative, setEditTentative] = useState(tentativeInvoiceDate ?? "");
+  const [editNote, setEditNote] = useState(note ?? "");
+  const [bankDate, setBankDate] = useState("");
+  const [bankRef, setBankRef] = useState("");
+  const [payDate, setPayDate] = useState("");
+  const [paidAmt, setPaidAmt] = useState("");
+  const [utr, setUtr] = useState("");
+  const [payingAcct, setPayingAcct] = useState("");
   const editAmountNum = Number(editAmount) || 0;
   const editOverMax = editAmountNum - maxAmount > 0.005;
 
@@ -263,8 +276,9 @@ export default function InstallmentActions({
               <input
                 type="date"
                 name="payment_due_date"
+                value={editDue}
+                onChange={(e) => setEditDue(e.target.value)}
                 required
-                defaultValue={paymentDueDate}
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
               />
             </label>
@@ -273,7 +287,8 @@ export default function InstallmentActions({
               <input
                 type="date"
                 name="date_of_work_completion"
-                defaultValue={dateOfWorkCompletion ?? ""}
+                value={editWork}
+                onChange={(e) => setEditWork(e.target.value)}
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
               />
             </label>
@@ -282,9 +297,10 @@ export default function InstallmentActions({
                 Tentative invoice date <span className="text-red-500">*</span>
                 <input
                   name="tentative_invoice_date"
+                value={editTentative}
+                onChange={(e) => setEditTentative(e.target.value)}
                   type="date"
                   required
-                  defaultValue={tentativeInvoiceDate ?? ""}
                   className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
                 />
               </label>
@@ -293,14 +309,15 @@ export default function InstallmentActions({
               Note (what changed?)
               <input
                 name="purpose"
-                defaultValue={note ?? ""}
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
                 placeholder="e.g. corrected amount as discussed"
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
               />
             </label>
             <label className="text-xs text-zinc-500 sm:col-span-2">
               Attach corrected documents (optional)
-              <input type="file" name="attachments" multiple accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
+              <PersistentFileInput name="attachments" multiple accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
             </label>
           </div>
           <p className="mt-2 text-[11px] text-zinc-500">
@@ -325,8 +342,12 @@ export default function InstallmentActions({
         <form action={bankAction} className="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <input type="hidden" name="installment_id" value={installmentId} />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <input type="date" name="bank_upload_date" required className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
-            <input name="bank_batch_ref" placeholder="Batch ref (optional)" className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+            <input type="date" name="bank_upload_date"
+                value={bankDate}
+                onChange={(e) => setBankDate(e.target.value)} required className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+            <input name="bank_batch_ref"
+                value={bankRef}
+                onChange={(e) => setBankRef(e.target.value)} placeholder="Batch ref (optional)" className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
           </div>
           <div className="mt-2 flex justify-end">
             <button disabled={bankPending} className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
@@ -342,23 +363,31 @@ export default function InstallmentActions({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="text-xs text-zinc-500">
               Payment date
-              <input type="date" name="payment_date" required className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+              <input type="date" name="payment_date"
+                value={payDate}
+                onChange={(e) => setPayDate(e.target.value)} required className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
             </label>
             <label className="text-xs text-zinc-500">
               Amount paid (₹)
-              <input type="number" step="0.01" min="0" name="paid_amount" required className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+              <input type="number" step="0.01" min="0" name="paid_amount"
+                value={paidAmt}
+                onChange={(e) => setPaidAmt(e.target.value)} required className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
             </label>
             <label className="text-xs text-zinc-500">
               UTR reference
-              <input name="utr_reference" required placeholder="N123456789012345" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-mono dark:border-zinc-700 dark:bg-zinc-900" />
+              <input name="utr_reference"
+                value={utr}
+                onChange={(e) => setUtr(e.target.value)} required placeholder="N123456789012345" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-mono dark:border-zinc-700 dark:bg-zinc-900" />
             </label>
             <label className="text-xs text-zinc-500">
               Paying bank a/c (optional)
-              <input name="paying_bank_account" placeholder="HDFC ****1234" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+              <input name="paying_bank_account"
+                value={payingAcct}
+                onChange={(e) => setPayingAcct(e.target.value)} placeholder="HDFC ****1234" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
             </label>
             <label className="text-xs text-zinc-500 sm:col-span-2">
               Payment proof
-              <input type="file" name="proof" accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
+              <PersistentFileInput name="proof" accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
             </label>
           </div>
           <div className="mt-2 flex justify-end">
@@ -374,7 +403,7 @@ export default function InstallmentActions({
           <input type="hidden" name="installment_id" value={installmentId} />
           <label className="text-xs text-zinc-500">
             Tax invoice file
-            <input type="file" name="invoice" required accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
+            <PersistentFileInput name="invoice" required accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
           </label>
           <div className="mt-2 flex justify-end">
             <button disabled={invPending} className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
@@ -400,12 +429,19 @@ function ReasonBox({
   tone: "red" | "orange";
 }) {
   const bg = tone === "red" ? "bg-red-600 hover:bg-red-700" : "bg-orange-600 hover:bg-orange-700";
+  // Local state so a rejected submit doesn't erase the reason just typed.
+  const [reason, setReason] = useState("");
   return (
     <form action={action} className="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
       <input type="hidden" name="installment_id" value={installmentId} />
       <label className="text-xs text-zinc-500">
         {label}
-        <textarea name="reason" required rows={2} className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+        <textarea
+          name="reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          required
+          rows={2} className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
       </label>
       <div className="mt-2 flex justify-end">
         <button disabled={pending} className={`rounded-md ${bg} px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60`}>

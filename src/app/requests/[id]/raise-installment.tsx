@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { raiseInstallment } from "@/app/requests/actions";
+import PersistentFileInput from "@/components/PersistentFileInput";
 import { formatINR } from "@/lib/types";
 
 /**
@@ -29,6 +30,10 @@ export default function RaiseInstallmentPanel({
   needsTentativeInvoice: boolean;
 }) {
   const [state, action, pending] = useActionState(raiseInstallment, undefined);
+  const [dueDate, setDueDate] = useState("");
+  const [workDone, setWorkDone] = useState("");
+  const [tentative, setTentative] = useState(tentativeInvoiceDate ?? "");
+  const [note, setNote] = useState("");
   const [amount, setAmount] = useState("");
   const [open, setOpen] = useState(false);
 
@@ -127,6 +132,8 @@ export default function RaiseInstallmentPanel({
           </label>
           <input
             name="payment_due_date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
             type="date"
             required
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -136,6 +143,8 @@ export default function RaiseInstallmentPanel({
           <label className="text-xs text-zinc-600 dark:text-zinc-400">Work completion date</label>
           <input
             name="date_of_work_completion"
+              value={workDone}
+              onChange={(e) => setWorkDone(e.target.value)}
             type="date"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
@@ -147,9 +156,10 @@ export default function RaiseInstallmentPanel({
             </label>
             <input
               name="tentative_invoice_date"
+              value={tentative}
+              onChange={(e) => setTentative(e.target.value)}
               type="date"
               required
-              defaultValue={tentativeInvoiceDate ?? ""}
               className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
             />
             <p className="mt-1 text-[11px] text-zinc-500">
@@ -163,6 +173,8 @@ export default function RaiseInstallmentPanel({
         <label className="text-xs text-zinc-600 dark:text-zinc-400">Note (optional)</label>
         <textarea
           name="purpose"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
           rows={2}
           placeholder="What's different about this installment?"
           className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -171,8 +183,7 @@ export default function RaiseInstallmentPanel({
 
       <div className="mt-3">
         <label className="text-xs text-zinc-600 dark:text-zinc-400">Supporting documents (optional)</label>
-        <input
-          type="file"
+        <PersistentFileInput
           name="attachments"
           multiple
           accept="image/*,application/pdf"
