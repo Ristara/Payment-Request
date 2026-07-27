@@ -67,6 +67,21 @@ const TOOL_DECLARATIONS = [
       "List unpaid installments whose payment due date has already passed.",
   },
   {
+    name: "list_ready_to_pay",
+    description:
+      "Approved installments waiting to go to the bank, split into those the Kotak bank file can take and those held back because the vendor isn't approved or has no account number / IFSC.",
+  },
+  {
+    name: "vendor_status",
+    description:
+      "Look up a vendor by partial name: approval status, whether bank details and mobile number are on file, and what is missing. Use this to answer why a payment can't be approved or paid.",
+    parameters: {
+      type: "OBJECT",
+      properties: { vendor_name: { type: "STRING", description: "Partial or full vendor name" } },
+      required: ["vendor_name"],
+    },
+  },
+  {
     name: "spend_by_category",
     description:
       "Total spend grouped by chart-of-accounts category, counting only requests with at least one approved-or-later installment.",
@@ -313,6 +328,83 @@ async function spendByCategory(supabase: Supa) {
   };
 }
 
+async function listReadyToPay(supabase: Supa) {
+  const { data, error } = await supabase
+    .from("request_installments")
+    .select(
+      `installment_number, requested_amount,
+       request:payment_requests!inner(request_number, title,
+         vendor:vendors(name, status, bank_account_number, bank_ifsc))`,
+    )
+    .eq("status", "approved")
+    .limit(100);
+  if (error) return { error: error.message };
+  type R = {
+    installment_number: number; requested_amount: number;
+    request: { request_number: string; title: string | null;
+      vendor: { name: string; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null };
+  };
+  const payable = [], heldBack = [];
+  for (const r of (data ?? []) as unknown as R[]) {
+    const v = r.request.vendor;
+    const row = {
+      number: shortRequestNumber(r.request.request_number),
+      installment: r.installment_number,
+      title: r.request.title,
+      vendor: v?.name,
+      amount: Number(r.requested_amount),
+    };
+    const ok = v?.status === "approved" && !!v.bank_account_number && !!v.bank_ifsc;
+    if (ok) payable.push(row);
+    else {
+      heldBack.push({
+        ...row,
+        reason:
+          v?.status !== "approved"
+            ? "vendor not approved yet"
+            : "vendor has no account number / IFSC",
+      });
+    }
+  }
+  return {
+    payable,
+    payable_total: payable.reduce((s, r) => s + r.amount, 0),
+    held_back: heldBack,
+    note: "Only the payable rows go into the Kotak bank file.",
+  };
+}
+
+async function vendorStatus(supabase: Supa, vendorName: string) {
+  const name = String(vendorName).replace(/[%_\\]/g, " ").trim();
+  if (!name) return { error: "No vendor name given." };
+  const { data, error } = await supabase
+    .from("vendors")
+    .select("name, status, gstin, pan, phone, bank_account_number, bank_ifsc, rejection_reason")
+    .ilike("name", `%${name}%`)
+    .limit(5);
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: `No vendor matching "${name}".` };
+  return {
+    vendors: data.map((v) => {
+      const missing: string[] = [];
+      if (!v.phone) missing.push("mobile number");
+      if (!v.bank_account_number) missing.push("bank account number");
+      if (!v.bank_ifsc) missing.push("IFSC");
+      return {
+        name: v.name,
+        status: v.status,
+        gstin: v.gstin,
+        pan: v.pan,
+        has_bank_details: !!(v.bank_account_number && v.bank_ifsc),
+        has_mobile: !!v.phone,
+        missing_to_approve: missing,
+        rejection_reason: v.rejection_reason,
+        can_be_paid: v.status === "approved" && !!v.bank_account_number && !!v.bank_ifsc,
+      };
+    }),
+  };
+}
+
 async function runTool(supabase: Supa, name: string, args: Record<string, unknown>) {
   try {
     switch (name) {
@@ -321,6 +413,8 @@ async function runTool(supabase: Supa, name: string, args: Record<string, unknow
       case "get_request": return await getRequest(supabase, String(args.number ?? ""));
       case "vendor_payments": return await vendorPayments(supabase, String(args.vendor_name ?? ""));
       case "list_overdue": return await listOverdue(supabase);
+      case "list_ready_to_pay": return await listReadyToPay(supabase);
+      case "vendor_status": return await vendorStatus(supabase, String(args.vendor_name ?? ""));
       case "spend_by_category": return await spendByCategory(supabase);
       default: return { error: `Unknown tool ${name}` };
     }
@@ -410,7 +504,12 @@ export async function POST(req: Request) {
     `The tools already run with the current user's permissions. ` +
     `All amounts are INR: format like ₹1,23,456.78 (Indian grouping). Dates are IST; today is ${todayIST}. ` +
     `Request numbers look like PR-00134. Be brief and clear — plain text only, no markdown symbols like ** or #. ` +
-    `Use short lines and simple lists. If the tools return nothing relevant, say you couldn't find it in the system.`;
+    `Use short lines and simple lists. If the tools return nothing relevant, say you couldn't find it in the system. ` +
+    `\n\nHow the system works, so your answers match it: a REQUEST is a thread for one PO with a title, a vendor, an outlet and line items whose sum is the PO value. ` +
+    `Money is released through INSTALLMENTS against that PO, each with its own life: draft (recalled by the submitter) → pending approval → approved → uploaded in bank → invoice pending / payment processed → closed; or rejected. ` +
+    `Accounts download a Kotak bank file which moves approved installments to "uploaded in bank". ` +
+    `A payment cannot be approved until the vendor is approved, and a vendor cannot be approved without bank account, IFSC and mobile number — if someone asks why they cannot approve or pay something, check vendor_status first. ` +
+    `Accounts are three levels: COA head → Category → Subcategory, and a line with no subcategory is charged to the whole category.`;
 
   const contents: GeminiContent[] = messages.map((m) => ({
     role: m.role === "user" ? "user" : "model",

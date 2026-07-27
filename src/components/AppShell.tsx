@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AssistantWidget from "@/components/AssistantWidget";
 import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
 import ProfileMenu from "@/components/ProfileMenu";
 import SidebarNav from "@/components/SidebarNav";
@@ -160,9 +161,9 @@ export default function AppShell({
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</div>
       </main>
 
-      {/* AI assistant — parked until the core build is done. Uncomment to
-          re-enable (needs a valid GEMINI_API_KEY in Vercel):
-          <AssistantWidget /> */}
+      {/* AI assistant — private per user, chats never stored. Needs
+          GEMINI_API_KEY set in Vercel; without it, it says so politely. */}
+      <AssistantWidget />
     </div>
   );
 }

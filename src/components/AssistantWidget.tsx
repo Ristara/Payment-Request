@@ -178,8 +178,9 @@ export default function AssistantWidget() {
                 </p>
                 <div className="mx-auto flex max-w-[280px] flex-col gap-1.5">
                   {[
-                    "What's pending on me?",
-                    "How much have we paid AB&T Mart?",
+                    "What's waiting for my approval?",
+                    "What's ready to pay right now?",
+                    "Why can't I approve EssEmm Corporation?",
                     "Which payments are overdue?",
                     "Spend by category",
                   ].map((q) => (
