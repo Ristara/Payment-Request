@@ -58,3 +58,23 @@ body {
   border-radius: 16px;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
+
+/* iOS Safari zooms the whole page in whenever a form control smaller than
+   16px receives focus — and never zooms back out, which strands the user at
+   the wrong scale. Lifting every control to 16px on phones prevents the zoom
+   at source. !important is deliberate: it has to beat Tailwind's text-sm /
+   text-xs utilities wherever they're applied.
+
+   Note we do NOT set maximum-scale on the viewport: that would also stop
+   people pinch-zooming when they genuinely want to. */
+@media (max-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Deliberately NOT setting overflow-x: hidden on html/body — it would make
+   the body a scroll container and break the sticky top bar. Wide tables
+   already scroll inside their own overflow-x-auto wrappers. */
