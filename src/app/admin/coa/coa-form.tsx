@@ -49,46 +49,54 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
 
   const tree: Tree = useMemo(() => {
     const q = query.trim().toLowerCase();
+
+    // Build the SKELETON from live rows only, so a fully retired head or
+    // category never masquerades as somewhere you can still file spend.
+    // Every active category gets a node even when its only row is the
+    // self-named anchor (those categories are charged at category level).
     const byCoa = new Map<string, Map<string, Row[]>>();
     for (const r of rows) {
-      // Group/rollup anchors and the self-named category rows are plumbing.
-      if (rollupIds.has(r.id) || r.subcategory === r.category) continue;
-      if (
-        q &&
-        !r.subcategory.toLowerCase().includes(q) &&
-        !r.category.toLowerCase().includes(q) &&
-        !r.coa.toLowerCase().includes(q) &&
-        !String(r.code).includes(q)
-      ) continue;
+      if (!r.is_active) continue;
       let cats = byCoa.get(r.coa);
       if (!cats) { cats = new Map(); byCoa.set(r.coa, cats); }
-      const subs = cats.get(r.category) ?? [];
+      if (!cats.has(r.category)) cats.set(r.category, []);
+    }
+
+    // Hang the real subcategories off it. Plumbing rows (rollup/knit anchors
+    // and the self-named category rows) are never listed as leaves.
+    for (const r of rows) {
+      if (rollupIds.has(r.id) || r.subcategory === r.category) continue;
+      const cats = byCoa.get(r.coa);
+      const subs = cats?.get(r.category);
+      if (!subs) continue; // retired head/category — nothing to hang it on
       subs.push(r);
-      cats.set(r.category, subs);
     }
-    // Categories with no subcategories of their own still need a node — they
-    // are charged at category level.
-    if (!q) {
-      for (const r of rows) {
-        if (!r.is_active) continue;
-        let cats = byCoa.get(r.coa);
-        if (!cats) { cats = new Map(); byCoa.set(r.coa, cats); }
-        if (!cats.has(r.category)) cats.set(r.category, []);
-      }
-    }
-    return [...byCoa.keys()].sort((a, b) => a.localeCompare(b)).map((coa) => ({
-      coa,
-      categories: [...(byCoa.get(coa) ?? new Map()).entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([category, subs]) => ({
-          category,
-          subs: [...subs].sort((x, y) => x.subcategory.localeCompare(y.subcategory)),
-        })),
-    }));
+
+    const matches = (hay: string) => hay.toLowerCase().includes(q);
+    return [...byCoa.keys()]
+      .sort((a, b) => a.localeCompare(b))
+      .map((coa) => {
+        const headHit = !q || matches(coa);
+        const categories = [...(byCoa.get(coa) ?? new Map()).entries()]
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([category, subs]) => {
+            const catHit = headHit || matches(category);
+            // A head/category hit keeps all its children; otherwise only the
+            // leaves that match survive.
+            const visible = catHit
+              ? subs
+              : subs.filter((r: Row) => matches(r.subcategory) || String(r.code).includes(q));
+            return { category, subs: [...visible].sort((x, y) => x.subcategory.localeCompare(y.subcategory)), catHit };
+          })
+          .filter((c) => !q || c.catHit || c.subs.length > 0)
+          .map(({ category, subs }) => ({ category, subs }));
+        return { coa, categories };
+      })
+      .filter((n) => !q || n.categories.length > 0);
   }, [rows, query, rollupIds]);
 
   const totalMatches = tree.reduce(
-    (s, coa) => s + coa.categories.reduce((ss, c) => ss + c.subs.length, 0),
+    (s, coa) => s + coa.categories.reduce((ss, c) => ss + Math.max(1, c.subs.length), 0),
     0,
   );
 

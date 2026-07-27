@@ -132,6 +132,8 @@ export default function RequestForm({
   const pctOfPo = poValue > 0 && installmentNum > 0 ? (installmentNum / poValue) * 100 : null;
   const overPo = installmentNum > poValue + 0.01;
 
+  const incompleteLine = lines.findIndex((l) => !l.coaHead || !l.category);
+
   // The server resolves category-level lines (no subcategory picked) from the
   // COA head — the client never guesses the anchor row id.
   const linesPayload = lines.map((l) => ({
@@ -782,10 +784,15 @@ export default function RequestForm({
         <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-2">
+        {incompleteLine !== -1 && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            Line {incompleteLine + 1}: pick a COA head and a category.
+          </p>
+        )}
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || incompleteLine !== -1}
           className="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
         >
           {pending ? "Submitting…" : "Submit for approval"}

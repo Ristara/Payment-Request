@@ -191,15 +191,33 @@ where not exists (
   where a.coa = d.coa and a.category = d.category and a.subcategory = d.subcategory
 );
 
--- 2. Reactivate anything previously retired that is back in the sheet.
+-- 2. Reactivate retired SUBCATEGORY rows that are back in the sheet.
+--    Self-named anchors are deliberately excluded: a deactivated anchor is an
+--    admin decision to block whole-category charging (migration 020), and a
+--    re-import must not quietly reverse it.
 update coa_accounts a set is_active = true
 from desired_coa d
 where a.coa = d.coa and a.category = d.category and a.subcategory = d.subcategory
-  and a.is_active = false;
+  and a.is_active = false
+  and a.subcategory <> a.category;
 
--- 3. Retire whatever the sheet no longer lists (kept for referential history).
+-- 3. Retire whatever the sheet no longer lists, EXCEPT rows added after the
+--    import: accounts an admin created in /admin/coa, and the anchors
+--    createThread mints on demand, are not in the sheet and must survive a
+--    re-run. `code` is sequence-assigned, so "added later" == a code above the
+--    highest one the sheet itself introduced in step 1.
+--    On the FIRST run no rows post-date the import, so this retires the whole
+--    legacy chart as intended.
+with cutoff as (
+  select coalesce(max(a.code), 0) as max_sheet_code
+  from coa_accounts a
+  join desired_coa d
+    on d.coa = a.coa and d.category = a.category and d.subcategory = a.subcategory
+)
 update coa_accounts a set is_active = false
+from cutoff c
 where a.is_active = true
+  and a.code <= c.max_sheet_code
   and not exists (
     select 1 from desired_coa d
     where d.coa = a.coa and d.category = a.category and d.subcategory = a.subcategory

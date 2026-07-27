@@ -140,7 +140,31 @@ export async function updateCoaAccount(
   if (!id || !subcategory || !category || !coa) {
     return { error: "All fields are required." };
   }
+  // Guard the same invariants createCoaAccount enforces: a leaf must not
+  // take its own category's name (that row is the category anchor, hidden
+  // from the tree) nor a sibling category's name (computeRollupIds would
+  // treat it as a group and hide it).
   const supabase = await createClient();
+  const { data: current } = await supabase
+    .from("coa_accounts")
+    .select("coa, category")
+    .eq("id", id)
+    .maybeSingle();
+  if (current) {
+    if (subcategory === (current.category as string)) {
+      return { error: `"${subcategory}" is the category's own name — pick a different one.` };
+    }
+    const { data: sibling } = await supabase
+      .from("coa_accounts")
+      .select("id")
+      .eq("coa", current.coa as string)
+      .eq("category", subcategory)
+      .limit(1)
+      .maybeSingle();
+    if (sibling) {
+      return { error: `"${subcategory}" is already a category under ${current.coa} — pick a different name.` };
+    }
+  }
   const { error } = await supabase
     .from("coa_accounts")
     .update({ subcategory, category, coa })
@@ -213,6 +237,17 @@ export async function renameCategoryGroup(
     .eq("category", newCategory);
   if ((clash ?? 0) > 0) {
     return { error: `A category named "${newCategory}" already exists under ${coa}.` };
+  }
+  // A subcategory sharing the new name would be read as a group row by
+  // computeRollupIds and vanish from the tree — block it up front.
+  const { count: subClash } = await admin
+    .from("coa_accounts")
+    .select("id", { count: "exact", head: true })
+    .eq("coa", coa)
+    .eq("subcategory", newCategory)
+    .neq("category", oldCategory);
+  if ((subClash ?? 0) > 0) {
+    return { error: `A subcategory under ${coa} is already called "${newCategory}" — pick another name.` };
   }
 
   const { error } = await supabase
