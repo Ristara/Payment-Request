@@ -26,9 +26,9 @@ function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
 }
 
 /**
- * Floating AI assistant chat. Privacy: the transcript lives only in this
- * component's state — nothing is stored on the server, so no user can ever
- * see another user's chat.
+ * Ria — the floating in-app assistant. Privacy: the transcript lives only in
+ * this component's state, nothing is stored on the server, so no user can
+ * ever see another user's chat.
  */
 export default function AssistantWidget() {
   const [open, setOpen] = useState(false);
@@ -109,7 +109,7 @@ export default function AssistantWidget() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Couldn't reach the assistant — check your connection and try again." },
+        { role: "assistant", content: "Couldn't reach Ria — check your connection and try again." },
       ]);
     } finally {
       setBusy(false);
@@ -122,7 +122,7 @@ export default function AssistantWidget() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? "Close assistant" : "Open assistant"}
+        aria-label={open ? "Close Ria" : "Ask Ria"}
         className="fixed bottom-5 right-5 z-40 flex h-13 w-13 items-center justify-center rounded-full bg-indigo-600 p-3.5 text-white shadow-lg shadow-indigo-600/30 transition-transform hover:scale-105 active:scale-95"
       >
         {open ? (
@@ -143,7 +143,7 @@ export default function AssistantWidget() {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
             <div>
-              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Assistant</p>
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Ria</p>
               <p className="text-[10px] text-zinc-500">Private to you — chats aren&apos;t saved</p>
             </div>
             <div className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export default function AssistantWidget() {
             {messages.length === 0 && (
               <div className="mt-6 space-y-2 text-center">
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Ask about your payment requests
+                  Hi, I&rsquo;m Ria — ask me about your payments
                 </p>
                 <div className="mx-auto flex max-w-[280px] flex-col gap-1.5">
                   {[

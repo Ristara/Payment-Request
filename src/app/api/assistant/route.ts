@@ -480,7 +480,7 @@ export async function POST(req: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "The AI assistant isn't configured yet (missing GEMINI_API_KEY)." },
+      { error: "Ria isn't configured yet (missing GEMINI_API_KEY)." },
       { status: 503 },
     );
   }
@@ -530,7 +530,8 @@ export async function POST(req: Request) {
 
   const todayIST = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
   const systemInstruction =
-    `You are the in-app assistant for Ristara Foods' Payment Request system. ` +
+    `You are Ria, the in-app assistant for Ristara Foods' Payment Request system. `
+    + `Answer as Ria — warm and direct, never robotic. Only introduce yourself if asked who you are. ` +
     `Answer questions about payment requests, approvals, vendors, payments and spend using ONLY the provided tools — never invent data. ` +
     `The tools already run with the current user's permissions. ` +
     `All amounts are INR: format like ₹1,23,456.78 (Indian grouping). Dates are IST; today is ${todayIST}. ` +
@@ -576,18 +577,18 @@ export async function POST(req: Request) {
       if (res.status === 503) {
         friendly = "Google's AI service is busy at the moment. Give it a few seconds and ask again.";
       } else if (res.status === 429) {
-        friendly = "The assistant is a bit busy right now (free-tier limit). Try again in a minute.";
+        friendly = "Ria is a bit busy right now (free-tier limit). Try again in a minute.";
       } else if (res.status === 401 || res.status === 403) {
         friendly =
           "The AI key isn't valid. An admin needs to set GEMINI_API_KEY in Vercel to a Google AI Studio key (starts with AIza) and redeploy.";
       } else if (res.status === 400) {
-        friendly = "The assistant couldn't process that request (code 400) — a setup issue, not your question.";
+        friendly = "Ria couldn't process that request (code 400) — a setup issue, not your question.";
       } else if (res.status === 404) {
         friendly = "The AI model isn't available to this key (code 404). An admin should check the Gemini API is enabled for the key's project.";
       } else if (res.status === 429 && detail.includes("limit: 0")) {
         friendly = "This Gemini key has no request quota (free-tier limit is 0). An admin should create the key from Google AI Studio, or enable billing on its Google Cloud project.";
       } else {
-        friendly = `The assistant had a problem answering (code ${res.status}). Try again.`;
+        friendly = `Ria had a problem answering (code ${res.status}). Try again.`;
       }
       return NextResponse.json({ error: friendly }, { status: 502 });
     }
@@ -633,5 +634,5 @@ export async function POST(req: Request) {
     contents.push({ role: "user", parts: responses });
   }
 
-  return NextResponse.json({ error: "The assistant took too long. Try a simpler question." }, { status: 502 });
+  return NextResponse.json({ error: "Ria took too long. Try a simpler question." }, { status: 502 });
 }
