@@ -15,6 +15,7 @@ export type AccountsRow = {
   amount: number;
   dueDate: string;
   status: string;
+  notPayable: boolean;
 };
 
 const BUCKETS = [
@@ -83,6 +84,7 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                           <p className="mt-0.5 truncate text-xs text-zinc-500">
                             {r.requestTitle ? `${r.vendorName} · ` : ""}by {r.submitterName}
                           </p>
+                          {r.notPayable && <NotPayableChip />}
                         </div>
                         <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                           {formatINR(r.amount)}
@@ -119,7 +121,10 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                               r.vendorName
                             )}
                           </td>
-                          <td className="px-5 py-2 text-zinc-500">{r.submitterName}</td>
+                          <td className="px-5 py-2 text-zinc-500">
+                            {r.submitterName}
+                            {r.notPayable && <NotPayableChip />}
+                          </td>
                           <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.amount)}</td>
                           <td className="px-5 py-2 text-zinc-500">{r.dueDate}</td>
                         </tr>
@@ -133,5 +138,17 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
         })}
       </div>
     </div>
+  );
+}
+
+/** Approved, but the bank file can't take it — vendor details incomplete. */
+function NotPayableChip() {
+  return (
+    <span
+      title="Vendor has no account number / IFSC, or is no longer approved — this is left out of the bank file"
+      className="ml-1.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/60 dark:text-amber-200"
+    >
+      bank details missing
+    </span>
   );
 }

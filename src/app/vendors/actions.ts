@@ -292,6 +292,16 @@ export async function updateVendor(
   if (bank_ifsc && !IFSC_RE.test(bank_ifsc)) {
     return { error: "IFSC doesn't look right. Format: HDFC0001234." };
   }
+  // An approved vendor may already have approved payments queued against it.
+  // Clearing the bank details would leave them unpayable and silently absent
+  // from the bank file, so the fields can be corrected but never emptied.
+  if (existing.status === "approved") {
+    if (!bank_account_number || !bank_ifsc) {
+      return {
+        error: "This vendor is approved and may have payments queued — the account number and IFSC can be corrected but not removed.",
+      };
+    }
+  }
 
   // A submitter correcting a REJECTED vendor puts it back in the queue —
   // otherwise the fix sits there with nothing able to approve it.

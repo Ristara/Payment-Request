@@ -16,7 +16,7 @@ type Row = {
     id: string;
     request_number: string;
     title: string | null;
-    vendor: { name: string; status: string } | null;
+    vendor: { name: string; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
   } | null;
   submitter: { full_name: string } | null;
 };
@@ -49,7 +49,7 @@ export default async function AccountsQueuePage({
     .select(
       `id, installment_number, requested_amount, payment_due_date, status,
        request:payment_requests!inner(id, request_number, title,
-         vendor:vendors(name, status)),
+         vendor:vendors(name, status, bank_account_number, bank_ifsc)),
        submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
     )
     .in("status", TAB_STATUSES[tab])
@@ -92,6 +92,15 @@ export default async function AccountsQueuePage({
     amount: Number(r.requested_amount),
     dueDate: r.payment_due_date,
     status: r.status,
+    // Can't go in a bank file: no account/IFSC, or the vendor was rejected
+    // after this was approved.
+    notPayable:
+      r.status === "approved" &&
+      !(
+        r.request?.vendor?.status === "approved" &&
+        !!r.request?.vendor?.bank_account_number &&
+        !!r.request?.vendor?.bank_ifsc
+      ),
   }));
 
   const tabs = [
