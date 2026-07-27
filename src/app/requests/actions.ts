@@ -472,6 +472,9 @@ export async function raiseInstallment(
   }
 
   const nextNumber = (instRes.data?.length ?? 0) + 1;
+  // An explicit date on this installment wins; otherwise carry the earlier
+  // one so a PO thread keeps its invoice expectation.
+  const tentativeOverride = String(formData.get("tentative_invoice_date") ?? "").trim() || null;
   // Preserve tentative_invoice_date from the FIRST installment (PO doc-type
   // context doesn't change mid-thread).
   const firstTentative = (instRes.data ?? []).find((i) => i.tentative_invoice_date)?.tentative_invoice_date ?? null;
@@ -484,7 +487,7 @@ export async function raiseInstallment(
       requested_amount: requestedAmount,
       payment_due_date: paymentDueDate,
       date_of_work_completion: dateOfWorkCompletion,
-      tentative_invoice_date: firstTentative,
+      tentative_invoice_date: tentativeOverride ?? firstTentative,
       purpose: purposeNote,
       status: "pending_approval",
       submitted_by: user.id,
@@ -747,6 +750,7 @@ export async function editAndResubmitInstallment(
   const paymentDueDate = String(formData.get("payment_due_date") ?? "");
   const dateOfWorkCompletion = String(formData.get("date_of_work_completion") ?? "") || null;
   const note = String(formData.get("purpose") ?? "").trim() || null;
+  const tentativeInvoiceDate = String(formData.get("tentative_invoice_date") ?? "").trim() || null;
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
 
   if (!installmentId) return { error: "Missing installment." };
@@ -804,6 +808,7 @@ export async function editAndResubmitInstallment(
       requested_amount: requestedAmount,
       payment_due_date: paymentDueDate,
       date_of_work_completion: dateOfWorkCompletion,
+      tentative_invoice_date: tentativeInvoiceDate,
       purpose: note,
       status: "pending_approval",
       rejection_reason: null,

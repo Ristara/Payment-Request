@@ -33,6 +33,8 @@ export default function InstallmentActions({
   requestedAmount,
   paymentDueDate,
   dateOfWorkCompletion,
+  tentativeInvoiceDate,
+  needsTentativeInvoice,
   note,
   maxAmount,
 }: {
@@ -47,6 +49,8 @@ export default function InstallmentActions({
   requestedAmount: number;
   paymentDueDate: string;
   dateOfWorkCompletion: string | null;
+  tentativeInvoiceDate: string | null;
+  needsTentativeInvoice: boolean;
   note: string | null;
   maxAmount: number;
 }) {
@@ -254,6 +258,18 @@ export default function InstallmentActions({
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
               />
             </label>
+            {needsTentativeInvoice && (
+              <label className="text-xs text-zinc-500">
+                Tentative invoice date <span className="text-red-500">*</span>
+                <input
+                  name="tentative_invoice_date"
+                  type="date"
+                  required
+                  defaultValue={tentativeInvoiceDate ?? ""}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                />
+              </label>
+            )}
             <label className="text-xs text-zinc-500">
               Note (what changed?)
               <input

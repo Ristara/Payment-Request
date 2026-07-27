@@ -15,12 +15,18 @@ export default function RaiseInstallmentPanel({
   requestedTotal,
   balanceRemaining,
   nextInstallmentNumber,
+  tentativeInvoiceDate,
+  needsTentativeInvoice,
 }: {
   requestId: string;
   poValue: number;
   requestedTotal: number;
   balanceRemaining: number;
   nextInstallmentNumber: number;
+  /** Carried from the earlier installment; editable here. */
+  tentativeInvoiceDate: string | null;
+  /** True for PO / "invoice yet to receive" threads. */
+  needsTentativeInvoice: boolean;
 }) {
   const [state, action, pending] = useActionState(raiseInstallment, undefined);
   const [amount, setAmount] = useState("");
@@ -134,6 +140,23 @@ export default function RaiseInstallmentPanel({
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
         </div>
+        {needsTentativeInvoice && (
+          <div>
+            <label className="text-xs text-zinc-600 dark:text-zinc-400">
+              Tentative invoice date <span className="text-red-500">*</span>
+            </label>
+            <input
+              name="tentative_invoice_date"
+              type="date"
+              required
+              defaultValue={tentativeInvoiceDate ?? ""}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">
+              When you expect the invoice for this installment — drives the invoice-pending report.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="mt-3">

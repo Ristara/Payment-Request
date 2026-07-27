@@ -55,6 +55,23 @@ export function formatISTDate(iso: string | null | undefined): string {
   });
 }
 
+/**
+ * A plain calendar date (a DATE column like a due date), formatted "24 Jul
+ * 2026". No timezone maths — these carry no time, so shifting them would be
+ * wrong.
+ */
+export function formatDateOnly(value: string | null | undefined): string {
+  if (!value) return "—";
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return value;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-IN", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 /** "24 Jul 2026, 3:41 pm" in IST. */
 export function formatISTDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";

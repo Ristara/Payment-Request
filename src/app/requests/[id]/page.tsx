@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
-import { formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
+import { formatDateOnly, formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
@@ -425,10 +425,10 @@ export default async function ThreadDetailPage({
                     <StatusPill status={inst.status} />
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-zinc-600 sm:grid-cols-2 dark:text-zinc-400">
-                    <p>Due {inst.payment_due_date}</p>
+                    <p>Due {formatDateOnly(inst.payment_due_date)}</p>
                     <p>Raised by {inst.submitter?.full_name ?? "—"} · {formatISTDate(inst.submitted_at)}</p>
-                    {inst.date_of_work_completion && <p>Work completed {inst.date_of_work_completion}</p>}
-                    {inst.tentative_invoice_date && <p>Tentative invoice {inst.tentative_invoice_date}</p>}
+                    {inst.date_of_work_completion && <p>Work completed {formatDateOnly(inst.date_of_work_completion)}</p>}
+                    {inst.tentative_invoice_date && <p>Tentative invoice {formatDateOnly(inst.tentative_invoice_date)}</p>}
                     {inst.approved_at && inst.approver && (
                       <p>Approved by {inst.approver.full_name} · {formatISTDate(inst.approved_at)}</p>
                     )}
@@ -484,6 +484,10 @@ export default async function ThreadDetailPage({
                       requestedAmount={Number(inst.requested_amount)}
                       paymentDueDate={inst.payment_due_date}
                       dateOfWorkCompletion={inst.date_of_work_completion}
+                      tentativeInvoiceDate={inst.tentative_invoice_date}
+                      needsTentativeInvoice={
+                        req.document_type === "po" || req.document_type === "invoice_pending"
+                      }
                       note={inst.purpose}
                       maxAmount={Math.max(
                         0,
@@ -512,6 +516,12 @@ export default async function ThreadDetailPage({
                   requestedTotal={requestedTotal}
                   balanceRemaining={balanceRemaining}
                   nextInstallmentNumber={installments.length + 1}
+                tentativeInvoiceDate={
+                  installments.find((i) => i.tentative_invoice_date)?.tentative_invoice_date ?? null
+                }
+                needsTentativeInvoice={
+                  req.document_type === "po" || req.document_type === "invoice_pending"
+                }
                 />
               </div>
             )}
