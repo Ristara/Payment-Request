@@ -9,7 +9,12 @@ type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>>; resultIndex: number }) => void) | null;
+  onresult:
+    | ((e: {
+        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
+        resultIndex: number;
+      }) => void)
+    | null;
   onend: (() => void) | null;
   onerror: (() => void) | null;
   start: () => void;
@@ -41,6 +46,17 @@ export default function AssistantWidget() {
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Hands-free mode: listen → send on a pause → speak the reply → listen
+  // again. Refs mirror the state because the speech callbacks are created
+  // once and would otherwise close over stale values.
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const voiceModeRef = useRef(false);
+  const sendRef = useRef<(text?: string) => void>(() => {});
+  useEffect(() => {
+    voiceModeRef.current = voiceMode;
+  }, [voiceMode]);
+
   useEffect(() => {
     setVoiceSupported(getRecognitionCtor() !== null);
   }, []);
@@ -49,11 +65,7 @@ export default function AssistantWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy, open]);
 
-  function toggleMic() {
-    if (listening) {
-      recRef.current?.stop();
-      return;
-    }
+  function startListening() {
     const Ctor = getRecognitionCtor();
     if (!Ctor) return;
     const rec = new Ctor();
@@ -62,29 +74,30 @@ export default function AssistantWidget() {
     rec.continuous = false;
     rec.onresult = (e) => {
       let text = "";
-      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      let done = false;
+      for (let i = 0; i < e.results.length; i++) {
+        text += e.results[i][0].transcript;
+        if (e.results[i].isFinal) done = true;
+      }
       setInput(text);
+      // Hands-free: a completed phrase is the cue to send, no tap needed.
+      if (done && voiceModeRef.current && text.trim()) {
+        rec.stop();
+        sendRef.current(text.trim());
+      }
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
     recRef.current = rec;
     setListening(true);
-    rec.start();
+    try {
+      rec.start();
+    } catch {
+      setListening(false);
+    }
   }
 
-  function speak(text: string) {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-IN";
-    window.speechSynthesis.speak(u);
-  }
-
-  async function send() {
-    const question = input.trim();
-    if (!question || busy) return;
-    // Detach handlers BEFORE stopping, or a pending speech result refills
-    // the input with the question we just sent.
+  function stopListening() {
     const rec = recRef.current;
     if (rec) {
       rec.onresult = null;
@@ -94,6 +107,53 @@ export default function AssistantWidget() {
       recRef.current = null;
     }
     setListening(false);
+  }
+
+  function toggleMic() {
+    if (listening) stopListening();
+    else startListening();
+  }
+
+  /** Turning voice mode off must silence anything mid-sentence. */
+  function toggleVoiceMode() {
+    const next = !voiceMode;
+    setVoiceMode(next);
+    voiceModeRef.current = next;
+    if (next) {
+      startListening();
+    } else {
+      stopListening();
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+      setSpeaking(false);
+    }
+  }
+
+  function speak(text: string, onDone?: () => void) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      onDone?.();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-IN";
+    setSpeaking(true);
+    u.onend = () => {
+      setSpeaking(false);
+      onDone?.();
+    };
+    u.onerror = () => {
+      setSpeaking(false);
+      onDone?.();
+    };
+    window.speechSynthesis.speak(u);
+  }
+
+  async function send(spoken?: string) {
+    const question = (spoken ?? input).trim();
+    if (!question || busy) return;
+    // Detach handlers BEFORE stopping, or a pending speech result refills
+    // the input with the question we just sent.
+    stopListening();
     const next: Msg[] = [...messages, { role: "user", content: question }];
     setMessages(next);
     setInput("");
@@ -107,6 +167,12 @@ export default function AssistantWidget() {
       const data = (await res.json().catch(() => ({}))) as { reply?: string; error?: string };
       const reply = res.ok && data.reply ? data.reply : data.error || "Something went wrong — try again.";
       setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+      // Hands-free: read the answer out, then reopen the mic for the reply.
+      if (voiceModeRef.current) {
+        speak(reply, () => {
+          if (voiceModeRef.current) startListening();
+        });
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -116,6 +182,32 @@ export default function AssistantWidget() {
       setBusy(false);
     }
   }
+
+  // Speech callbacks are created once, so route them through a ref to reach
+  // the current send().
+  useEffect(() => {
+    sendRef.current = (text?: string) => void send(text);
+  });
+
+  // Never leave the mic live or a sentence half-spoken after the panel is
+  // closed or the page navigates away.
+  useEffect(() => {
+    if (open) return;
+    voiceModeRef.current = false;
+    setVoiceMode(false);
+    stopListening();
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    setSpeaking(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      voiceModeRef.current = false;
+      recRef.current?.stop();
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    };
+  }, []);
 
   return (
     <>
@@ -148,6 +240,21 @@ export default function AssistantWidget() {
               <p className="text-[10px] text-zinc-500">Private to you — chats aren&apos;t saved</p>
             </div>
             <div className="flex items-center gap-2">
+              {voiceSupported && (
+                <button
+                  type="button"
+                  onClick={toggleVoiceMode}
+                  aria-pressed={voiceMode}
+                  title={voiceMode ? "Leave voice conversation" : "Talk to Ria hands-free"}
+                  className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                    voiceMode
+                      ? "bg-indigo-600 text-white"
+                      : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {voiceMode ? "Voice on" : "Voice"}
+                </button>
+              )}
               {messages.length > 0 && (
                 <button
                   type="button"
@@ -170,12 +277,34 @@ export default function AssistantWidget() {
             </div>
           </div>
 
+          {voiceMode && (
+            <p className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50/70 px-4 py-1.5 text-[11px] font-medium text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  listening ? "animate-pulse bg-red-500" : speaking ? "animate-pulse bg-emerald-500" : "bg-indigo-400"
+                }`}
+              />
+              {listening
+                ? "Listening — just speak"
+                : speaking
+                  ? "Ria is speaking…"
+                  : busy
+                    ? "Thinking…"
+                    : "Paused — tap Voice on to stop"}
+            </p>
+          )}
+
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {messages.length === 0 && (
               <div className="mt-6 space-y-2 text-center">
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   Hi, I&rsquo;m Ria — ask me about your payments
+                  {voiceSupported && (
+                    <span className="mt-1 block text-xs font-normal text-zinc-500">
+                      Tap <span className="font-medium">Voice</span> above to just talk.
+                    </span>
+                  )}
                 </p>
                 <div className="mx-auto flex max-w-[280px] flex-col gap-1.5">
                   {[
