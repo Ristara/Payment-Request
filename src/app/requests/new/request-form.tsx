@@ -103,6 +103,25 @@ export default function RequestForm({
     [coaAccounts, rollupIds],
   );
 
+  /** Every category, so a line can start at the middle level. */
+  const allCategoryOptions = useMemo<ComboOption[]>(() => {
+    const seen = new Set<string>();
+    return coaAccounts
+      .filter((a) => (seen.has(a.category) ? false : (seen.add(a.category), true)))
+      .sort((x, y) => x.category.localeCompare(y.category))
+      .map((a) => ({ value: a.category, label: a.category, hint: a.coa }));
+  }, [coaAccounts]);
+
+  /** Picking a category fills in its COA head. */
+  function pickCategory(idx: number, category: string) {
+    if (!category) {
+      updateLine(idx, { category: "", coa_account_id: "" });
+      return;
+    }
+    const a = coaAccounts.find((x) => x.category === category);
+    updateLine(idx, { coaHead: a?.coa ?? "", category, coa_account_id: "" });
+  }
+
   /** All subcategories, so a line can be started from the bottom level. */
   const allSubOptions = useMemo<ComboOption[]>(
     () =>
@@ -426,11 +445,10 @@ export default function RequestForm({
                         />
                         <Combobox
                           size="sm"
-                          options={categoryOptionsFor(line.coaHead)}
+                          options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
                           value={line.category}
-                          onChange={(v) => updateLine(idx, { category: v, coa_account_id: "" })}
-                          disabled={!line.coaHead}
-                          placeholder={line.coaHead ? "Search category…" : "Pick COA head first…"}
+                          onChange={(v) => pickCategory(idx, v)}
+                          placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
                           ariaLabel="Category"
                         />
                         <Combobox
@@ -555,11 +573,10 @@ export default function RequestForm({
                   </label>
                   <div className="mt-1">
                     <Combobox
-                      options={categoryOptionsFor(line.coaHead)}
+                      options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
                       value={line.category}
-                      onChange={(v) => updateLine(idx, { category: v, coa_account_id: "" })}
-                      disabled={!line.coaHead}
-                      placeholder={line.coaHead ? "Search category…" : "Pick COA head first…"}
+                      onChange={(v) => pickCategory(idx, v)}
+                      placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
                       ariaLabel="Category"
                     />
                   </div>
