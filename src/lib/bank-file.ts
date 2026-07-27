@@ -42,14 +42,11 @@ export type BankFileRow = {
 };
 
 /**
- * IFT for beneficiaries banking with ICICI, NEFT for everyone else — the rule
- * Accounts gave us.
- *
- * Note this is the reverse of what the supplied Kotak sample showed (there,
- * KKBK rows were IFT and ICIC rows were NEFT). Kept as instructed; revisit
- * with the bank if a batch is ever rejected on payment type.
+ * IFT is an internal transfer, so it applies when the beneficiary also banks
+ * with Kotak (KKBK); everything else goes out as NEFT. Matches the sample
+ * file Kotak supplied.
  */
-const IFT_BANK_PREFIX = "ICIC";
+const IFT_BANK_PREFIX = "KKBK";
 
 export function paymentTypeFor(ifsc: string): "IFT" | "NEFT" {
   return ifsc.trim().toUpperCase().startsWith(IFT_BANK_PREFIX) ? "IFT" : "NEFT";
