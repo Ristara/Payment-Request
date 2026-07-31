@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildKotakFile, formatBankDate, type BankFileRow } from "@/lib/bank-file";
+import {
+  BANKS,
+  buildIciciFile,
+  buildKotakFile,
+  formatBankDate,
+  type BankFileRow,
+  type BankKey,
+} from "@/lib/bank-file";
 
 export const runtime = "nodejs";
 
 /**
- * Kotak bulk-payment file for every approved installment that is ready to go
- * to the bank.
+ * Bulk-payment file for the installments Accounts have queued.
+ *
+ * Kotak and ICICI want different formats — Kotak a 49-column BIFF8 .xls with
+ * a sheet named "electronic", ICICI a 19-column .xlsx — so the caller picks
+ * which, and each has its own debit account in the environment.
  *
  * Installments included are moved to "uploaded in bank" in the same request,
  * with a status_history entry naming the file — so if an upload fails, an
@@ -25,8 +35,14 @@ export async function POST(req: Request) {
   const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
   if (!roles.has("accounts") && !roles.has("admin")) return back(req, "forbidden");
 
-  const debitAccount = process.env.KOTAK_DEBIT_ACCOUNT?.trim();
-  if (!debitAccount) return back(req, "noaccount");
+  const form = await req.formData().catch(() => null);
+  const bankRaw = String(form?.get("bank") ?? "kotak");
+  const bank: BankKey = bankRaw === "icici" ? "icici" : "kotak";
+  const spec = BANKS[bank];
+
+  const debitAccount = process.env[spec.envVar]?.trim();
+  // Naming the missing variable saves a round of "which account?".
+  if (!debitAccount) return back(req, `noaccount-${bank}`);
 
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -34,7 +50,7 @@ export async function POST(req: Request) {
     .select(
       `id, installment_number, requested_amount, tds_amount, status,
        request:payment_requests!inner(
-         request_number,
+         request_number, title,
          vendor:vendors(name, status, bank_account_number, bank_ifsc),
          outlets:request_outlets(outlet:outlets(name))
        )`,
@@ -54,6 +70,7 @@ export async function POST(req: Request) {
     tds_amount: number | null;
     request: {
       request_number: string;
+      title: string | null;
       vendor: { name: string; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
       outlets: { outlet: { name: string } | null }[];
     };
@@ -80,6 +97,7 @@ export async function POST(req: Request) {
       vendorAccountNumber: v.bank_account_number,
       amount: net,
       outlet: raw.request.outlets?.[0]?.outlet?.name ?? "",
+      title: raw.request.title ?? "",
     });
   }
 
@@ -87,8 +105,11 @@ export async function POST(req: Request) {
 
   const now = new Date();
   const stamp = formatBankDate(now).replace(/\//g, "-");
-  const filename = `Kotak-RPAY-${stamp}.xls`;
-  const file = buildKotakFile(ready, debitAccount, now);
+  const filename = `${spec.label}-${stamp}.${spec.ext}`;
+  const file =
+    bank === "icici"
+      ? buildIciciFile(ready, debitAccount, now)
+      : buildKotakFile(ready, debitAccount, now);
 
   // Move them on only after the file is successfully built.
   const uploadDate = new Date(now.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -127,7 +148,10 @@ export async function POST(req: Request) {
   const skipped = (data ?? []).length - ready.length;
   return new NextResponse(new Uint8Array(file), {
     headers: {
-      "Content-Type": "application/vnd.ms-excel",
+      "Content-Type":
+        bank === "icici"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : "application/vnd.ms-excel",
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
       // Surfaced by the Accounts page banner after the download.

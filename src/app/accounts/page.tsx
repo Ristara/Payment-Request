@@ -147,7 +147,7 @@ export default async function AccountsQueuePage({
       <section className="mt-5 flex flex-col gap-3 rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-indigo-900 dark:bg-indigo-950/30">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
-            Kotak bulk payment file
+            Bulk payment file
           </h2>
           <p className="mt-0.5 text-xs text-indigo-900/80 dark:text-indigo-200/80">
             {bankReadyCount === 0
@@ -157,13 +157,26 @@ export default async function AccountsQueuePage({
               ` ${bankBlockedCount} held back: vendor not approved or bank details missing.`}
           </p>
         </div>
-        <form action="/api/bank-file" method="post" className="shrink-0">
+        {/* One queue, two banks — which one pays is chosen at download. */}
+        <form action="/api/bank-file" method="post" className="flex shrink-0 items-center gap-2">
+          <label className="sr-only" htmlFor="bank">
+            Pay from
+          </label>
+          <select
+            id="bank"
+            name="bank"
+            defaultValue="kotak"
+            className="rounded-md border border-indigo-300 bg-white px-2 py-2 text-sm text-indigo-900 dark:border-indigo-800 dark:bg-zinc-900 dark:text-indigo-100"
+          >
+            <option value="kotak">Kotak</option>
+            <option value="icici">ICICI</option>
+          </select>
           <button
             type="submit"
             disabled={bankReadyCount === 0}
-            className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 sm:w-auto"
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            Download bank file (.xls)
+            Download bank file
           </button>
         </form>
       </section>
@@ -196,7 +209,10 @@ export default async function AccountsQueuePage({
 function BankFileNotice({ reason }: { reason: string }) {
   const MESSAGES: Record<string, string> = {
     empty: "Nothing to download — no approved payment has a vendor with complete bank details.",
-    noaccount: "The Kotak debit account isn't configured yet. An admin needs to set KOTAK_DEBIT_ACCOUNT in Vercel and redeploy.",
+    "noaccount-kotak":
+      "The Kotak debit account isn't configured yet. An admin needs to set KOTAK_DEBIT_ACCOUNT in Vercel and redeploy.",
+    "noaccount-icici":
+      "The ICICI debit account isn't configured yet. An admin needs to set ICICI_DEBIT_ACCOUNT in Vercel and redeploy.",
     forbidden: "You don't have permission to generate the bank file.",
     failed: "Couldn't build the bank file. Try again.",
     signin: "Your session expired — sign in and try again.",

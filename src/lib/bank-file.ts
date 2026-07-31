@@ -39,6 +39,8 @@ export type BankFileRow = {
   vendorAccountNumber: string;
   amount: number;
   outlet: string;
+  /** Request title — ICICI's narration names what the payment is for. */
+  title?: string;
 };
 
 /**
@@ -109,3 +111,83 @@ export function buildKotakFile(rows: BankFileRow[], debitAccount: string, when: 
   // biff8 = the legacy .xls the portal accepts; .xlsx is rejected.
   return XLSX.write(wb, { bookType: "biff8", type: "buffer" }) as Buffer;
 }
+
+// ---------------------------------------------------------------------------
+// ICICI
+// ---------------------------------------------------------------------------
+
+/**
+ * ICICI Corporate Internet Banking bulk-upload file.
+ *
+ * Nineteen columns, one header row, .xlsx — a much plainer format than
+ * Kotak's. Header text and order match the sample Accounts supplied; note
+ * that ADDL_INFO3 genuinely does not exist between ADDL_INFO2 and
+ * ADDL_INFO4, which looks like an error but is what the bank's template has.
+ *
+ * Only the ten columns the sample fills are populated. The rest are left
+ * empty rather than guessed at, because a file the bank rejects is worse
+ * than one carrying less optional detail.
+ */
+export const ICICI_HEADER = [
+  "PYMT_PROD_TYPE_CODE", "PYMT_MODE", "DEBIT_ACC_NO", "BNF_NAME", "BENE_ACC_NO",
+  "BENE_IFSC", "AMOUNT", "DEBIT_NARR", "CREDIT_NARR", "MOBILE_NUM",
+  "EMAIL_ID", "REMARK", "PYMT_DATE", "REF_NO", "ADDL_INFO1",
+  "ADDL_INFO2", "ADDL_INFO4", "ADDL_INFO5", "LEI_NUMBER",
+] as const;
+
+export const ICICI_CONSTANTS = {
+  productTypeCode: "PAB_VENDOR",
+  paymentMode: "NEFT",
+  creditNarration: "Ristara Foods",
+} as const;
+
+/**
+ * ICICI's sample narrates the outlet(s) and what the money is for
+ * ("JPN and SJP Hood Lights"), where Kotak's leads with the vendor. Follow
+ * each bank's own convention rather than imposing one on both.
+ */
+export function iciciNarration(outlet: string, title: string): string {
+  return `${outlet.trim()} ${title.trim()}`.trim().slice(0, NARRATION_MAX);
+}
+
+/** DD-MM-YYYY in IST — hyphens here, unlike Kotak's slashes. */
+export function formatIciciDate(d: Date): string {
+  return formatBankDate(d).replace(/\//g, "-");
+}
+
+export function buildIciciFile(rows: BankFileRow[], debitAccount: string, when: Date): Buffer {
+  const payDate = formatIciciDate(when);
+
+  const aoa: (string | number)[][] = [
+    [...ICICI_HEADER],
+    ...rows.map((r) => [
+      ICICI_CONSTANTS.productTypeCode,
+      ICICI_CONSTANTS.paymentMode,
+      debitAccount,
+      r.vendorName,
+      r.vendorAccountNumber,
+      r.vendorIfsc.trim().toUpperCase(),
+      // The sample carries AMOUNT as text, so match it — that is the file
+      // the bank has demonstrably accepted.
+      String(Math.round(r.amount * 100) / 100),
+      iciciNarration(r.outlet, r.title ?? r.vendorName),
+      ICICI_CONSTANTS.creditNarration,
+      "", "", "",
+      payDate,
+      "", "", "", "", "", "",
+    ]),
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" }) as Buffer;
+}
+
+/** The banks Accounts can pay from. */
+export type BankKey = "kotak" | "icici";
+
+export const BANKS: Record<BankKey, { label: string; ext: string; envVar: string }> = {
+  kotak: { label: "Kotak", ext: "xls", envVar: "KOTAK_DEBIT_ACCOUNT" },
+  icici: { label: "ICICI", ext: "xlsx", envVar: "ICICI_DEBIT_ACCOUNT" },
+};
