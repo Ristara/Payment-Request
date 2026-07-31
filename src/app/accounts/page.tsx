@@ -53,6 +53,8 @@ export default async function AccountsQueuePage({
 }) {
   const { roles } = await getCurrentUserRoles();
   if (!roles.includes("accounts") && !roles.includes("admin")) redirect("/dashboard");
+  // An admin can watch the queue; only Accounts can move anything through it.
+  const canAct = roles.includes("accounts");
 
   const { tab: tabRaw, bankfile } = await searchParams;
   const tab = TAB_STATUSES[tabRaw ?? ""] ? (tabRaw as string) : "all";
@@ -168,7 +170,7 @@ export default async function AccountsQueuePage({
           </p>
         </div>
         {/* One queue, two banks — which one pays is chosen at download. */}
-        <DownloadBankFile disabled={bankReadyCount === 0} />
+        {canAct && <DownloadBankFile disabled={bankReadyCount === 0} />}
       </section>
 
       {/* Filter tabs */}
@@ -191,7 +193,7 @@ export default async function AccountsQueuePage({
         })}
       </div>
 
-      <AccountsList rows={rows} tab={tab} />
+      <AccountsList rows={rows} tab={tab} canAct={canAct} />
     </div>
   );
 }

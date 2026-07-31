@@ -46,12 +46,22 @@ const BUCKETS = [
 ] as const;
 
 /** Bucketed accounts queue with live search over #, vendor, raised-by. */
-export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: string }) {
+export default function AccountsList({
+  rows,
+  tab,
+  canAct,
+}: {
+  rows: AccountsRow[];
+  tab: string;
+  /** Only the Accounts role moves payments; an admin here is a spectator. */
+  canAct: boolean;
+}) {
   const [q, setQ] = useState("");
   // Each bank-file stage can push its rows one step back toward Approved.
   // Everywhere else the rows aren't a set you act on in bulk.
-  const mode: SelectMode | null =
-    tab === "approved" ? "queue" : tab === "to_upload" ? "unqueue" : tab === "in_bank" ? "recall" : null;
+  const mode: SelectMode | null = !canAct
+    ? null
+    : tab === "approved" ? "queue" : tab === "to_upload" ? "unqueue" : tab === "in_bank" ? "recall" : null;
   const selectable = mode !== null;
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [state, action, pending] = useActionState(queueForBankUpload, undefined);

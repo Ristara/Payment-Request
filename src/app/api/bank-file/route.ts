@@ -35,7 +35,8 @@ export async function POST(req: Request) {
 
   const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
   const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
-  if (!roles.has("accounts") && !roles.has("admin")) return back(req, "forbidden");
+  // Accounts only — being an admin doesn't mean you're the one who pays.
+  if (!roles.has("accounts")) return back(req, "forbidden");
 
   const form = await req.formData().catch(() => null);
   const bankRaw = String(form?.get("bank") ?? "kotak");

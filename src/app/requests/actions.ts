@@ -1138,7 +1138,7 @@ export async function markInstallmentBankUploaded(
   formData: FormData,
 ): Promise<RequestState> {
   try {
-    await requireRole("accounts", "admin");
+    await requireRole("accounts");
   } catch {
     return { error: "Only Accounts can do that." };
   }
@@ -1188,7 +1188,7 @@ export async function markInstallmentPaid(
   formData: FormData,
 ): Promise<RequestState> {
   try {
-    await requireRole("accounts", "admin");
+    await requireRole("accounts");
   } catch {
     return { error: "Only Accounts can do that." };
   }
@@ -1287,7 +1287,7 @@ export async function uploadInstallmentInvoice(
   formData: FormData,
 ): Promise<RequestState> {
   try {
-    await requireRole("accounts", "admin");
+    await requireRole("accounts");
   } catch {
     return { error: "Only Accounts can do that." };
   }
@@ -1736,7 +1736,7 @@ export async function closeInstallment(
   const installmentId = String(formData.get("installment_id") ?? "");
   if (!installmentId) return { error: "Missing installment." };
   try {
-    await requireRole("accounts", "admin");
+    await requireRole("accounts");
     const inst = await transitionInstallment(installmentId, "closed", "Verified and closed");
     revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/accounts");
@@ -1970,7 +1970,7 @@ export async function queueForBankUpload(
 
   let user;
   try {
-    ({ user } = await requireRole("accounts", "admin"));
+    ({ user } = await requireRole("accounts"));
   } catch {
     return { error: "Only Accounts can do that." };
   }
@@ -2120,7 +2120,7 @@ export async function setInstallmentTds(
   if (!installmentId) return { error: "Missing installment." };
 
   try {
-    await requireRole("accounts", "admin");
+    await requireRole("accounts");
   } catch {
     return { error: "Only Accounts can set TDS." };
   }

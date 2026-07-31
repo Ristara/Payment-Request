@@ -123,16 +123,20 @@ export default function InstallmentActions({
     (isApprover || isAdmin) &&
     ["pending_approval", "clarification_required"].includes(status) &&
     vendorStatus !== "approved";
-  const canBankUpload = (isAccounts || isAdmin) && status === "approved";
+  // Executing a payment is the Accounts role, not a seniority level. Admin
+  // used to imply it, which put "Record payment" in front of approvers who
+  // happened to be admins — the one pair of jobs that most needs separating.
+  // An admin who genuinely does the paying gets the Accounts role.
+  const canBankUpload = isAccounts && status === "approved";
   // Withholding is decided before the money leaves; after that the bank has
   // already been told an amount.
-  const canSetTds = (isAccounts || isAdmin) && status === "approved";
+  const canSetTds = isAccounts && status === "approved";
   // The same queue the Accounts list drives, reachable from the request
   // itself — that's where you are when you've just checked the invoice.
-  const canQueue = (isAccounts || isAdmin) && status === "approved";
-  const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
+  const canQueue = isAccounts && status === "approved";
+  const canMarkPaid = isAccounts && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
-  const canClose = (isAccounts || isAdmin) && ["invoice_pending", "payment_processed"].includes(status);
+  const canClose = isAccounts && ["invoice_pending", "payment_processed"].includes(status);
   const canEditResubmit =
     (isSubmitter || isAdmin) && ["rejected", "returned_for_correction", "draft"].includes(status);
   // Withdraw your own ask while it's still waiting on a decision.
