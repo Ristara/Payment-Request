@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { randomUUID } from "node:crypto";
 import {
   BANKS,
+  batchReference,
   buildIciciFile,
   buildKotakFile,
   formatBankDate,
@@ -105,45 +107,77 @@ export async function POST(req: Request) {
 
   const now = new Date();
   const stamp = formatBankDate(now).replace(/\//g, "-");
-  const filename = `${spec.label}-${stamp}.${spec.ext}`;
-  const file =
-    bank === "icici"
-      ? buildIciciFile(ready, debitAccount, now)
-      : buildKotakFile(ready, debitAccount, now);
-
-  // Move them on only after the file is successfully built.
+  const batchRef = batchReference(now, randomUUID());
+  const filename = `${spec.label}-${stamp}-${batchRef}.${spec.ext}`;
   const uploadDate = new Date(now.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-  const ids = ready.map((r) => r.id);
-  const { data: moved } = await admin
+
+  // Claim the rows BEFORE building anything, and build only from what the
+  // claim actually committed.
+  //
+  // This used to run the other way round: the file was built from everything
+  // selected, then the status move was attempted and its error thrown away.
+  // Two ways that paid a vendor twice. If the move failed, the operator still
+  // got a complete file, nothing was recorded, and the rows stayed queued —
+  // so the next download re-paid the whole batch. And two people clicking
+  // Download at once both got a full file, because only the second one's
+  // UPDATE matched zero rows, which the response never reflected.
+  const { data: moved, error: moveErr } = await admin
     .from("request_installments")
-    // The marker has done its job once the row is in a file.
+    // The queue marker has done its job once the row is in a file.
     .update({ status: "uploaded_in_bank", queued_for_upload_at: null, queued_by: null })
-    .in("id", ids)
+    .in("id", ready.map((r) => r.id))
     .eq("status", "approved") // guard: skip anything that changed underneath us
     .select("id, request_id, installment_number");
 
+  // Hand over nothing we did not commit — a file without a recorded batch is
+  // exactly what gets paid twice.
+  if (moveErr) return back(req, "failed");
   const movedRows = (moved ?? []) as { id: string; request_id: string; installment_number: number }[];
-  if (movedRows.length > 0) {
-    await admin.from("payment_records").upsert(
-      movedRows.map((m) => ({
-        installment_id: m.id,
-        request_id: m.request_id,
-        bank_upload_date: uploadDate,
-        bank_batch_ref: filename,
-      })),
-      { onConflict: "installment_id" },
-    );
-    await admin.from("status_history").insert(
-      movedRows.map((m) => ({
-        request_id: m.request_id,
-        installment_id: m.id,
-        from_status: "approved",
-        to_status: "uploaded_in_bank",
-        actor_id: user.id,
-        comment: `Included in bank file ${filename}`,
-      })),
-    );
+  if (movedRows.length === 0) return back(req, "empty");
+
+  const movedIds = new Set(movedRows.map((m) => m.id));
+  const committed = ready.filter((r) => movedIds.has(r.id));
+
+  let file: Buffer;
+  try {
+    file =
+      bank === "icici"
+        ? buildIciciFile(committed, debitAccount, now, batchRef)
+        : buildKotakFile(committed, debitAccount, now, batchRef);
+  } catch {
+    // Claimed but unbuildable — put them back rather than leaving rows marked
+    // as sent to a bank that never saw them.
+    await admin
+      .from("request_installments")
+      .update({ status: "approved", queued_for_upload_at: now.toISOString(), queued_by: user.id })
+      .in("id", [...movedIds]);
+    return back(req, "failed");
   }
+
+  const paidTo = new Map(committed.map((r) => [r.id, r]));
+  await admin.from("payment_records").upsert(
+    movedRows.map((m) => ({
+      installment_id: m.id,
+      request_id: m.request_id,
+      bank_upload_date: uploadDate,
+      bank_batch_ref: batchRef,
+      // Vendor bank details can be corrected later; this is where the money
+      // in THIS batch was actually sent.
+      paid_to_account: paidTo.get(m.id)?.vendorAccountNumber?.trim() ?? null,
+      paid_to_ifsc: paidTo.get(m.id)?.vendorIfsc?.trim().toUpperCase() ?? null,
+    })),
+    { onConflict: "installment_id" },
+  );
+  await admin.from("status_history").insert(
+    movedRows.map((m) => ({
+      request_id: m.request_id,
+      installment_id: m.id,
+      from_status: "approved",
+      to_status: "uploaded_in_bank",
+      actor_id: user.id,
+      comment: `Included in ${spec.label} batch ${batchRef}`,
+    })),
+  );
 
   const skipped = (data ?? []).length - ready.length;
   return new NextResponse(new Uint8Array(file), {
@@ -154,8 +188,10 @@ export async function POST(req: Request) {
           : "application/vnd.ms-excel",
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
-      // Surfaced by the Accounts page banner after the download.
-      "X-Bank-File-Count": String(movedRows.length),
+      // Informational only — a browser can't read these off an attachment
+      // response. The batch reference is in the filename and on every
+      // payment_record, which is where anyone actually looks.
+      "X-Bank-File-Count": String(committed.length),
       "X-Bank-File-Skipped": String(skipped),
     },
   });

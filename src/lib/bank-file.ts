@@ -68,10 +68,33 @@ export function formatBankDate(d: Date): string {
  */
 export function debitNarration(vendorName: string, outlet: string): string {
   const who = vendorName.trim().slice(0, 8).trim();
-  return `${who} ${outlet.trim()}`.trim().slice(0, NARRATION_MAX);
+  return sanitizeNarration(`${who} ${outlet}`);
 }
 
-export function buildKotakFile(rows: BankFileRow[], debitAccount: string, when: Date): Buffer {
+/**
+ * Bank narration fields are fixed-width and plain — punctuation and non-ASCII
+ * are rejected or mangled by the portals. "AB&T Mart" becomes "AB T Mart",
+ * and accents are folded rather than blanked, so "Café" reads "Cafe" and not
+ * "Caf e".
+ *
+ * The trim comes after the cut so a truncated narration never ends on a
+ * space, and the cut is by code point so it cannot split a character in half.
+ */
+export function sanitizeNarration(text: string): string {
+  const clean = [...text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")]
+    .map((ch) => (/[A-Za-z0-9 ]/.test(ch) ? ch : " "))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [...clean].slice(0, NARRATION_MAX).join("").trim();
+}
+
+export function buildKotakFile(
+  rows: BankFileRow[],
+  debitAccount: string,
+  when: Date,
+  batchRef = "",
+): Buffer {
   const paymentDate = formatBankDate(when);
   const blank = (n: number) => Array.from({ length: n }, () => "");
 
@@ -81,7 +104,7 @@ export function buildKotakFile(rows: BankFileRow[], debitAccount: string, when: 
       KOTAK_CONSTANTS.clientCode,
       KOTAK_CONSTANTS.productCode,
       paymentTypeFor(r.vendorIfsc),
-      "",                       // Payment_Ref_No.
+      batchRef,                 // Payment_Ref_No. — unique per batch
       paymentDate,
       "",                       // Instrument Date
       debitAccount,
@@ -157,7 +180,7 @@ export function iciciPaymentMode(ifsc: string): "FT" | "NEFT" {
  * each bank's own convention rather than imposing one on both.
  */
 export function iciciNarration(outlet: string, title: string): string {
-  return `${outlet.trim()} ${title.trim()}`.trim().slice(0, NARRATION_MAX);
+  return sanitizeNarration(`${outlet} ${title}`);
 }
 
 /** DD-MM-YYYY in IST — hyphens here, unlike Kotak's slashes. */
@@ -165,7 +188,12 @@ export function formatIciciDate(d: Date): string {
   return formatBankDate(d).replace(/\//g, "-");
 }
 
-export function buildIciciFile(rows: BankFileRow[], debitAccount: string, when: Date): Buffer {
+export function buildIciciFile(
+  rows: BankFileRow[],
+  debitAccount: string,
+  when: Date,
+  batchRef = "",
+): Buffer {
   const payDate = formatIciciDate(when);
 
   const aoa: (string | number)[][] = [
@@ -175,7 +203,7 @@ export function buildIciciFile(rows: BankFileRow[], debitAccount: string, when: 
       iciciPaymentMode(r.vendorIfsc),
       debitAccount,
       r.vendorName,
-      r.vendorAccountNumber,
+      r.vendorAccountNumber.trim(),
       r.vendorIfsc.trim().toUpperCase(),
       // The sample carries AMOUNT as text, so match it — that is the file
       // the bank has demonstrably accepted.
@@ -184,7 +212,8 @@ export function buildIciciFile(rows: BankFileRow[], debitAccount: string, when: 
       ICICI_CONSTANTS.creditNarration,
       "", "", "",
       payDate,
-      "", "", "", "", "", "",
+      batchRef, // REF_NO — unique per batch
+      "", "", "", "", "",
     ]),
   ];
 
@@ -201,3 +230,14 @@ export const BANKS: Record<BankKey, { label: string; ext: string; envVar: string
   kotak: { label: "Kotak", ext: "xls", envVar: "KOTAK_DEBIT_ACCOUNT" },
   icici: { label: "ICICI", ext: "xlsx", envVar: "ICICI_DEBIT_ACCOUNT" },
 };
+
+/**
+ * A reference the bank can use to reject a batch it has already processed.
+ *
+ * Both portals carry it back on their reports, so it is also how an
+ * accidental duplicate gets spotted from our side — it is stored on every
+ * payment_record in the batch.
+ */
+export function batchReference(when: Date, unique: string): string {
+  return `RIS${formatBankDate(when).replace(/\//g, "")}${unique.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}`;
+}

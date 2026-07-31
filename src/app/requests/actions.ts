@@ -54,6 +54,27 @@ async function cannotRaise(
   return "You don't have permission to raise payment requests. Ask an admin to give you the Requester role.";
 }
 
+/**
+ * Has money actually been paid against this installment?
+ *
+ * Deliberately not "does a payment_records row exist": a row is also created
+ * when a batch is uploaded to the bank, and it survives being pulled back out
+ * so the batch reference isn't lost. Only an amount or a UTR means the money
+ * left.
+ */
+async function hasSettledPayment(
+  admin: ReturnType<typeof createAdminClient>,
+  installmentId: string,
+): Promise<boolean> {
+  const { data } = await admin
+    .from("payment_records")
+    .select("paid_amount, utr_reference")
+    .eq("installment_id", installmentId)
+    .maybeSingle();
+  const rec = data as { paid_amount: number | null; utr_reference: string | null } | null;
+  return !!rec && (rec.paid_amount != null || !!rec.utr_reference);
+}
+
 async function requireRole(...allowed: string[]) {
   const { supabase, user } = await currentUserOrThrow();
   const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
@@ -1291,12 +1312,11 @@ export async function recallInstallment(
   if (!thread || thread.submitter_id !== user.id) {
     return { error: "Only the person who raised it can recall it." };
   }
-  // Defence in depth: never let a recall free up money that already moved.
-  const { count: payCount } = await admin
-    .from("payment_records")
-    .select("installment_id", { count: "exact", head: true })
-    .eq("installment_id", installmentId);
-  if ((payCount ?? 0) > 0) {
+  // Never let a recall free up money that already moved. The test is an
+  // actual payment, not the mere existence of a payment_records row — a row
+  // pulled back out of a bank file keeps its batch reference, and treating
+  // that as "already paid" would block the installment forever.
+  if (await hasSettledPayment(admin, installmentId)) {
     return { error: "A payment is already recorded against this installment — it can't be recalled." };
   }
 
@@ -1344,13 +1364,8 @@ export async function unapproveInstallment(
   if (inst.status !== "approved") {
     return { error: "Only an approved installment that Accounts hasn't picked up yet can be pulled back." };
   }
-  // Belt and braces: if a payment record exists, money is already in motion.
-  const { count } = await admin
-    .from("payment_records")
-    .select("installment_id", { count: "exact", head: true })
-    .eq("installment_id", installmentId);
-  if ((count ?? 0) > 0) {
-    return { error: "Accounts has already started processing this payment — it can't be pulled back." };
+  if (await hasSettledPayment(admin, installmentId)) {
+    return { error: "A payment has already been recorded against this — it can't be pulled back." };
   }
 
   try {
@@ -1931,11 +1946,10 @@ export async function queueForBankUpload(
     // Guarded on status, so a concurrent "mark paid" can't be overtaken.
     const { data: moved, error } = await admin
       .from("request_installments")
-      .update({
-        status: "approved",
-        queued_for_upload_at: new Date().toISOString(),
-        queued_by: user.id,
-      })
+      // Back to Approved, NOT back into the queue. A payment that has already
+      // been handed to the bank should not re-enter the next file because
+      // someone clicked once — Accounts queue it again deliberately.
+      .update({ status: "approved" })
       .in("id", recallable)
       .eq("status", "uploaded_in_bank")
       .select("id, request_id, installment_number");
@@ -1943,12 +1957,9 @@ export async function queueForBankUpload(
 
     const movedRows = (moved ?? []) as { id: string; request_id: string; installment_number: number }[];
     if (movedRows.length > 0) {
-      const movedIds = movedRows.map((r) => r.id);
-      // It is no longer in a bank file, so the reference to one has to go.
-      await admin
-        .from("payment_records")
-        .update({ bank_upload_date: null, bank_batch_ref: null })
-        .in("installment_id", movedIds);
+      // The batch reference is deliberately left in place: it is the only
+      // structured record that this payment was once in a file, and that is
+      // exactly what you need if the bank turns out to have processed it.
       await admin.from("status_history").insert(
         movedRows.map((r) => ({
           request_id: r.request_id,
@@ -1967,8 +1978,8 @@ export async function queueForBankUpload(
     return {
       info:
         skipped > 0
-          ? `${movedRows.length} moved back to To upload. ${skipped} left alone — already paid or no longer in the bank.`
-          : `${movedRows.length} moved back to To upload.`,
+          ? `${movedRows.length} moved back to Approved. ${skipped} left alone — already paid or no longer in the bank. Queue them again to include them in a file.`
+          : `${movedRows.length} moved back to Approved — queue them again to include them in a file.`,
     };
   }
 

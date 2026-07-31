@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import PersistentFileInput from "@/components/PersistentFileInput";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import {
   queueForBankUpload,
   setInstallmentTds,
@@ -98,6 +98,12 @@ export default function InstallmentActions({
   const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
   const [tdsInput, setTdsInput] = useState(tdsAmount ? String(tdsAmount) : "");
   const [paidAmt, setPaidAmt] = useState(String(netPayable));
+  // Saving TDS re-renders this component with a new net, but useState keeps
+  // its first value — without this the recorded payment would be the pre-TDS
+  // gross while the bank actually paid the net.
+  useEffect(() => {
+    setPaidAmt(String(Math.max(requestedAmount - tdsAmount, 0)));
+  }, [requestedAmount, tdsAmount]);
   const [utr, setUtr] = useState("");
   const [payingAcct, setPayingAcct] = useState("");
   const editAmountNum = Number(editAmount) || 0;

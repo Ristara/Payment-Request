@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
+import DownloadBankFile from "./download-bank-file";
 import AccountsList, { type AccountsRow } from "./accounts-list";
 import { formatINR, shortRequestNumber } from "@/lib/types";
 
@@ -80,7 +81,7 @@ export default async function AccountsQueuePage({
   const { data: readyRaw } = await supabase
     .from("request_installments")
     .select(
-      `id, requested_amount,
+      `id, requested_amount, tds_amount,
        request:payment_requests!inner(vendor:vendors(status, bank_account_number, bank_ifsc))`,
     )
     .eq("status", "approved")
@@ -88,17 +89,24 @@ export default async function AccountsQueuePage({
     .limit(500);
   type ReadyRow = {
     requested_amount: number;
+    tds_amount: number | null;
     request: { vendor: { status: string; bank_account_number: string | null; bank_ifsc: string | null } | null };
   };
   const readyRows = (readyRaw ?? []) as unknown as ReadyRow[];
+  const net = (r: ReadyRow) =>
+    Math.round((Number(r.requested_amount) - Number(r.tds_amount ?? 0)) * 100) / 100;
+  // Mirror the file's own filter exactly, TDS and all — the headline figure
+  // has to be the money that moves, not the money that was approved.
   const payable = readyRows.filter(
     (r) =>
       r.request.vendor?.status === "approved" &&
       !!r.request.vendor?.bank_account_number &&
-      !!r.request.vendor?.bank_ifsc,
+      !!r.request.vendor?.bank_ifsc &&
+      net(r) > 0,
   );
   const bankReadyCount = payable.length;
-  const bankReadyTotal = payable.reduce((s, r) => s + Number(r.requested_amount), 0);
+  const bankReadyTotal = payable.reduce((s, r) => s + net(r), 0);
+  const bankWithheld = payable.reduce((s, r) => s + Number(r.tds_amount ?? 0), 0);
   const bankBlockedCount = readyRows.length - payable.length;
 
   const rows: AccountsRow[] = ((data ?? []) as unknown as Row[]).map((r) => ({
@@ -152,33 +160,15 @@ export default async function AccountsQueuePage({
           <p className="mt-0.5 text-xs text-indigo-900/80 dark:text-indigo-200/80">
             {bankReadyCount === 0
               ? "Nothing queued. Pick payments on the Approved tab to build the next file."
-              : `${bankReadyCount} payment${bankReadyCount === 1 ? "" : "s"} queued · ${formatINR(bankReadyTotal)} — downloading marks them as uploaded in bank.`}
+              : `${bankReadyCount} payment${bankReadyCount === 1 ? "" : "s"} queued · ${formatINR(bankReadyTotal)} will leave the bank${
+                  bankWithheld > 0 ? ` (after ${formatINR(bankWithheld)} TDS)` : ""
+                } — downloading marks them as uploaded in bank.`}
             {bankBlockedCount > 0 &&
-              ` ${bankBlockedCount} held back: vendor not approved or bank details missing.`}
+              ` ${bankBlockedCount} queued but held back: vendor not approved, bank details missing, or fully withheld.`}
           </p>
         </div>
         {/* One queue, two banks — which one pays is chosen at download. */}
-        <form action="/api/bank-file" method="post" className="flex shrink-0 items-center gap-2">
-          <label className="sr-only" htmlFor="bank">
-            Pay from
-          </label>
-          <select
-            id="bank"
-            name="bank"
-            defaultValue="kotak"
-            className="rounded-md border border-indigo-300 bg-white px-2 py-2 text-sm text-indigo-900 dark:border-indigo-800 dark:bg-zinc-900 dark:text-indigo-100"
-          >
-            <option value="kotak">Kotak</option>
-            <option value="icici">ICICI</option>
-          </select>
-          <button
-            type="submit"
-            disabled={bankReadyCount === 0}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            Download bank file
-          </button>
-        </form>
+        <DownloadBankFile disabled={bankReadyCount === 0} />
       </section>
 
       {/* Filter tabs */}
@@ -214,7 +204,8 @@ function BankFileNotice({ reason }: { reason: string }) {
     "noaccount-icici":
       "The ICICI debit account isn't configured yet. An admin needs to set ICICI_DEBIT_ACCOUNT in Vercel and redeploy.",
     forbidden: "You don't have permission to generate the bank file.",
-    failed: "Couldn't build the bank file. Try again.",
+    failed:
+      "Couldn't complete the batch — nothing was released and no payment was recorded. Everything is still in To upload; try again.",
     signin: "Your session expired — sign in and try again.",
   };
   return (
