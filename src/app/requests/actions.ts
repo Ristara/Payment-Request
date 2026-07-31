@@ -1866,19 +1866,24 @@ export async function deleteRequestAsAdmin(
 }
 
 /**
- * Accounts pick which approved installments go into the next bank file.
+ * Accounts move installments between the three bank-file stages.
  *
- * The status stays 'approved' throughout — this is a staging marker, not a
- * workflow step (see migration 027). Queuing something that the bank file
- * would silently skip anyway is refused here rather than discovered at
- * download time, so the count Accounts see is the count that gets paid.
+ *   Approved  --queue-->  To upload  --download-->  In bank
+ *      ^                      |                        |
+ *      +------- unqueue ------+                        |
+ *      +--------------- recall ------------------------+
+ *
+ * Queue/unqueue only touch the staging marker; the status stays 'approved'
+ * throughout (migration 027). Recall is the real correction path — an upload
+ * that failed at the bank, or a file that shouldn't have gone — so it moves
+ * the status back and undoes the bank-upload half of the payment record.
  */
 export async function queueForBankUpload(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
   const ids = formData.getAll("installment_ids").map(String).filter(Boolean);
-  const queue = formData.get("action") !== "unqueue";
+  const mode = String(formData.get("action") ?? "queue");
   if (ids.length === 0) return { error: "Nothing selected." };
 
   let user;
@@ -1890,17 +1895,82 @@ export async function queueForBankUpload(
 
   const admin = createAdminClient();
 
-  if (!queue) {
-    const { error } = await admin
+  // ---- Take it back out of the queue -------------------------------------
+  if (mode === "unqueue") {
+    const { data, error } = await admin
       .from("request_installments")
       .update({ queued_for_upload_at: null, queued_by: null })
       .in("id", ids)
-      .eq("status", "approved");
+      .eq("status", "approved")
+      .select("id");
     if (error) return { error: error.message };
     revalidatePath("/accounts");
-    return { info: `${ids.length} moved back to Approved.` };
+    return { info: `${(data ?? []).length} moved back to Approved.` };
   }
 
+  // ---- Pull it back out of the bank --------------------------------------
+  if (mode === "recall") {
+    // Anything with money actually recorded against it is not a mistake to
+    // undo — that is a paid installment, and it belongs in the paid flow.
+    const { data: paid } = await admin
+      .from("payment_records")
+      .select("installment_id, paid_amount, utr_reference")
+      .in("installment_id", ids);
+    const settled = new Set(
+      ((paid ?? []) as { installment_id: string; paid_amount: number | null; utr_reference: string | null }[])
+        .filter((p) => p.paid_amount != null || !!p.utr_reference)
+        .map((p) => p.installment_id),
+    );
+    const recallable = ids.filter((id) => !settled.has(id));
+    if (recallable.length === 0) {
+      return { error: "Those already have a payment recorded against them — record or close them instead." };
+    }
+
+    // Guarded on status, so a concurrent "mark paid" can't be overtaken.
+    const { data: moved, error } = await admin
+      .from("request_installments")
+      .update({
+        status: "approved",
+        queued_for_upload_at: new Date().toISOString(),
+        queued_by: user.id,
+      })
+      .in("id", recallable)
+      .eq("status", "uploaded_in_bank")
+      .select("id, request_id, installment_number");
+    if (error) return { error: error.message };
+
+    const movedRows = (moved ?? []) as { id: string; request_id: string; installment_number: number }[];
+    if (movedRows.length > 0) {
+      const movedIds = movedRows.map((r) => r.id);
+      // It is no longer in a bank file, so the reference to one has to go.
+      await admin
+        .from("payment_records")
+        .update({ bank_upload_date: null, bank_batch_ref: null })
+        .in("installment_id", movedIds);
+      await admin.from("status_history").insert(
+        movedRows.map((r) => ({
+          request_id: r.request_id,
+          installment_id: r.id,
+          actor_id: user.id,
+          from_status: "uploaded_in_bank",
+          to_status: "approved",
+          comment: "Pulled back out of the bank file by Accounts",
+        })),
+      );
+      movedRows.forEach((r) => revalidatePath(`/requests/${r.request_id}`));
+    }
+
+    revalidatePath("/accounts");
+    const skipped = ids.length - movedRows.length;
+    return {
+      info:
+        skipped > 0
+          ? `${movedRows.length} moved back to To upload. ${skipped} left alone — already paid or no longer in the bank.`
+          : `${movedRows.length} moved back to To upload.`,
+    };
+  }
+
+  // ---- Queue it for the next file ----------------------------------------
   // Re-read rather than trusting the form: the vendor may have been
   // un-approved, or the installment moved on, since the page was rendered.
   const { data: rows } = await admin
@@ -1930,7 +2000,8 @@ export async function queueForBankUpload(
       v?.status === "approved" &&
       !!v.bank_account_number &&
       !!v.bank_ifsc;
-    (payable ? ok : held).push(payable ? r.id : shortRequestNumber(r.request?.request_number));
+    if (payable) ok.push(r.id);
+    else held.push(shortRequestNumber(r.request?.request_number));
   }
 
   if (ok.length > 0) {

@@ -21,6 +21,20 @@ export type AccountsRow = {
   queued: boolean;
 };
 
+export type SelectMode = "queue" | "unqueue" | "recall";
+
+/** Which bucket each mode acts on, and how its button reads. */
+const SELECT_BUCKET: Record<SelectMode, string> = {
+  queue: "approved",
+  unqueue: "approved",
+  recall: "uploaded_in_bank",
+};
+const SELECT_LABEL: Record<SelectMode, string> = {
+  queue: "Move to To upload",
+  unqueue: "Move back to Approved",
+  recall: "Move back to To upload",
+};
+
 const BUCKETS = [
   { key: "approved", title: "Approved → Pick what goes in the next bank file" },
   { key: "uploaded_in_bank", title: "Uploaded in bank → Awaiting confirmation" },
@@ -32,10 +46,11 @@ const BUCKETS = [
 /** Bucketed accounts queue with live search over #, vendor, raised-by. */
 export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: string }) {
   const [q, setQ] = useState("");
-  // The two staging tabs are the only ones where the rows are a set you act
-  // on in bulk: one queues them, the other takes them back out.
-  const selectable = tab === "approved" || tab === "to_upload";
-  const unqueueing = tab === "to_upload";
+  // Each bank-file stage can push its rows one step back toward Approved.
+  // Everywhere else the rows aren't a set you act on in bulk.
+  const mode: SelectMode | null =
+    tab === "approved" ? "queue" : tab === "to_upload" ? "unqueue" : tab === "in_bank" ? "recall" : null;
+  const selectable = mode !== null;
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [state, action, pending] = useActionState(queueForBankUpload, undefined);
 
@@ -87,7 +102,7 @@ export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: 
                 <span className="text-zinc-500">({bucket.length})</span>
               </h2>
 
-              {selectable && b.key === "approved" && (
+              {mode && SELECT_BUCKET[mode] === b.key && (
                 <SelectionBar
                   bucket={bucket}
                   picked={picked}
@@ -95,7 +110,7 @@ export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: 
                   action={action}
                   pending={pending}
                   state={state}
-                  unqueue={unqueueing}
+                  mode={mode}
                 />
               )}
 
@@ -219,7 +234,7 @@ function SelectionBar({
   action,
   pending,
   state,
-  unqueue,
+  mode,
 }: {
   bucket: AccountsRow[];
   picked: Set<string>;
@@ -227,11 +242,12 @@ function SelectionBar({
   action: (formData: FormData) => void;
   pending: boolean;
   state: { error?: string; info?: string } | undefined;
-  unqueue: boolean;
+  mode: SelectMode;
 }) {
   // Selecting something the bank file would skip anyway is a dead end, so
-  // "select all" takes only what can actually be paid.
-  const selectableRows = unqueue ? bucket : bucket.filter((r) => !r.notPayable);
+  // "select all" takes only what can actually be paid. Only applies when
+  // queuing — the other two directions move rows away from the file.
+  const selectableRows = mode === "queue" ? bucket.filter((r) => !r.notPayable) : bucket;
   const ids = [...picked].filter((id) => bucket.some((r) => r.id === id));
   const allPicked = selectableRows.length > 0 && selectableRows.every((r) => picked.has(r.id));
   const total = bucket
@@ -244,7 +260,7 @@ function SelectionBar({
         {ids.map((id) => (
           <input key={id} type="hidden" name="installment_ids" value={id} />
         ))}
-        <input type="hidden" name="action" value={unqueue ? "unqueue" : "queue"} />
+        <input type="hidden" name="action" value={mode} />
 
         <label className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
           <input
@@ -253,7 +269,7 @@ function SelectionBar({
             onChange={() => setPicked(allPicked ? new Set() : new Set(selectableRows.map((r) => r.id)))}
             className="h-4 w-4"
           />
-          Select all{!unqueue && selectableRows.length < bucket.length ? " payable" : ""}
+          Select all{mode === "queue" && selectableRows.length < bucket.length ? " payable" : ""}
         </label>
 
         <span className="text-xs text-zinc-500">
@@ -265,15 +281,15 @@ function SelectionBar({
         <button
           type="submit"
           disabled={pending || ids.length === 0}
-          className={`ml-auto rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-            unqueue ? "bg-zinc-600 hover:bg-zinc-700" : "bg-indigo-600 hover:bg-indigo-700"
+          // Queuing is the forward action and reads as primary; the two
+          // ways back are corrections, so they stay secondary.
+          className={`ml-auto rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+            mode === "queue"
+              ? "bg-indigo-600 text-white hover:bg-indigo-700"
+              : "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           }`}
         >
-          {pending
-            ? "Moving…"
-            : unqueue
-              ? "Move back to Approved"
-              : `Move to To upload${ids.length ? ` (${ids.length})` : ""}`}
+          {pending ? "Moving…" : `${SELECT_LABEL[mode]}${ids.length ? ` (${ids.length})` : ""}`}
         </button>
       </form>
 
