@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { AssistantProvider, AssistantTrigger } from "@/components/AssistantContext";
 import AssistantWidget from "@/components/AssistantWidget";
+import BottomNav from "@/components/BottomNav";
 import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
 import ProfileMenu from "@/components/ProfileMenu";
 import SidebarNav from "@/components/SidebarNav";
@@ -60,6 +62,7 @@ export default function AppShell({
       : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200";
 
   return (
+    <AssistantProvider>
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       {/* Desktop sidebar — Zoho Expense style: light bg, wide, icon+label rows */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-slate-200 bg-white sm:flex dark:border-slate-800 dark:bg-slate-950">
@@ -133,6 +136,7 @@ export default function AppShell({
                 {variant === "admin" ? "Admin View" : "Payment Requests"}
               </p>
             </div>
+            <AssistantTrigger />
             <Link
               href="/notifications"
               className="relative flex h-10 w-10 items-center justify-center rounded-full text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
@@ -156,15 +160,18 @@ export default function AppShell({
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main content — extra bottom padding on phones clears the tab bar. */}
       <main className="sm:pl-56">
-        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</div>
+        <div className="mx-auto max-w-6xl px-4 pb-24 pt-6 sm:px-8 sm:pb-8 sm:pt-8">{children}</div>
       </main>
+
+      <BottomNav links={links} />
 
       {/* AI assistant — private per user, chats never stored. Needs
           GEMINI_API_KEY set in Vercel; without it, it says so politely. */}
       <AssistantWidget />
     </div>
+    </AssistantProvider>
   );
 }
 

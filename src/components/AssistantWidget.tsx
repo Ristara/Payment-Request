@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAssistant } from "@/components/AssistantContext";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -51,7 +52,8 @@ function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
  * ever see another user's chat.
  */
 export default function AssistantWidget() {
-  const [open, setOpen] = useState(false);
+  // Shared so the phone trigger can live up in the top bar.
+  const { open, setOpen } = useAssistant();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -231,12 +233,12 @@ export default function AssistantWidget() {
 
   return (
     <>
-      {/* Floating button */}
+      {/* Floating button — desktop only; phones trigger from the top bar. */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close Ria" : "Ask Ria"}
-        className="fixed bottom-5 right-5 z-40 flex h-13 w-13 items-center justify-center rounded-full bg-indigo-600 p-3.5 text-white shadow-lg shadow-indigo-600/30 transition-transform hover:scale-105 active:scale-95"
+        className="fixed bottom-5 right-5 z-40 hidden h-13 w-13 sm:flex items-center justify-center rounded-full bg-indigo-600 p-3.5 text-white shadow-lg shadow-indigo-600/30 transition-transform hover:scale-105 active:scale-95"
       >
         {open ? (
           <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -252,7 +254,7 @@ export default function AssistantWidget() {
 
       {/* Panel */}
       {open && (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex h-[75vh] flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:inset-x-auto sm:bottom-20 sm:right-5 sm:h-[560px] sm:w-[400px] sm:rounded-2xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="fixed inset-x-0 bottom-0 z-50 flex h-[80vh] flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:inset-x-auto sm:bottom-20 sm:right-5 sm:h-[560px] sm:w-[400px] sm:rounded-2xl dark:border-zinc-700 dark:bg-zinc-900">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
             <div>
@@ -369,7 +371,11 @@ export default function AssistantWidget() {
           </div>
 
           {/* Input — the typing box, or the voice bar during a conversation */}
-          <div className="border-t border-zinc-100 p-3 dark:border-zinc-800">
+          {/* Inline style: Tailwind can't express env() padding here. */}
+          <div
+            className="border-t border-zinc-100 p-3 dark:border-zinc-800"
+            style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+          >
             {voiceMode ? (
               <div className="flex items-center gap-3">
                 <button
