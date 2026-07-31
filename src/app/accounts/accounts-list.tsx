@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { formatINR, formatISTDate } from "@/lib/types";
 import { SearchBox } from "@/app/approvals/approvals-list";
+import { queueForBankUpload } from "@/app/requests/actions";
 
 export type AccountsRow = {
   id: string;
@@ -16,10 +17,12 @@ export type AccountsRow = {
   dueDate: string;
   status: string;
   notPayable: boolean;
+  /** Accounts have picked this for the next bank file. */
+  queued: boolean;
 };
 
 const BUCKETS = [
-  { key: "approved", title: "Approved → Ready to upload in bank" },
+  { key: "approved", title: "Approved → Pick what goes in the next bank file" },
   { key: "uploaded_in_bank", title: "Uploaded in bank → Awaiting confirmation" },
   { key: "invoice_pending", title: "Paid → Invoice pending" },
   { key: "payment_processed", title: "Paid → Ready to close" },
@@ -27,8 +30,22 @@ const BUCKETS = [
 ] as const;
 
 /** Bucketed accounts queue with live search over #, vendor, raised-by. */
-export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
+export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: string }) {
   const [q, setQ] = useState("");
+  // The two staging tabs are the only ones where the rows are a set you act
+  // on in bulk: one queues them, the other takes them back out.
+  const selectable = tab === "approved" || tab === "to_upload";
+  const unqueueing = tab === "to_upload";
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [state, action, pending] = useActionState(queueForBankUpload, undefined);
+
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -64,16 +81,40 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
           return (
             <section key={b.key}>
               <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                {b.title} <span className="text-zinc-500">({bucket.length})</span>
+                {tab === "to_upload" && b.key === "approved"
+                  ? "Queued → Goes in the next bank file"
+                  : b.title}{" "}
+                <span className="text-zinc-500">({bucket.length})</span>
               </h2>
+
+              {selectable && b.key === "approved" && (
+                <SelectionBar
+                  bucket={bucket}
+                  picked={picked}
+                  setPicked={setPicked}
+                  action={action}
+                  pending={pending}
+                  state={state}
+                  unqueue={unqueueing}
+                />
+              )}
 
               {/* Mobile */}
               <ul className="mt-3 space-y-3 sm:hidden">
                 {bucket.map((r) => (
-                  <li key={r.id}>
+                  <li key={r.id} className="flex items-start gap-2">
+                    {selectable && (
+                      <input
+                        type="checkbox"
+                        checked={picked.has(r.id)}
+                        onChange={() => toggle(r.id)}
+                        aria-label={`Select ${r.label}`}
+                        className="mt-5 h-4 w-4 shrink-0"
+                      />
+                    )}
                     <Link
                       href={`/requests/${r.threadId}`}
-                      className="block rounded-xl border border-zinc-200 bg-white p-4 active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900"
+                      className="block flex-1 rounded-xl border border-zinc-200 bg-white p-4 active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
@@ -103,6 +144,17 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                     <tbody>
                       {bucket.map((r) => (
                         <tr key={r.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
+                          {selectable && (
+                            <td className="pl-5 py-2">
+                              <input
+                                type="checkbox"
+                                checked={picked.has(r.id)}
+                                onChange={() => toggle(r.id)}
+                                aria-label={`Select ${r.label}`}
+                                className="h-4 w-4"
+                              />
+                            </td>
+                          )}
                           <td className="px-5 py-2 font-mono text-xs">
                             <Link
                               href={`/requests/${r.threadId}`}
@@ -150,5 +202,87 @@ function NotPayableChip() {
     >
       bank details missing
     </span>
+  );
+}
+
+/**
+ * Bulk move between Approved and To upload.
+ *
+ * The ids go in the form itself rather than through a client fetch, so the
+ * server action re-reads and re-checks each one — the page may have been open
+ * a while, and a vendor can lose its approval in that time.
+ */
+function SelectionBar({
+  bucket,
+  picked,
+  setPicked,
+  action,
+  pending,
+  state,
+  unqueue,
+}: {
+  bucket: AccountsRow[];
+  picked: Set<string>;
+  setPicked: (v: Set<string>) => void;
+  action: (formData: FormData) => void;
+  pending: boolean;
+  state: { error?: string; info?: string } | undefined;
+  unqueue: boolean;
+}) {
+  // Selecting something the bank file would skip anyway is a dead end, so
+  // "select all" takes only what can actually be paid.
+  const selectableRows = unqueue ? bucket : bucket.filter((r) => !r.notPayable);
+  const ids = [...picked].filter((id) => bucket.some((r) => r.id === id));
+  const allPicked = selectableRows.length > 0 && selectableRows.every((r) => picked.has(r.id));
+  const total = bucket
+    .filter((r) => picked.has(r.id))
+    .reduce((sum, r) => sum + r.amount, 0);
+
+  return (
+    <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+      <form action={action} className="flex flex-wrap items-center gap-3">
+        {ids.map((id) => (
+          <input key={id} type="hidden" name="installment_ids" value={id} />
+        ))}
+        <input type="hidden" name="action" value={unqueue ? "unqueue" : "queue"} />
+
+        <label className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+          <input
+            type="checkbox"
+            checked={allPicked}
+            onChange={() => setPicked(allPicked ? new Set() : new Set(selectableRows.map((r) => r.id)))}
+            className="h-4 w-4"
+          />
+          Select all{!unqueue && selectableRows.length < bucket.length ? " payable" : ""}
+        </label>
+
+        <span className="text-xs text-zinc-500">
+          {ids.length === 0
+            ? "Nothing selected"
+            : `${ids.length} selected · ${formatINR(total)}`}
+        </span>
+
+        <button
+          type="submit"
+          disabled={pending || ids.length === 0}
+          className={`ml-auto rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
+            unqueue ? "bg-zinc-600 hover:bg-zinc-700" : "bg-indigo-600 hover:bg-indigo-700"
+          }`}
+        >
+          {pending
+            ? "Moving…"
+            : unqueue
+              ? "Move back to Approved"
+              : `Move to To upload${ids.length ? ` (${ids.length})` : ""}`}
+        </button>
+      </form>
+
+      {state?.error && (
+        <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{state.error}</p>
+      )}
+      {state?.info && (
+        <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{state.info}</p>
+      )}
+    </div>
   );
 }

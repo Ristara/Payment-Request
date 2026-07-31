@@ -12,6 +12,7 @@ type Row = {
   requested_amount: number;
   payment_due_date: string;
   status: string;
+  queued_for_upload_at: string | null;
   request: {
     id: string;
     request_number: string;
@@ -23,13 +24,24 @@ type Row = {
 
 // Filter tab → statuses. "all" = the live work queue (default);
 // "closed" adds a history view.
+//
+// Approved and To upload are the same status — an approved installment only
+// reaches the bank file once Accounts queue it (migration 027) — so they're
+// split by `queued` below rather than by status.
 const TAB_STATUSES: Record<string, string[]> = {
   all: ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed"],
+  approved: ["approved"],
   to_upload: ["approved"],
   in_bank: ["uploaded_in_bank"],
   invoice_pending: ["invoice_pending"],
   to_close: ["payment_processed"],
   closed: ["closed"],
+};
+
+/** null = no extra filter; true/false = only queued / only not-yet-queued. */
+const TAB_QUEUED: Record<string, boolean | null> = {
+  all: null, approved: false, to_upload: true,
+  in_bank: null, invoice_pending: null, to_close: null, closed: null,
 };
 
 export default async function AccountsQueuePage({
@@ -44,10 +56,10 @@ export default async function AccountsQueuePage({
   const tab = TAB_STATUSES[tabRaw ?? ""] ? (tabRaw as string) : "all";
 
   const supabase = await createClient();
-  const { data } = await supabase
+  let listQuery = supabase
     .from("request_installments")
     .select(
-      `id, installment_number, requested_amount, payment_due_date, status,
+      `id, installment_number, requested_amount, payment_due_date, status, queued_for_upload_at,
        request:payment_requests!inner(id, request_number, title,
          vendor:vendors(name, status, bank_account_number, bank_ifsc)),
        submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
@@ -55,6 +67,11 @@ export default async function AccountsQueuePage({
     .in("status", TAB_STATUSES[tab])
     .order("payment_due_date")
     .limit(200);
+
+  const wantQueued = TAB_QUEUED[tab];
+  if (wantQueued === true) listQuery = listQuery.not("queued_for_upload_at", "is", null);
+  if (wantQueued === false) listQuery = listQuery.is("queued_for_upload_at", null);
+  const { data } = await listQuery;
 
   // What a bank file would pick up right now: approved installments whose
   // vendor is approved AND has account number + IFSC. Anything else is
@@ -66,6 +83,7 @@ export default async function AccountsQueuePage({
        request:payment_requests!inner(vendor:vendors(status, bank_account_number, bank_ifsc))`,
     )
     .eq("status", "approved")
+    .not("queued_for_upload_at", "is", null)
     .limit(500);
   type ReadyRow = {
     requested_amount: number;
@@ -92,6 +110,7 @@ export default async function AccountsQueuePage({
     amount: Number(r.requested_amount),
     dueDate: r.payment_due_date,
     status: r.status,
+    queued: !!r.queued_for_upload_at,
     // Can't go in a bank file: no account/IFSC, or the vendor was rejected
     // after this was approved.
     notPayable:
@@ -105,6 +124,7 @@ export default async function AccountsQueuePage({
 
   const tabs = [
     { key: "all", label: "All open" },
+    { key: "approved", label: "Approved" },
     { key: "to_upload", label: "To upload" },
     { key: "in_bank", label: "In bank" },
     { key: "invoice_pending", label: "Invoice pending" },
@@ -116,7 +136,7 @@ export default async function AccountsQueuePage({
     <div>
       <PageHeader
         title="Accounts work queue"
-        subtitle="Every installment approved that needs processing, in due-date order."
+        subtitle="Every approved installment that needs processing, in due-date order. Queue the ones you want in the next bank file."
       />
 
       {bankfile && <BankFileNotice reason={bankfile} />}
@@ -129,8 +149,8 @@ export default async function AccountsQueuePage({
           </h2>
           <p className="mt-0.5 text-xs text-indigo-900/80 dark:text-indigo-200/80">
             {bankReadyCount === 0
-              ? "Nothing ready to pay right now."
-              : `${bankReadyCount} payment${bankReadyCount === 1 ? "" : "s"} · ${formatINR(bankReadyTotal)} — downloading marks them as uploaded in bank.`}
+              ? "Nothing queued. Pick payments on the Approved tab to build the next file."
+              : `${bankReadyCount} payment${bankReadyCount === 1 ? "" : "s"} queued · ${formatINR(bankReadyTotal)} — downloading marks them as uploaded in bank.`}
             {bankBlockedCount > 0 &&
               ` ${bankBlockedCount} held back: vendor not approved or bank details missing.`}
           </p>
@@ -166,7 +186,7 @@ export default async function AccountsQueuePage({
         })}
       </div>
 
-      <AccountsList rows={rows} />
+      <AccountsList rows={rows} tab={tab} />
     </div>
   );
 }

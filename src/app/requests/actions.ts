@@ -1079,7 +1079,11 @@ export async function markInstallmentBankUploaded(
   try {
     // Transition FIRST — the state machine rejects wrong from-states, and we
     // only write the payment record once the move is legal.
-    const inst = await transitionInstallment(installmentId, "uploaded_in_bank", "Marked uploaded in bank");
+    const inst = await transitionInstallment(installmentId, "uploaded_in_bank", "Marked uploaded in bank", {
+      // The queue marker has done its job once this is in the bank.
+      queued_for_upload_at: null,
+      queued_by: null,
+    });
     await supabase
       .from("payment_records")
       .upsert({ installment_id: installmentId, bank_upload_date, bank_batch_ref }, { onConflict: "installment_id" });
@@ -1859,4 +1863,92 @@ export async function deleteRequestAsAdmin(
   revalidatePath("/accounts");
   revalidatePath("/dashboard");
   redirect(`/requests?deleted=${encodeURIComponent(impact.requestNumber)}`);
+}
+
+/**
+ * Accounts pick which approved installments go into the next bank file.
+ *
+ * The status stays 'approved' throughout — this is a staging marker, not a
+ * workflow step (see migration 027). Queuing something that the bank file
+ * would silently skip anyway is refused here rather than discovered at
+ * download time, so the count Accounts see is the count that gets paid.
+ */
+export async function queueForBankUpload(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const ids = formData.getAll("installment_ids").map(String).filter(Boolean);
+  const queue = formData.get("action") !== "unqueue";
+  if (ids.length === 0) return { error: "Nothing selected." };
+
+  let user;
+  try {
+    ({ user } = await requireRole("accounts", "admin"));
+  } catch {
+    return { error: "Only Accounts can do that." };
+  }
+
+  const admin = createAdminClient();
+
+  if (!queue) {
+    const { error } = await admin
+      .from("request_installments")
+      .update({ queued_for_upload_at: null, queued_by: null })
+      .in("id", ids)
+      .eq("status", "approved");
+    if (error) return { error: error.message };
+    revalidatePath("/accounts");
+    return { info: `${ids.length} moved back to Approved.` };
+  }
+
+  // Re-read rather than trusting the form: the vendor may have been
+  // un-approved, or the installment moved on, since the page was rendered.
+  const { data: rows } = await admin
+    .from("request_installments")
+    .select(
+      `id, status, request:payment_requests!inner(
+         request_number,
+         vendor:vendors(status, bank_account_number, bank_ifsc))`,
+    )
+    .in("id", ids);
+
+  type Row = {
+    id: string;
+    status: string;
+    request: {
+      request_number: string;
+      vendor: { status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
+    };
+  };
+
+  const ok: string[] = [];
+  const held: string[] = [];
+  for (const r of ((rows ?? []) as unknown as Row[])) {
+    const v = r.request?.vendor;
+    const payable =
+      r.status === "approved" &&
+      v?.status === "approved" &&
+      !!v.bank_account_number &&
+      !!v.bank_ifsc;
+    (payable ? ok : held).push(payable ? r.id : shortRequestNumber(r.request?.request_number));
+  }
+
+  if (ok.length > 0) {
+    // Guard on status again in the write itself, so a concurrent un-approval
+    // can't be overtaken between the read above and here.
+    const { error } = await admin
+      .from("request_installments")
+      .update({ queued_for_upload_at: new Date().toISOString(), queued_by: user.id })
+      .in("id", ok)
+      .eq("status", "approved");
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/accounts");
+  if (held.length > 0) {
+    return {
+      info: `${ok.length} moved to To upload. Held back: ${held.join(", ")} — vendor not approved or bank details missing.`,
+    };
+  }
+  return { info: `${ok.length} moved to To upload.` };
 }

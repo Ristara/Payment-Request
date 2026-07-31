@@ -40,6 +40,10 @@ export async function POST(req: Request) {
        )`,
     )
     .eq("status", "approved")
+    // Only what Accounts have queued (migration 027). The file used to sweep
+    // up everything approved, which left nobody deciding what actually left
+    // the bank on a given run.
+    .not("queued_for_upload_at", "is", null)
     .order("installment_number");
   if (error) return back(req, "failed");
 
@@ -82,7 +86,8 @@ export async function POST(req: Request) {
   const ids = ready.map((r) => r.id);
   const { data: moved } = await admin
     .from("request_installments")
-    .update({ status: "uploaded_in_bank" })
+    // The marker has done its job once the row is in a file.
+    .update({ status: "uploaded_in_bank", queued_for_upload_at: null, queued_by: null })
     .in("id", ids)
     .eq("status", "approved") // guard: skip anything that changed underneath us
     .select("id, request_id, installment_number");
