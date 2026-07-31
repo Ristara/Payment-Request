@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { assignRole, createUser, removeRole } from "@/app/admin/actions";
-import { ROLE_LABEL } from "@/lib/types";
+import { assignRole, createUser, deactivateUser, reactivateUser, removeRole } from "@/app/admin/actions";
+import { ROLE_LABEL, formatINR } from "@/lib/types";
 
 type UserRow = {
   id: string;
@@ -12,9 +12,25 @@ type UserRow = {
   user_roles: { role: string }[];
 };
 
+export type OpenRequest = {
+  id: string;
+  requestNumber: string;
+  title: string | null;
+  amount: number;
+  statuses: string[];
+};
+
 const ROLES = ["requester", "approver", "accounts", "admin"] as const;
 
-export default function UsersForm({ users }: { users: UserRow[] }) {
+export default function UsersForm({
+  users,
+  openByUser,
+  currentUserId,
+}: {
+  users: UserRow[];
+  openByUser: Record<string, OpenRequest[]>;
+  currentUserId: string;
+}) {
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
   // Kept in state so a failed submit doesn't wipe what was typed.
   const [fullName, setFullName] = useState("");
@@ -139,12 +155,13 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
               <th className="px-5 py-3">Email</th>
               <th className="px-5 py-3">Roles</th>
               <th className="px-5 py-3">Assign role</th>
+              <th className="px-5 py-3">Account</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-5 py-8 text-center text-sm text-zinc-500">
+                <td colSpan={5} className="px-5 py-8 text-center text-sm text-zinc-500">
                   {users.length === 0
                     ? "No users yet."
                     : `No users matching "${query}".`}
@@ -154,8 +171,20 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
               filtered.map((u) => {
                 const held = new Set(u.user_roles.map((r) => r.role));
                 return (
-                  <tr key={u.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                    <td className="px-5 py-3 font-medium text-zinc-900 dark:text-zinc-100">{u.full_name}</td>
+                  <tr
+                    key={u.id}
+                    className={`border-b border-zinc-100 last:border-b-0 dark:border-zinc-800 ${
+                      u.is_active ? "" : "bg-zinc-50/70 dark:bg-zinc-950/40"
+                    }`}
+                  >
+                    <td className="px-5 py-3 font-medium text-zinc-900 dark:text-zinc-100">
+                      {u.full_name}
+                      {!u.is_active && (
+                        <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                          Turned off
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-zinc-500">{u.email}</td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -180,7 +209,7 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {ROLES.filter((r) => !held.has(r)).map((r) => (
+                        {(u.is_active ? ROLES.filter((r) => !held.has(r)) : []).map((r) => (
                           <form key={r} action={assignRole} className="inline-block">
                             <input type="hidden" name="user_id" value={u.id} />
                             <input type="hidden" name="role" value={r} />
@@ -194,6 +223,13 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
                         ))}
                       </div>
                     </td>
+                    <td className="px-5 py-3 align-top">
+                      <AccountCell
+                        user={u}
+                        open={openByUser[u.id] ?? []}
+                        isSelf={u.id === currentUserId}
+                      />
+                    </td>
                   </tr>
                 );
               })
@@ -203,5 +239,143 @@ export default function UsersForm({ users }: { users: UserRow[] }) {
           </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Turning an account off, and what to do with what the person left behind.
+ *
+ * Deactivating strips their roles, so the two questions an admin actually has
+ * — "can they still get in?" and "what happens to their half-finished
+ * requests?" — get answered in one place instead of being separate chores.
+ */
+function AccountCell({
+  user,
+  open,
+  isSelf,
+}: {
+  user: UserRow;
+  open: OpenRequest[];
+  isSelf: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [offState, offAction, offPending] = useActionState(deactivateUser, undefined);
+  const [onState, onAction, onPending] = useActionState(reactivateUser, undefined);
+
+  if (!user.is_active) {
+    return (
+      <form action={onAction}>
+        <input type="hidden" name="user_id" value={user.id} />
+        <button
+          type="submit"
+          disabled={onPending}
+          className="rounded-md border border-emerald-300 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+        >
+          {onPending ? "Turning on…" : "Turn back on"}
+        </button>
+        {onState?.error && <p className="mt-1 text-[11px] text-red-600">{onState.error}</p>}
+      </form>
+    );
+  }
+
+  if (isSelf) {
+    return <span className="text-[11px] text-zinc-400">You</span>;
+  }
+
+  if (!confirming) {
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Turn off
+        </button>
+        {open.length > 0 && (
+          <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+            {open.length} open request{open.length === 1 ? "" : "s"}
+          </p>
+        )}
+        {offState?.info && (
+          <p className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300">{offState.info}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <form action={offAction} className="w-64 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+      <input type="hidden" name="user_id" value={user.id} />
+      <input type="hidden" name="delete_open" value={deleteOpen ? "true" : "false"} />
+      <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+        Turn off {user.full_name}?
+      </p>
+      <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">
+        They won&apos;t be able to sign in, and all their roles are removed.
+      </p>
+
+      {open.length > 0 ? (
+        <>
+          <p className="mt-2 text-[11px] font-medium text-amber-900 dark:text-amber-200">
+            {open.length} request{open.length === 1 ? "" : "s"} still in flight:
+          </p>
+          <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto text-[11px] text-amber-800 dark:text-amber-300">
+            {open.map((r) => (
+              <li key={r.id} className="truncate">
+                {r.requestNumber} · {formatINR(r.amount)}
+                {r.title ? ` · ${r.title}` : ""}
+              </li>
+            ))}
+          </ul>
+          <label className="mt-2 flex items-start gap-2 text-[11px] text-amber-900 dark:text-amber-200">
+            <input
+              type="checkbox"
+              checked={deleteOpen}
+              onChange={(e) => setDeleteOpen(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Delete these permanently. Otherwise they stay in the approval queue with nobody to
+              answer for them.
+            </span>
+          </label>
+        </>
+      ) : (
+        <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-300">
+          Nothing of theirs is in flight.
+        </p>
+      )}
+
+      <input
+        name="reason"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (optional)"
+        className="mt-2 w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] dark:border-amber-900 dark:bg-zinc-900"
+      />
+
+      <div className="mt-2 flex gap-2">
+        <button
+          type="submit"
+          disabled={offPending}
+          className="rounded-md bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+        >
+          {offPending ? "Turning off…" : deleteOpen ? "Turn off & delete" : "Turn off"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+        >
+          Cancel
+        </button>
+      </div>
+      {offState?.error && (
+        <p className="mt-1 text-[11px] font-medium text-red-700 dark:text-red-300">{offState.error}</p>
+      )}
+    </form>
   );
 }

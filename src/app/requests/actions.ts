@@ -9,6 +9,7 @@ import { computeRollupIds } from "@/lib/coa";
 import { invalidateMasters } from "@/lib/cache";
 import { oversizedFile } from "@/lib/uploads";
 import { shortRequestNumber } from "@/lib/types";
+import { getDeletionImpact, purgeRequest } from "@/lib/purge-request";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -41,7 +42,13 @@ async function cannotRaise(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
 ): Promise<string | null> {
-  const { data } = await supabase.from("user_roles").select("role").eq("user_id", userId);
+  const [{ data }, { data: profile }] = await Promise.all([
+    supabase.from("user_roles").select("role").eq("user_id", userId),
+    supabase.from("profiles").select("is_active").eq("id", userId).maybeSingle(),
+  ]);
+  if ((profile as { is_active?: boolean } | null)?.is_active === false) {
+    return "Your access has been turned off. Contact an admin.";
+  }
   const roles = new Set(((data ?? []) as { role: string }[]).map((r) => r.role));
   if (roles.has("requester") || roles.has("admin")) return null;
   return "You don't have permission to raise payment requests. Ask an admin to give you the Requester role.";
@@ -61,6 +68,16 @@ async function currentUserOrThrow() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in.");
+  // Pages check this too, but a server action can be invoked directly, and a
+  // deactivated account keeps a valid session until it expires.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_active")
+    .eq("id", user.id)
+    .maybeSingle();
+  if ((profile as { is_active?: boolean } | null)?.is_active === false) {
+    throw new Error("Your access has been turned off. Contact an admin.");
+  }
   return { supabase, user };
 }
 
@@ -739,6 +756,19 @@ export async function approveInstallment(
   if (!installmentId) return { error: "Missing installment." };
   try {
     const { user } = await requireRole("approver", "admin");
+    // An approver who raised the request themselves must not sign it off.
+    // Holding both roles is normal here; approving your own spend is not.
+    const admin0 = createAdminClient();
+    const { data: own } = await admin0
+      .from("request_installments")
+      .select("request:payment_requests!inner(submitter_id)")
+      .eq("id", installmentId)
+      .maybeSingle();
+    const ownReq = (own as { request: { submitter_id: string } | { submitter_id: string }[] } | null)?.request;
+    const submitterId = Array.isArray(ownReq) ? ownReq[0]?.submitter_id : ownReq?.submitter_id;
+    if (submitterId && submitterId === user.id) {
+      return { error: "You raised this request — someone else has to approve it." };
+    }
     const inst = await transitionInstallment(installmentId, "approved", null, {
       approver_id: user.id,
       approved_at: new Date().toISOString(),
@@ -778,6 +808,13 @@ export async function editAndResubmitInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  {
+    const supabase0 = await createClient();
+    const { data: { user: u0 } } = await supabase0.auth.getUser();
+    if (!u0) return { error: "Not signed in." };
+    const denied0 = await cannotRaise(supabase0, u0.id);
+    if (denied0) return { error: denied0 };
+  }
   const installmentId = String(formData.get("installment_id") ?? "");
   const requestedAmount = Number(formData.get("requested_amount") ?? 0);
   const paymentDueDate = String(formData.get("payment_due_date") ?? "");
@@ -950,6 +987,11 @@ export async function updateLineCoa(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  try {
+    await requireRole("approver", "accounts", "admin");
+  } catch {
+    return { error: "You don't have permission to recode a line." };
+  }
   const lineId = String(formData.get("line_id") ?? "");
   const requestId = String(formData.get("request_id") ?? "");
   const newCoaId = String(formData.get("coa_account_id") ?? "");
@@ -1007,6 +1049,11 @@ export async function markInstallmentBankUploaded(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  try {
+    await requireRole("accounts", "admin");
+  } catch {
+    return { error: "Only Accounts can do that." };
+  }
   const installmentId = String(formData.get("installment_id") ?? "");
   const bank_upload_date = String(formData.get("bank_upload_date") ?? "");
   const bank_batch_ref = String(formData.get("bank_batch_ref") ?? "").trim() || null;
@@ -1048,6 +1095,11 @@ export async function markInstallmentPaid(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  try {
+    await requireRole("accounts", "admin");
+  } catch {
+    return { error: "Only Accounts can do that." };
+  }
   const installmentId = String(formData.get("installment_id") ?? "");
   const payment_date = String(formData.get("payment_date") ?? "");
   const paid_amount = Number(formData.get("paid_amount") ?? 0);
@@ -1142,6 +1194,11 @@ export async function uploadInstallmentInvoice(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  try {
+    await requireRole("accounts", "admin");
+  } catch {
+    return { error: "Only Accounts can do that." };
+  }
   const installmentId = String(formData.get("installment_id") ?? "");
   const invoice = formData.get("invoice");
   if (!installmentId || !(invoice instanceof File) || invoice.size === 0) {
@@ -1344,6 +1401,13 @@ export async function submitDraftInstallment(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  {
+    const supabase0 = await createClient();
+    const { data: { user: u0 } } = await supabase0.auth.getUser();
+    if (!u0) return { error: "Not signed in." };
+    const denied0 = await cannotRaise(supabase0, u0.id);
+    if (denied0) return { error: denied0 };
+  }
   const installmentId = String(formData.get("installment_id") ?? "");
   if (!installmentId) return { error: "Missing installment." };
 
@@ -1483,6 +1547,13 @@ export async function updateThreadLineItems(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  {
+    const supabase0 = await createClient();
+    const { data: { user: u0 } } = await supabase0.auth.getUser();
+    if (!u0) return { error: "Not signed in." };
+    const denied0 = await cannotRaise(supabase0, u0.id);
+    if (denied0) return { error: denied0 };
+  }
   const requestId = String(formData.get("request_id") ?? "");
   if (!requestId) return { error: "Missing request." };
 
@@ -1733,4 +1804,59 @@ export async function markAllNotificationsRead(): Promise<void> {
     .eq("recipient_id", user.id)
     .is("read_at", null);
   revalidatePath("/notifications");
+}
+
+/**
+ * Admin-only permanent delete. The work lives in lib/purge-request.ts so the
+ * deactivation flow can delete a departing user's requests the same way.
+ */
+export async function deleteRequestAsAdmin(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const requestId = String(formData.get("request_id") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim() || null;
+  if (!requestId) return { error: "Missing request." };
+
+  let user;
+  try {
+    ({ user } = await requireRole("admin"));
+  } catch {
+    return { error: "Only an admin can delete a request." };
+  }
+
+  const admin = createAdminClient();
+  const impact = await getDeletionImpact(admin, requestId);
+  if (!impact) return { error: "That request no longer exists." };
+
+  // Deleting money that has already left the bank is a decision, not a typo:
+  // make the admin restate the request number.
+  if (impact.totalPaid > 0) {
+    const typed = String(formData.get("confirm_number") ?? "").trim().toUpperCase();
+    if (!typed || !impact.requestNumber.toUpperCase().endsWith(typed)) {
+      return {
+        error: `${impact.requestNumber} has \u20b9${impact.totalPaid.toLocaleString("en-IN")} recorded as paid. Type the request number exactly to confirm.`,
+      };
+    }
+  }
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("email")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const err = await purgeRequest(
+    admin,
+    requestId,
+    { id: user.id, email: (profile as { email?: string } | null)?.email ?? null },
+    reason,
+  );
+  if (err) return { error: err };
+
+  revalidatePath("/requests");
+  revalidatePath("/approvals");
+  revalidatePath("/accounts");
+  revalidatePath("/dashboard");
+  redirect(`/requests?deleted=${encodeURIComponent(impact.requestNumber)}`);
 }

@@ -54,6 +54,9 @@ export default async function VendorDetailPage({
   await requireUser();
   const { user, roles } = await getCurrentUserRoles();
   const canApprove = roles.includes("accounts") || roles.includes("admin");
+  // Account number, IFSC and the cancelled cheque are the payment instruction
+  // itself. Everyone signed in could read them, including roleless accounts.
+  const canSeeBank = canApprove || roles.includes("approver");
 
   const supabase = await createClient();
   const [vendorRes, threadRes] = await Promise.all([
@@ -125,7 +128,7 @@ export default async function VendorDetailPage({
 
   // Signed URL for cheque
   let chequeUrl: string | null = null;
-  if (v.cancelled_cheque_path) {
+  if (v.cancelled_cheque_path && canSeeBank) {
     const admin = createAdminClient();
     const { data: signed } = await admin.storage
       .from("vendor-docs")
@@ -201,7 +204,11 @@ export default async function VendorDetailPage({
           <Row label="Email" value={v.email ?? "—"} />
         </Card>
         <Card title="Bank">
-          {v.bank_account_number || v.bank_ifsc ? (
+          {!canSeeBank ? (
+            <p className="text-sm italic text-zinc-500">
+              Bank details are visible to Accounts and Approvers.
+            </p>
+          ) : v.bank_account_number || v.bank_ifsc ? (
             <>
               <Row label="Account #" value={v.bank_account_number ?? "—"} mono={!!v.bank_account_number} />
               <Row label="IFSC" value={v.bank_ifsc ?? "—"} mono={!!v.bank_ifsc} />

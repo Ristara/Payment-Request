@@ -15,6 +15,20 @@ import { NextResponse, type NextRequest } from "next/server";
  * a network check, which is no worse than the previous behavior.
  */
 export async function updateSession(request: NextRequest) {
+  // <Link> prefetches don't need a session refresh, and skipping it saves a
+  // call on every hover. This used to live in the matcher as a `missing`
+  // header condition — but those are request headers the caller controls, so
+  // any client could set `purpose: prefetch` and turn the gate off for
+  // anything, including a POSTed Server Action. Limiting the skip to GET
+  // keeps the saving and closes that door.
+  if (
+    request.method === "GET" &&
+    (request.headers.has("next-router-prefetch") ||
+      request.headers.get("purpose") === "prefetch")
+  ) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

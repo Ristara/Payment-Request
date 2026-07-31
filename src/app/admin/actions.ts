@@ -4,8 +4,43 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { invalidateMasters } from "@/lib/cache";
+import { getOpenRequestsFor, purgeRequest } from "@/lib/purge-request";
 
 export type ActionState = { error?: string; info?: string } | undefined;
+
+/**
+ * Every action in this file is admin-only.
+ *
+ * The /admin layout already redirects non-admins, but a layout only guards
+ * rendering: a server action is dispatched by ID and can be POSTed to any
+ * route, so the layout never runs for it. Several of these actions reach for
+ * the service-role client, where RLS is not a backstop either — so the check
+ * has to live here.
+ */
+async function requireAdmin() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in.");
+  const [{ data: roleRows }, { data: profile }] = await Promise.all([
+    supabase.from("user_roles").select("role").eq("user_id", user.id),
+    supabase.from("profiles").select("email, is_active").eq("id", user.id).maybeSingle(),
+  ]);
+  const prof = profile as { email?: string; is_active?: boolean } | null;
+  if (prof?.is_active === false) throw new Error("Your access has been turned off.");
+  const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
+  if (!roles.has("admin")) throw new Error("You don't have permission to do that.");
+  return { supabase, user, email: prof?.email ?? null };
+}
+
+/** Same gate, for actions that report failure rather than throw. */
+async function adminDenied(): Promise<string | null> {
+  try {
+    await requireAdmin();
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : "Not allowed.";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Outlets
@@ -15,6 +50,8 @@ export async function createOutlet(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const code = String(formData.get("code") ?? "").trim().toUpperCase();
   const name = String(formData.get("name") ?? "").trim();
   const stageRaw = String(formData.get("stage") ?? "operational");
@@ -32,6 +69,7 @@ export async function createOutlet(
 }
 
 export async function setOutletStage(formData: FormData): Promise<void> {
+  await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const stageRaw = String(formData.get("stage") ?? "");
   if (!id || !["upcoming", "operational"].includes(stageRaw)) return;
@@ -45,6 +83,8 @@ export async function updateOutletName(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   if (!id || !name) return { error: "Name is required." };
@@ -57,6 +97,7 @@ export async function updateOutletName(
 }
 
 export async function toggleOutletActive(formData: FormData): Promise<void> {
+  await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const is_active = formData.get("is_active") === "true";
   const supabase = await createClient();
@@ -69,6 +110,8 @@ export async function deleteOutlet(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const id = String(formData.get("id") ?? "");
   if (!id) return { error: "Missing outlet id." };
   const supabase = await createClient();
@@ -101,6 +144,8 @@ export async function createCoaAccount(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const subcategory = String(formData.get("subcategory") ?? "").trim();
   const coa = String(formData.get("coa") ?? "").trim();
   // Two-level UI: when no intermediate group is given, the item sits directly
@@ -133,6 +178,8 @@ export async function updateCoaAccount(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const id = String(formData.get("id") ?? "");
   const subcategory = String(formData.get("subcategory") ?? "").trim();
   const category = String(formData.get("category") ?? "").trim();
@@ -176,6 +223,7 @@ export async function updateCoaAccount(
 }
 
 export async function toggleCoaAccountActive(formData: FormData): Promise<void> {
+  await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const is_active = formData.get("is_active") === "true";
   const supabase = await createClient();
@@ -188,6 +236,8 @@ export async function deleteCoaAccount(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const id = String(formData.get("id") ?? "");
   if (!id) return { error: "Missing account id." };
   const supabase = await createClient();
@@ -221,6 +271,8 @@ export async function renameCategoryGroup(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const coa = String(formData.get("coa") ?? "").trim();
   const oldCategory = String(formData.get("old_category") ?? "").trim();
   const newCategory = String(formData.get("new_category") ?? "").trim();
@@ -281,6 +333,8 @@ export async function renameCoaGroup(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const oldCoa = String(formData.get("old_coa") ?? "").trim();
   const newCoa = String(formData.get("new_coa") ?? "").trim();
   if (!oldCoa || !newCoa) return { error: "Both names required." };
@@ -318,6 +372,8 @@ export async function createUser(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
   const emailLocal = String(formData.get("email_local") ?? "").trim().toLowerCase();
   const full_name = String(formData.get("full_name") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -339,10 +395,13 @@ export async function createUser(
   await admin.from("profiles").update({ full_name }).eq("id", data.user.id);
 
   revalidatePath("/admin/users");
-  return { info: `Invited ${full_name} (${email}). Temp password: ${password}` };
+  // Don't echo the password back — it ends up in logs, screenshots and
+  // browser history. The admin just typed it.
+  return { info: `Invited ${full_name} (${email}).` };
 }
 
 export async function assignRole(formData: FormData): Promise<void> {
+  await requireAdmin();
   const user_id = String(formData.get("user_id") ?? "");
   const role = String(formData.get("role") ?? "");
   if (!user_id || !VALID_ROLES.has(role)) return;
@@ -352,6 +411,7 @@ export async function assignRole(formData: FormData): Promise<void> {
 }
 
 export async function removeRole(formData: FormData): Promise<void> {
+  await requireAdmin();
   const user_id = String(formData.get("user_id") ?? "");
   const role = String(formData.get("role") ?? "");
   if (!user_id || !VALID_ROLES.has(role)) return;
@@ -362,4 +422,96 @@ export async function removeRole(formData: FormData): Promise<void> {
     .eq("user_id", user_id)
     .eq("role", role);
   revalidatePath("/admin/users");
+}
+
+// ---------------------------------------------------------------------------
+// Deactivation
+// ---------------------------------------------------------------------------
+
+/** Requests from this person that are still in flight, for the confirmation. */
+export async function listOpenRequestsForUser(userId: string) {
+  await requireAdmin();
+  return getOpenRequestsFor(createAdminClient(), userId);
+}
+
+/**
+ * Turn an account off.
+ *
+ * Roles are stripped by a database trigger (migration 025) rather than here,
+ * so the two can't drift apart. Optionally deletes the requests the person
+ * left in flight — a departing requester's half-finished submissions would
+ * otherwise sit in the approvers' queue with nobody able to answer questions
+ * about them.
+ */
+export async function deactivateUser(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const userId = String(formData.get("user_id") ?? "");
+  const deleteOpen = formData.get("delete_open") === "true";
+  const reason = String(formData.get("reason") ?? "").trim() || null;
+  if (!userId) return { error: "Missing user." };
+
+  let actor;
+  try {
+    actor = await requireAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Not allowed." };
+  }
+  // Locking yourself out of your own admin console is never the intent.
+  if (userId === actor.user.id) {
+    return { error: "You can't deactivate your own account. Ask another admin." };
+  }
+
+  const admin = createAdminClient();
+  let deleted = 0;
+
+  if (deleteOpen) {
+    const open = await getOpenRequestsFor(admin, userId);
+    for (const r of open) {
+      const err = await purgeRequest(
+        admin,
+        r.id,
+        { id: actor.user.id, email: actor.email },
+        reason ? `${reason} (user deactivated)` : "Submitter deactivated",
+      );
+      // Stop rather than half-finish: the admin can retry knowing what's left.
+      if (err) return { error: `Stopped after ${deleted} deleted — ${r.requestNumber}: ${err}` };
+      deleted++;
+    }
+  }
+
+  const { error } = await admin.from("profiles").update({ is_active: false }).eq("id", userId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/admin/users");
+  revalidatePath("/requests");
+  revalidatePath("/approvals");
+  revalidatePath("/accounts");
+  return {
+    info: deleted
+      ? `Account turned off and ${deleted} open request${deleted === 1 ? "" : "s"} deleted.`
+      : "Account turned off. Their roles have been removed.",
+  };
+}
+
+/** Turn an account back on. Roles were stripped on deactivation, so they need re-granting. */
+export async function reactivateUser(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const userId = String(formData.get("user_id") ?? "");
+  if (!userId) return { error: "Missing user." };
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Not allowed." };
+  }
+  const { error } = await createAdminClient()
+    .from("profiles")
+    .update({ is_active: true })
+    .eq("id", userId);
+  if (error) return { error: error.message };
+  revalidatePath("/admin/users");
+  return { info: "Account turned back on. Give them their roles again below." };
 }

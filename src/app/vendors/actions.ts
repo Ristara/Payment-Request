@@ -26,6 +26,13 @@ export async function createVendor(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  {
+    // Adding a payee is requester-or-staff work. Signed-in-ness was the whole
+    // test, and this row is what a payment eventually gets sent to.
+    const { roles } = await getCurrentUserRoles();
+    const mayAdd = ["requester", "approver", "accounts", "admin"].some((r) => roles.includes(r));
+    if (!mayAdd) return { error: "You don't have permission to add a vendor." };
+  }
 
   const name = String(formData.get("name") ?? "").trim();
   const is_gst_registered = formData.get("is_gst_registered") !== "no";
@@ -145,6 +152,13 @@ export async function approveVendor(
   _prev: ApproveState,
   formData: FormData,
 ): Promise<ApproveState> {
+  {
+    // Verifying a payee is what makes it payable — Accounts/Admin only.
+    const { roles } = await getCurrentUserRoles();
+    if (!roles.includes("accounts") && !roles.includes("admin")) {
+      return { error: "Only Accounts can verify a vendor." };
+    }
+  }
   const id = String(formData.get("id") ?? "");
   const supabase = await createClient();
   const {
@@ -208,6 +222,10 @@ export async function rejectVendor(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
   if (!id || !reason) return;
+  {
+    const { roles } = await getCurrentUserRoles();
+    if (!roles.includes("accounts") && !roles.includes("admin")) return;
+  }
 
   const supabase = await createClient();
   const {
@@ -255,7 +273,10 @@ export async function updateVendor(
   const { roles } = await getCurrentUserRoles();
   const isStaff = roles.includes("accounts") || roles.includes("admin");
   const isOwner = (existing.submitted_by as string) === user.id;
-  const ownerMayEdit = isOwner && existing.status !== "approved";
+  // A roleless account could still rewrite the bank account on a vendor it
+  // created — and that number is what the Kotak file pays.
+  const mayEditOwn = ["requester", "approver", "accounts", "admin"].some((r) => roles.includes(r));
+  const ownerMayEdit = isOwner && mayEditOwn && existing.status !== "approved";
   if (!isStaff && !ownerMayEdit) {
     return { error: "You can't edit this vendor. Ask Accounts to make the change." };
   }

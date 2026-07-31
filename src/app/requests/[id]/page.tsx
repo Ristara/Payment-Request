@@ -6,6 +6,7 @@ import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
 import { formatDateOnly, formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
+import DeleteRequest from "./delete-request";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
 import DiscussionThread from "./discussion";
@@ -323,10 +324,22 @@ export default async function ThreadDetailPage({
             </div>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-3 sm:flex-col sm:items-end sm:text-right">
-          <MoneyChip label="PO value" value={poValue} />
-          <MoneyChip label="Paid" value={paidTotal} tone="emerald" />
-          <MoneyChip label="Yet to pay" value={yetToPay} tone={yetToPay > 0 ? "amber" : "zinc"} />
+        <div className="sm:text-right">
+          <div className="grid grid-cols-3 gap-3 sm:flex sm:flex-col sm:items-end">
+            <MoneyChip label="PO value" value={poValue} />
+            <MoneyChip label="Paid" value={paidTotal} tone="emerald" />
+            <MoneyChip label="Yet to pay" value={yetToPay} tone={yetToPay > 0 ? "amber" : "zinc"} />
+          </div>
+          {isAdmin && (
+            <div className="mt-3">
+              <DeleteRequest
+                requestId={req.id}
+                requestNumber={shortRequestNumber(req.request_number)}
+                installmentCount={installments.length}
+                paidTotal={paidTotal}
+              />
+            </div>
+          )}
         </div>
       </div>
 
