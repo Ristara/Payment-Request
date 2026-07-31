@@ -57,7 +57,16 @@ export default async function AppLayoutShell({
     ...(canRaise ? [{ href: "/requests/new", label: "Raise", icon: <PlusCircleIcon /> }] : []),
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
     ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
-    ...(isAccounts || isAdmin ? [{ href: "/vendors", label: "Vendors", icon: <VendorIcon />, badge: vendorBadge.count ?? 0 }] : []),
+    // Requesters need to look vendors up and add new ones; the pending-vendor
+    // badge is an Accounts to-do, so it stays with Accounts.
+    ...(canRaise || isStaff
+      ? [{
+          href: "/vendors",
+          label: "Vendors",
+          icon: <VendorIcon />,
+          ...(isAccounts || isAdmin ? { badge: vendorBadge.count ?? 0 } : {}),
+        }]
+      : []),
     ...(isStaff ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }] : []),
   ];
 

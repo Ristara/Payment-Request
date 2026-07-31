@@ -66,7 +66,7 @@ export default async function VendorsPage({
         title="Vendors"
         subtitle={canApproveVendors
           ? "Verify new vendors and manage the master list."
-          : "Approved vendors + your own submissions."}
+          : "Look up a vendor or add a new one. Once Accounts verify a vendor, its details are read-only."}
         action={{ href: "/vendors/new", label: "+ New vendor" }}
       />
 

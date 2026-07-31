@@ -89,7 +89,12 @@ export default async function VendorDetailPage({
   const v = vendorRes.data as unknown as VendorRow;
 
   const isStaff = roles.includes("accounts") || roles.includes("admin");
-  const canEdit = isStaff || (v.submitted_by === user!.id && v.status !== "approved");
+  // A submitter may correct their own vendor right up until Accounts verify
+  // it. After that the record is what payments are sent against, so it becomes
+  // read-only to them — changing it is an Accounts job.
+  const isOwner = v.submitted_by === user!.id;
+  const canEdit = isStaff || (isOwner && v.status !== "approved");
+  const lockedByApproval = !isStaff && isOwner && v.status === "approved";
 
   const allThreads = (threadRes.data ?? []) as unknown as ThreadRow[];
   const truncated = allThreads.length > THREAD_LIMIT;
@@ -156,6 +161,12 @@ export default async function VendorDetailPage({
                 <PencilIcon />
                 Edit
               </Link>
+            )}
+            {lockedByApproval && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                <LockIcon />
+                View only — verified
+              </span>
             )}
           </div>
           <p className="mt-1 text-sm text-zinc-500">
@@ -409,5 +420,14 @@ function VendorStatusPill({ status }: { status: string }) {
     <span className={`rounded-full px-3 py-1 text-xs font-medium ${color}`}>
       {VENDOR_STATUS_LABEL[status] ?? status}
     </span>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <rect x="4" y="10" width="16" height="11" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </svg>
   );
 }
