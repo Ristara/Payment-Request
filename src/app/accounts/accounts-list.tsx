@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { formatINR } from "@/lib/types";
+import { formatINR, formatISTDate } from "@/lib/types";
 import { SearchBox } from "@/app/approvals/approvals-list";
 
 export type AccountsRow = {
@@ -90,7 +90,7 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                           {formatINR(r.amount)}
                         </span>
                       </div>
-                      <p className="mt-2 text-xs text-zinc-500">Due {r.dueDate}</p>
+                      <p className="mt-2 text-xs text-zinc-500">Due {formatISTDate(r.dueDate)}</p>
                     </Link>
                   </li>
                 ))}
@@ -126,7 +126,7 @@ export default function AccountsList({ rows }: { rows: AccountsRow[] }) {
                             {r.notPayable && <NotPayableChip />}
                           </td>
                           <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.amount)}</td>
-                          <td className="px-5 py-2 text-zinc-500">{r.dueDate}</td>
+                          <td className="px-5 py-2 text-zinc-500">{formatISTDate(r.dueDate)}</td>
                         </tr>
                       ))}
                     </tbody>
