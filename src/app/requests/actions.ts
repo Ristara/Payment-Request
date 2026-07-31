@@ -1899,7 +1899,8 @@ export async function queueForBankUpload(
   if (mode === "unqueue") {
     const { data, error } = await admin
       .from("request_installments")
-      .update({ queued_for_upload_at: null, queued_by: null })
+      // The deduction was part of that queuing decision, so it goes too.
+      .update({ queued_for_upload_at: null, queued_by: null, tds_amount: 0, tds_percent: null })
       .in("id", ids)
       .eq("status", "approved")
       .select("id");
@@ -1976,7 +1977,7 @@ export async function queueForBankUpload(
   const { data: rows } = await admin
     .from("request_installments")
     .select(
-      `id, status, request:payment_requests!inner(
+      `id, status, requested_amount, request:payment_requests!inner(
          request_number,
          vendor:vendors(status, bank_account_number, bank_ifsc))`,
     )
@@ -1985,6 +1986,7 @@ export async function queueForBankUpload(
   type Row = {
     id: string;
     status: string;
+    requested_amount: number;
     request: {
       request_number: string;
       vendor: { status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
@@ -2005,14 +2007,36 @@ export async function queueForBankUpload(
   }
 
   if (ok.length > 0) {
-    // Guard on status again in the write itself, so a concurrent un-approval
-    // can't be overtaken between the read above and here.
-    const { error } = await admin
-      .from("request_installments")
-      .update({ queued_for_upload_at: new Date().toISOString(), queued_by: user.id })
-      .in("id", ok)
-      .eq("status", "approved");
-    if (error) return { error: error.message };
+    const now = new Date().toISOString();
+    // TDS is per installment — different vendors, different sections — so
+    // each queued row carries its own figure from the same submit.
+    for (const id of ok) {
+      const row = ((rows ?? []) as unknown as Row[]).find((r) => r.id === id);
+      const raw = String(formData.get(`tds_${id}`) ?? "").trim();
+      const tds = raw === "" ? 0 : Number(raw);
+      if (!Number.isFinite(tds) || tds < 0) {
+        return { error: `TDS for ${shortRequestNumber(row?.request?.request_number)} isn't a valid amount.` };
+      }
+      if (tds > Number(row?.requested_amount ?? 0)) {
+        return {
+          error: `TDS for ${shortRequestNumber(row?.request?.request_number)} is more than the amount approved.`,
+        };
+      }
+      const requested = Number(row?.requested_amount ?? 0);
+      // Guard on status again in the write itself, so a concurrent
+      // un-approval can't be overtaken between the read above and here.
+      const { error } = await admin
+        .from("request_installments")
+        .update({
+          queued_for_upload_at: now,
+          queued_by: user.id,
+          tds_amount: tds,
+          tds_percent: tds > 0 && requested > 0 ? Math.round((tds / requested) * 10000) / 100 : null,
+        })
+        .eq("id", id)
+        .eq("status", "approved");
+      if (error) return { error: error.message };
+    }
   }
 
   revalidatePath("/accounts");

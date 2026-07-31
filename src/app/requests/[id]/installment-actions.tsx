@@ -34,6 +34,7 @@ export default function InstallmentActions({
   isAccounts,
   isAdmin,
   requestedAmount,
+  tdsAmount = 0,
   paymentDueDate,
   dateOfWorkCompletion,
   tentativeInvoiceDate,
@@ -51,6 +52,8 @@ export default function InstallmentActions({
   isAccounts: boolean;
   isAdmin: boolean;
   requestedAmount: number;
+  /** Withheld by Accounts — the vendor is paid the difference. */
+  tdsAmount?: number;
   paymentDueDate: string;
   dateOfWorkCompletion: string | null;
   tentativeInvoiceDate: string | null;
@@ -81,7 +84,10 @@ export default function InstallmentActions({
   const [bankDate, setBankDate] = useState("");
   const [bankRef, setBankRef] = useState("");
   const [payDate, setPayDate] = useState("");
-  const [paidAmt, setPaidAmt] = useState("");
+  // Pre-fill with what should actually have left the bank, so the common
+  // case is a confirmation rather than a re-calculation.
+  const netPayable = Math.max(requestedAmount - tdsAmount, 0);
+  const [paidAmt, setPaidAmt] = useState(String(netPayable));
   const [utr, setUtr] = useState("");
   const [payingAcct, setPayingAcct] = useState("");
   const editAmountNum = Number(editAmount) || 0;
@@ -369,6 +375,11 @@ export default function InstallmentActions({
             </label>
             <label className="text-xs text-zinc-500">
               Amount paid (₹)
+              {tdsAmount > 0 && (
+                <span className="ml-1 text-[10px] text-zinc-400">
+                  approved {formatINR(requestedAmount)} less TDS {formatINR(tdsAmount)}
+                </span>
+              )}
               <input type="number" step="0.01" min="0" name="paid_amount"
                 value={paidAmt}
                 onChange={(e) => setPaidAmt(e.target.value)} required className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900" />

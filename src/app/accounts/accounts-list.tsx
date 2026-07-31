@@ -19,6 +19,8 @@ export type AccountsRow = {
   notPayable: boolean;
   /** Accounts have picked this for the next bank file. */
   queued: boolean;
+  /** Withheld by Accounts; the bank is paid amount - tds. */
+  tds: number;
 };
 
 export type SelectMode = "queue" | "unqueue" | "recall";
@@ -52,6 +54,8 @@ export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: 
     tab === "approved" ? "queue" : tab === "to_upload" ? "unqueue" : tab === "in_bank" ? "recall" : null;
   const selectable = mode !== null;
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Keyed by installment id. Only meaningful while queuing.
+  const [tds, setTds] = useState<Record<string, string>>({});
   const [state, action, pending] = useActionState(queueForBankUpload, undefined);
 
   const toggle = (id: string) =>
@@ -111,6 +115,7 @@ export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: 
                   pending={pending}
                   state={state}
                   mode={mode}
+                  tds={tds}
                 />
               )}
 
@@ -147,6 +152,14 @@ export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: 
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-zinc-500">Due {formatISTDate(r.dueDate)}</p>
+                      {mode !== "queue" && r.tds > 0 && (
+                        <p className="mt-1 text-xs text-zinc-500">
+                          TDS {formatINR(r.tds)} · Net{" "}
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                            {formatINR(r.amount - r.tds)}
+                          </span>
+                        </p>
+                      )}
                     </Link>
                   </li>
                 ))}
@@ -193,6 +206,24 @@ export default function AccountsList({ rows, tab }: { rows: AccountsRow[]; tab: 
                             {r.notPayable && <NotPayableChip />}
                           </td>
                           <td className="px-5 py-2 text-right tabular-nums">{formatINR(r.amount)}</td>
+                          {mode === "queue" && (
+                            <td className="px-2 py-2 text-right">
+                              <TdsCell
+                                row={r}
+                                value={tds[r.id] ?? ""}
+                                onChange={(v) => setTds((p) => ({ ...p, [r.id]: v }))}
+                                disabled={r.notPayable}
+                              />
+                            </td>
+                          )}
+                          {mode !== "queue" && r.tds > 0 && (
+                            <td className="px-2 py-2 text-right text-xs text-zinc-500">
+                              <div>TDS {formatINR(r.tds)}</div>
+                              <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                                Net {formatINR(r.amount - r.tds)}
+                              </div>
+                            </td>
+                          )}
                           <td className="px-5 py-2 text-zinc-500">{formatISTDate(r.dueDate)}</td>
                         </tr>
                       ))}
@@ -235,6 +266,7 @@ function SelectionBar({
   pending,
   state,
   mode,
+  tds,
 }: {
   bucket: AccountsRow[];
   picked: Set<string>;
@@ -243,6 +275,7 @@ function SelectionBar({
   pending: boolean;
   state: { error?: string; info?: string } | undefined;
   mode: SelectMode;
+  tds: Record<string, string>;
 }) {
   // Selecting something the bank file would skip anyway is a dead end, so
   // "select all" takes only what can actually be paid. Only applies when
@@ -250,9 +283,16 @@ function SelectionBar({
   const selectableRows = mode === "queue" ? bucket.filter((r) => !r.notPayable) : bucket;
   const ids = [...picked].filter((id) => bucket.some((r) => r.id === id));
   const allPicked = selectableRows.length > 0 && selectableRows.every((r) => picked.has(r.id));
+  // Show what actually leaves the bank, not what was approved.
   const total = bucket
     .filter((r) => picked.has(r.id))
-    .reduce((sum, r) => sum + r.amount, 0);
+    .reduce((sum, r) => {
+      const withheld = mode === "queue" ? Number(tds[r.id] ?? 0) || 0 : r.tds;
+      return sum + Math.max(r.amount - withheld, 0);
+    }, 0);
+  const withheldTotal = bucket
+    .filter((r) => picked.has(r.id))
+    .reduce((sum, r) => sum + (mode === "queue" ? Number(tds[r.id] ?? 0) || 0 : r.tds), 0);
 
   return (
     <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
@@ -260,6 +300,10 @@ function SelectionBar({
         {ids.map((id) => (
           <input key={id} type="hidden" name="installment_ids" value={id} />
         ))}
+        {mode === "queue" &&
+          ids.map((id) => (
+            <input key={`t-${id}`} type="hidden" name={`tds_${id}`} value={tds[id] ?? ""} />
+          ))}
         <input type="hidden" name="action" value={mode} />
 
         <label className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
@@ -275,7 +319,9 @@ function SelectionBar({
         <span className="text-xs text-zinc-500">
           {ids.length === 0
             ? "Nothing selected"
-            : `${ids.length} selected · ${formatINR(total)}`}
+            : withheldTotal > 0
+              ? `${ids.length} selected · ${formatINR(total)} to pay (TDS ${formatINR(withheldTotal)})`
+              : `${ids.length} selected · ${formatINR(total)}`}
         </span>
 
         <button
@@ -298,6 +344,63 @@ function SelectionBar({
       )}
       {state?.info && (
         <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{state.info}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * TDS withheld on one installment, entered while queuing it.
+ *
+ * A rupee figure rather than a rate: Accounts already have the number from
+ * their own computation, and a percentage would introduce a rounding argument
+ * about what actually gets transferred. The percentage is derived and stored
+ * alongside it for reporting.
+ */
+function TdsCell({
+  row,
+  value,
+  onChange,
+  disabled,
+}: {
+  row: AccountsRow;
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+}) {
+  const withheld = Number(value) || 0;
+  const tooBig = withheld > row.amount;
+  const net = Math.max(row.amount - withheld, 0);
+
+  return (
+    <div className="w-28">
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-zinc-400">TDS ₹</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          max={row.amount}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="0"
+          aria-label={`TDS for ${row.label}`}
+          className={`w-full rounded border px-1.5 py-0.5 text-right text-xs tabular-nums disabled:opacity-40 dark:bg-zinc-900 ${
+            tooBig
+              ? "border-red-400 text-red-700 dark:text-red-300"
+              : "border-zinc-300 dark:border-zinc-700"
+          }`}
+        />
+      </div>
+      {withheld > 0 && (
+        <p
+          className={`mt-0.5 text-[10px] tabular-nums ${
+            tooBig ? "text-red-600 dark:text-red-400" : "text-zinc-500"
+          }`}
+        >
+          {tooBig ? "More than approved" : `Net ${formatINR(net)}`}
+        </p>
       )}
     </div>
   );

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   const { data, error } = await admin
     .from("request_installments")
     .select(
-      `id, installment_number, requested_amount, status,
+      `id, installment_number, requested_amount, tds_amount, status,
        request:payment_requests!inner(
          request_number,
          vendor:vendors(name, status, bank_account_number, bank_ifsc),
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
     id: string;
     installment_number: number;
     requested_amount: number;
+    tds_amount: number | null;
     request: {
       request_number: string;
       vendor: { name: string; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
@@ -64,12 +65,20 @@ export async function POST(req: Request) {
     // Same bar the manual flow applies: an unapproved vendor never gets paid.
     if (!v || v.status !== "approved") continue;
     if (!v.bank_account_number || !v.bank_ifsc) continue;
+    // TDS is withheld by Accounts, so the bank is paid the net. The approved
+    // figure stays untouched — that's what the approver agreed to and what
+    // the PO balance tracks against.
+    const net =
+      Math.round((Number(raw.requested_amount) - Number(raw.tds_amount ?? 0)) * 100) / 100;
+    // Fully withheld leaves nothing to transfer, and a zero-value row would
+    // be rejected by the bank.
+    if (net <= 0) continue;
     ready.push({
       id: raw.id,
       vendorName: v.name,
       vendorIfsc: v.bank_ifsc,
       vendorAccountNumber: v.bank_account_number,
-      amount: Number(raw.requested_amount),
+      amount: net,
       outlet: raw.request.outlets?.[0]?.outlet?.name ?? "",
     });
   }

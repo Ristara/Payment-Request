@@ -50,6 +50,7 @@ type InstallmentRow = {
   id: string;
   installment_number: number;
   requested_amount: number;
+  tds_amount: number | null;
   payment_due_date: string;
   date_of_work_completion: string | null;
   tentative_invoice_date: string | null;
@@ -106,7 +107,7 @@ export default async function ThreadDetailPage({
     supabase
       .from("request_installments")
       .select(
-        `id, installment_number, requested_amount, payment_due_date, date_of_work_completion,
+        `id, installment_number, requested_amount, tds_amount, payment_due_date, date_of_work_completion,
          tentative_invoice_date, purpose, status, submitted_by, submitted_at, approver_id,
          approved_at, rejection_reason, return_reason, cancelled_at, cancellation_reason,
          approver:profiles!request_installments_approver_id_fkey(full_name),
@@ -434,6 +435,14 @@ export default async function ThreadDetailPage({
                       <p className="mt-0.5 font-mono text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                         {formatINR(inst.requested_amount)}
                       </p>
+                      {Number(inst.tds_amount ?? 0) > 0 && (
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          less TDS {formatINR(Number(inst.tds_amount))} · vendor gets{" "}
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                            {formatINR(Number(inst.requested_amount) - Number(inst.tds_amount))}
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <StatusPill status={inst.status} />
                   </div>
@@ -496,6 +505,7 @@ export default async function ThreadDetailPage({
                       isAccounts={isAccounts}
                       isAdmin={isAdmin}
                       requestedAmount={Number(inst.requested_amount)}
+                      tdsAmount={Number(inst.tds_amount ?? 0)}
                       paymentDueDate={inst.payment_due_date}
                       dateOfWorkCompletion={inst.date_of_work_completion}
                       tentativeInvoiceDate={inst.tentative_invoice_date}

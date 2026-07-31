@@ -13,6 +13,7 @@ type Row = {
   payment_due_date: string;
   status: string;
   queued_for_upload_at: string | null;
+  tds_amount: number | null;
   request: {
     id: string;
     request_number: string;
@@ -59,7 +60,7 @@ export default async function AccountsQueuePage({
   let listQuery = supabase
     .from("request_installments")
     .select(
-      `id, installment_number, requested_amount, payment_due_date, status, queued_for_upload_at,
+      `id, installment_number, requested_amount, payment_due_date, status, queued_for_upload_at, tds_amount,
        request:payment_requests!inner(id, request_number, title,
          vendor:vendors(name, status, bank_account_number, bank_ifsc)),
        submitter:profiles!request_installments_submitted_by_fkey(full_name)`,
@@ -111,6 +112,7 @@ export default async function AccountsQueuePage({
     dueDate: r.payment_due_date,
     status: r.status,
     queued: !!r.queued_for_upload_at,
+    tds: Number(r.tds_amount ?? 0),
     // Can't go in a bank file: no account/IFSC, or the vendor was rejected
     // after this was approved.
     notPayable:
