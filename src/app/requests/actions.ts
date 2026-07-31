@@ -711,7 +711,9 @@ async function transitionInstallment(
         actor_id: user.id,
         kind: notifiableKinds[to],
         request_id: inst.request_id,
-        body: `${shortRequestNumber(thread.request_number as string)} · installment #${inst.installment_number} → ${to.replace(/_/g, " ")}`,
+        body: `${shortRequestNumber(thread.request_number as string)} · installment #${inst.installment_number} → ${to.replace(/_/g, " ")}${
+          comment ? ` · ${comment}` : ""
+        }`,
       });
       await sendPushToUsers([thread.submitter_id], {
         title: `${actor?.full_name ?? "Someone"} ${to.replace(/_/g, " ")} installment #${inst.installment_number}`,
@@ -796,13 +798,72 @@ export async function approveInstallment(
     if (submitterId && submitterId === user.id) {
       return { error: "You raised this request — someone else has to approve it." };
     }
-    const inst = await transitionInstallment(installmentId, "approved", null, {
+
+    // An approver may sign off a different figure — trimming to what was
+    // actually delivered, say — rather than bouncing the whole request back.
+    // Blank means "approve what was asked for".
+    const revisedRaw = String(formData.get("revised_amount") ?? "").trim();
+    let amountChange: { from: number; to: number } | null = null;
+    const extra: Record<string, unknown> = {
       approver_id: user.id,
       approved_at: new Date().toISOString(),
-    });
+    };
+
+    if (revisedRaw !== "") {
+      const revised = Number(revisedRaw);
+      if (!Number.isFinite(revised) || revised <= 0) {
+        return { error: "Enter a valid amount to approve." };
+      }
+      const { data: current } = await admin0
+        .from("request_installments")
+        .select("request_id, requested_amount")
+        .eq("id", installmentId)
+        .single();
+      const was = Number((current as { requested_amount: number }).requested_amount);
+
+      if (Math.abs(revised - was) > 0.005) {
+        // Same balance guard the other amount-changing paths use: the PO
+        // value minus every other live installment.
+        const requestId = (current as { request_id: string }).request_id;
+        const [linesRes, instRes] = await Promise.all([
+          admin0.from("request_line_items").select("quantity, rate").eq("request_id", requestId),
+          admin0.from("request_installments").select("id, requested_amount, status").eq("request_id", requestId),
+        ]);
+        const poValue =
+          Math.round(
+            (linesRes.data ?? []).reduce((sum, l) => sum + Number(l.quantity) * Number(l.rate), 0) * 100,
+          ) / 100;
+        const othersRequested = (instRes.data ?? [])
+          .filter((i) => i.id !== installmentId && !["cancelled", "rejected", "draft"].includes(i.status as string))
+          .reduce((sum, i) => sum + Number(i.requested_amount), 0);
+        const remaining = Math.round((poValue - othersRequested) * 100) / 100;
+        if (revised - remaining > 0.005) {
+          return {
+            error: `Only ${formatExactAmount(remaining)} available on this PO (${formatExactAmount(poValue)} total, ${formatExactAmount(othersRequested)} on other installments).`,
+          };
+        }
+        extra.requested_amount = revised;
+        amountChange = { from: was, to: revised };
+      }
+    }
+
+    const inst = await transitionInstallment(
+      installmentId,
+      "approved",
+      // Goes into the history entry AND the submitter's notification, so a
+      // changed amount can't be approved quietly.
+      amountChange
+        ? `Approved at ${formatExactAmount(amountChange.to)} — reduced from the ${formatExactAmount(amountChange.from)} requested`
+        : null,
+      extra,
+    );
     revalidatePath(`/requests/${inst.request_id}`);
     revalidatePath("/approvals");
-    return { info: "Approved." };
+    return {
+      info: amountChange
+        ? `Approved at ${formatExactAmount(amountChange.to)} — the submitter has been told it changed.`
+        : "Approved.",
+    };
   } catch (e) {
     return { error: (e as Error).message };
   }

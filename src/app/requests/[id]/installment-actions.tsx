@@ -80,7 +80,7 @@ export default function InstallmentActions({
   const [submitState, submitAction, submitPending] = useActionState(submitDraftInstallment, undefined);
   const [dropState, dropAction, dropPending] = useActionState(deleteDraftInstallment, undefined);
 
-  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit" | "tds">(null);
+  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit" | "tds" | "amend">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
   // Every field lives in state: React resets the form when an action runs,
   // so anything uncontrolled is wiped the moment the server rejects it.
@@ -97,6 +97,7 @@ export default function InstallmentActions({
   const [tdsState, tdsAction, tdsPending] = useActionState(setInstallmentTds, undefined);
   const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
   const [tdsInput, setTdsInput] = useState(tdsAmount ? String(tdsAmount) : "");
+  const [revisedAmt, setRevisedAmt] = useState(String(requestedAmount));
   const [paidAmt, setPaidAmt] = useState(String(netPayable));
   // Saving TDS re-renders this component with a new net, but useState keeps
   // its first value — without this the recorded payment would be the pre-TDS
@@ -256,6 +257,15 @@ export default function InstallmentActions({
             </button>
           </form>
         )}
+        {canApprove && (
+          <button
+            type="button"
+            onClick={() => setOpen(open === "amend" ? null : "amend")}
+            className="rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:bg-zinc-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+          >
+            Approve a different amount
+          </button>
+        )}
         {canReject && (
           <button onClick={() => setOpen(open === "reject" ? null : "reject")} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">
             Reject
@@ -408,6 +418,61 @@ export default function InstallmentActions({
 
       {open === "reject" && (
         <ReasonBox action={rejectAction} pending={rejectPending} installmentId={installmentId} label="Reason for rejection" submit="Reject" tone="red" />
+      )}
+
+      {open === "amend" && (
+        <form action={approveAction} className="mt-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+          <input type="hidden" name="installment_id" value={installmentId} />
+          <p className="text-xs text-emerald-900 dark:text-emerald-200">
+            Approve less than was asked for — for part delivery, or a correction —
+            without sending the whole request back.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="text-xs text-zinc-500">
+              Approve this amount (₹)
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={maxAmount}
+                name="revised_amount"
+                value={revisedAmt}
+                onChange={(e) => setRevisedAmt(e.target.value)}
+                required
+                className="mt-1 w-40 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </label>
+            <p className="pb-1.5 text-xs text-zinc-500">
+              Requested {formatINR(requestedAmount)}
+              {Number(revisedAmt) > 0 && Math.abs(Number(revisedAmt) - requestedAmount) > 0.005 && (
+                <span className="ml-1 font-medium text-emerald-700 dark:text-emerald-300">
+                  → {formatINR(Number(revisedAmt))}
+                </span>
+              )}
+            </p>
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            {Number(revisedAmt) > 0 && Math.abs(Number(revisedAmt) - requestedAmount) > 0.005
+              ? "The submitter is notified that you changed it, and the change is recorded on the timeline."
+              : "Same as requested — this approves it unchanged."}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="submit"
+              disabled={approvePending}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {approvePending ? "Approving…" : "Approve"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setOpen(null); setRevisedAmt(String(requestedAmount)); }}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
 
       {open === "tds" && (
