@@ -428,9 +428,15 @@ export default function RequestForm({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                <th className="px-2 py-2 font-medium">COA · Category · Subcategory</th>
-                <th className="px-2 py-2 text-right font-medium w-24">Qty</th>
-                <th className="px-2 py-2 text-right font-medium w-32">Rate (₹)</th>
+                <th className="px-2 py-2 font-medium">
+                  COA · Category · Subcategory <span className="text-red-500">*</span>
+                </th>
+                <th className="px-2 py-2 text-right font-medium w-24">
+                  Qty <span className="text-red-500">*</span>
+                </th>
+                <th className="px-2 py-2 text-right font-medium w-32">
+                  Rate (₹) <span className="text-red-500">*</span>
+                </th>
                 <th className="px-2 py-2 text-right font-medium w-32">Amount</th>
                 <th className="px-1 py-2 w-8" />
               </tr>
@@ -625,7 +631,9 @@ export default function RequestForm({
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Qty</label>
+                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                      Qty <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -638,7 +646,9 @@ export default function RequestForm({
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Rate (₹)</label>
+                    <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                      Rate (₹) <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -782,7 +792,7 @@ export default function RequestForm({
 
       {/* Purpose */}
       <section>
-        <SectionTitle>Purpose / description</SectionTitle>
+        <SectionTitle required>Purpose / description</SectionTitle>
         <textarea
           name="purpose"
             value={purpose}
