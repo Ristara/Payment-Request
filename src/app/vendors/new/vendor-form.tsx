@@ -3,11 +3,16 @@
 import { useActionState, useState } from "react";
 import { createVendor } from "@/app/vendors/actions";
 import PersistentFileInput from "@/components/PersistentFileInput";
+import { panFromGstin } from "@/lib/gstin";
 
 export default function VendorForm() {
   const [state, formAction, pending] = useActionState(createVendor, undefined);
   const [isGstRegistered, setIsGstRegistered] = useState(true);
   const [gstin, setGstin] = useState("");
+  // Only used when there's no GSTIN to take the PAN from.
+  const [panTyped, setPanTyped] = useState("");
+  const derivedPan = panFromGstin(gstin);
+  const pan = isGstRegistered ? derivedPan : panTyped;
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
 
@@ -69,7 +74,7 @@ export default function VendorForm() {
           <input
             name="gstin"
               value={gstin}
-              onChange={(e) => setGstin(e.target.value)}
+              onChange={(e) => setGstin(e.target.value.toUpperCase())}
             required={isGstRegistered}
             disabled={!isGstRegistered}
             placeholder={isGstRegistered ? "22AAAAA0000A1Z5" : "Not applicable"}
@@ -83,7 +88,29 @@ export default function VendorForm() {
             </p>
           )}
         </div>
-        <Field label="PAN" name="pan" required placeholder="AAAAA0000A" mono />
+        <div>
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            PAN <span className="ml-0.5 text-red-500">*</span>
+          </label>
+          <input
+            name="pan"
+            value={pan}
+            onChange={(e) => setPanTyped(e.target.value.toUpperCase())}
+            required
+            readOnly={isGstRegistered}
+            placeholder={isGstRegistered ? "Fills in from the GSTIN" : "AAAAA0000A"}
+            className={`mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm dark:border-zinc-700 dark:bg-zinc-900 ${
+              isGstRegistered ? "cursor-not-allowed bg-zinc-50 text-zinc-600 dark:bg-zinc-950 dark:text-zinc-400" : ""
+            }`}
+          />
+          {isGstRegistered && (
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {derivedPan
+                ? "Taken from characters 3-12 of the GSTIN."
+                : "Enter the GSTIN and this fills itself in."}
+            </p>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>

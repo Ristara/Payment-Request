@@ -7,11 +7,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
 import { getCurrentUserRoles } from "@/lib/auth";
 import { oversizedFile } from "@/lib/uploads";
+import { GSTIN_RE, PAN_RE, panFromGstin } from "@/lib/gstin";
 
 export type VendorState = { error?: string; info?: string } | undefined;
 
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 // Indian mobile: 10 digits starting 6-9, with optional +91 / 91 / 0 prefix.
 const PHONE_RE = /^(?:\+91|91|0)?[6-9][0-9]{9}$/;
@@ -38,7 +38,11 @@ export async function createVendor(
   const is_gst_registered = formData.get("is_gst_registered") !== "no";
   const gstinRaw = String(formData.get("gstin") ?? "").trim().toUpperCase();
   const gstin = is_gst_registered ? gstinRaw : null;
-  const pan = String(formData.get("pan") ?? "").trim().toUpperCase();
+  // The PAN is characters 3-12 of the GSTIN, so it's derived, not trusted —
+  // the form fills it in read-only and this makes a crafted POST agree.
+  const pan = is_gst_registered
+    ? panFromGstin(gstinRaw)
+    : String(formData.get("pan") ?? "").trim().toUpperCase();
   const bank_account_number_raw = String(formData.get("bank_account_number") ?? "").trim();
   const bank_ifsc_raw = String(formData.get("bank_ifsc") ?? "").trim().toUpperCase();
   const bank_account_number = bank_account_number_raw || null;
@@ -285,7 +289,11 @@ export async function updateVendor(
   const is_gst_registered = formData.get("is_gst_registered") !== "no";
   const gstinRaw = String(formData.get("gstin") ?? "").trim().toUpperCase();
   const gstin = is_gst_registered ? gstinRaw : null;
-  const pan = String(formData.get("pan") ?? "").trim().toUpperCase();
+  // The PAN is characters 3-12 of the GSTIN, so it's derived, not trusted —
+  // the form fills it in read-only and this makes a crafted POST agree.
+  const pan = is_gst_registered
+    ? panFromGstin(gstinRaw)
+    : String(formData.get("pan") ?? "").trim().toUpperCase();
   const phoneRaw = String(formData.get("phone") ?? "").replace(/[\s-]/g, "");
   const email = String(formData.get("email") ?? "").trim().toLowerCase() || null;
   const bank_account_number = String(formData.get("bank_account_number") ?? "").trim() || null;

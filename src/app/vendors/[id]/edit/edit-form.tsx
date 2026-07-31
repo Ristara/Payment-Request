@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { updateVendor } from "@/app/vendors/actions";
+import { panFromGstin } from "@/lib/gstin";
 
 export type EditableVendor = {
   id: string;
@@ -33,6 +34,10 @@ export default function VendorEditForm({ vendor }: { vendor: EditableVendor }) {
     bank_name: vendor.bank_name ?? "",
     bank_branch: vendor.bank_branch ?? "",
   });
+  // The GSTIN already contains the PAN, so it's derived rather than typed
+  // whenever there is one. f.pan stays the source of truth for the no-GST case.
+  const derivedPan = panFromGstin(f.gstin);
+  const pan = isGstRegistered ? derivedPan : f.pan;
   const set = (k: keyof typeof f) => (value: string) => setF((p) => ({ ...p, [k]: value }));
 
   return (
@@ -78,12 +83,35 @@ export default function VendorEditForm({ vendor }: { vendor: EditableVendor }) {
             label="GSTIN"
             name="gstin"
             required
-            value={f.gstin} onChange={set("gstin")}
+            value={f.gstin}
+            onChange={(v) => setF((p) => ({ ...p, gstin: v.toUpperCase() }))}
             placeholder="29AAAAA0000A1Z5"
             mono
           />
         )}
-        <Field label="PAN" name="pan" required value={f.pan} onChange={set("pan")} placeholder="AAAAA0000A" mono />
+        <div>
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            PAN <span className="text-red-500"> *</span>
+          </label>
+          <input
+            name="pan"
+            value={pan}
+            onChange={(e) => setF((p) => ({ ...p, pan: e.target.value.toUpperCase() }))}
+            required
+            readOnly={isGstRegistered}
+            placeholder={isGstRegistered ? "Fills in from the GSTIN" : "AAAAA0000A"}
+            className={`mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm dark:border-zinc-700 dark:bg-zinc-900 ${
+              isGstRegistered ? "cursor-not-allowed bg-zinc-50 text-zinc-600 dark:bg-zinc-950 dark:text-zinc-400" : ""
+            }`}
+          />
+          {isGstRegistered && (
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {derivedPan
+                ? "Taken from characters 3-12 of the GSTIN."
+                : "Enter the GSTIN and this fills itself in."}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
