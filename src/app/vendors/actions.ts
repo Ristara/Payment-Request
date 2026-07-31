@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
 import { getCurrentUserRoles } from "@/lib/auth";
+import { oversizedFile } from "@/lib/uploads";
 
 export type VendorState = { error?: string; info?: string } | undefined;
 
@@ -93,6 +94,8 @@ export async function createVendor(
 
   // Upload cheque if provided
   if (cheque instanceof File && cheque.size > 0) {
+    const oversized = oversizedFile([cheque]);
+    if (oversized) return { error: oversized };
     const safe = cheque.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const path = `${vendorId}/${Date.now()}-${safe}`;
     const buf = await cheque.arrayBuffer();

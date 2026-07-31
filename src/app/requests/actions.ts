@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
 import { computeRollupIds } from "@/lib/coa";
 import { invalidateMasters } from "@/lib/cache";
+import { oversizedFile } from "@/lib/uploads";
 import { shortRequestNumber } from "@/lib/types";
 
 export type RequestState = { error?: string; info?: string } | undefined;
@@ -218,6 +219,8 @@ export async function createThread(
   }
   const purpose = String(formData.get("purpose") ?? "").trim();
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const oversized = oversizedFile(files);
+  if (oversized) return { error: oversized };
   let ccUserIds: string[] = [];
   try {
     ccUserIds = JSON.parse(String(formData.get("cc_user_ids") ?? "[]")) as string[];
@@ -371,7 +374,10 @@ export async function createThread(
       const { error: uploadErr } = await admin.storage
         .from("request-attachments")
         .upload(path, buf, { contentType: file.type || "application/octet-stream" });
-      if (uploadErr) continue;
+      if (uploadErr) {
+        console.error("attachment upload failed", { path, message: uploadErr.message });
+        continue;
+      }
       rows.push({
         request_id: requestId,
         stage: "request",
@@ -440,6 +446,8 @@ export async function raiseInstallment(
   const noteRaw = String(formData.get("purpose") ?? "").trim();
   const purposeNote = noteRaw || null;
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const oversized = oversizedFile(files);
+  if (oversized) return { error: oversized };
 
   if (!requestId) return { error: "Missing thread." };
   if (!requestedAmount || requestedAmount <= 0) return { error: "Installment amount must be positive." };
@@ -516,7 +524,10 @@ export async function raiseInstallment(
       const { error: uploadErr } = await admin.storage
         .from("request-attachments")
         .upload(path, buf, { contentType: file.type || "application/octet-stream" });
-      if (uploadErr) continue;
+      if (uploadErr) {
+        console.error("attachment upload failed", { path, message: uploadErr.message });
+        continue;
+      }
       rows.push({
         request_id: requestId,
         stage: "request",
@@ -752,6 +763,8 @@ export async function editAndResubmitInstallment(
   const note = String(formData.get("purpose") ?? "").trim() || null;
   const tentativeInvoiceDate = String(formData.get("tentative_invoice_date") ?? "").trim() || null;
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const oversized = oversizedFile(files);
+  if (oversized) return { error: oversized };
 
   if (!installmentId) return { error: "Missing installment." };
   if (!requestedAmount || requestedAmount <= 0) return { error: "Amount must be positive." };
@@ -841,7 +854,10 @@ export async function editAndResubmitInstallment(
       const { error: uploadErr } = await admin.storage
         .from("request-attachments")
         .upload(path, buf, { contentType: file.type || "application/octet-stream" });
-      if (uploadErr) continue;
+      if (uploadErr) {
+        console.error("attachment upload failed", { path, message: uploadErr.message });
+        continue;
+      }
       rows.push({
         request_id: inst.request_id,
         stage: "request",
@@ -1016,6 +1032,8 @@ export async function markInstallmentPaid(
   const utr_reference = String(formData.get("utr_reference") ?? "").trim();
   const paying_bank_account = String(formData.get("paying_bank_account") ?? "").trim() || null;
   const proof = formData.get("proof");
+  const oversizedProof = oversizedFile([proof]);
+  if (oversizedProof) return { error: oversizedProof };
   if (!installmentId || !payment_date || !paid_amount || !utr_reference) {
     return { error: "Payment date, amount, and UTR are all required." };
   }
@@ -1107,6 +1125,8 @@ export async function uploadInstallmentInvoice(
   if (!installmentId || !(invoice instanceof File) || invoice.size === 0) {
     return { error: "Pick an invoice file." };
   }
+  const oversizedInvoice = oversizedFile([invoice]);
+  if (oversizedInvoice) return { error: oversizedInvoice };
 
   const admin = createAdminClient();
   const supabase = await createClient();
@@ -1559,6 +1579,8 @@ export async function addComment(
   const body = String(formData.get("body") ?? "").trim();
   const mentions = formData.getAll("mentions").map((s) => String(s)).filter(Boolean);
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const oversized = oversizedFile(files);
+  if (oversized) return { error: oversized };
 
   if (!requestId) return { error: "Missing request." };
   if (!body && files.length === 0) return { error: "Type a message or attach a file." };
@@ -1629,7 +1651,10 @@ export async function addComment(
       const { error: uploadErr } = await admin.storage
         .from("request-attachments")
         .upload(path, buf, { contentType: f.type || "application/octet-stream" });
-      if (uploadErr) continue;
+      if (uploadErr) {
+        console.error("attachment upload failed", { path, message: uploadErr.message });
+        continue;
+      }
       rows.push({
         comment_id: commentId,
         stage: "comment",
