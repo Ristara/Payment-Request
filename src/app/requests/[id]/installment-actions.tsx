@@ -4,6 +4,8 @@ import Link from "next/link";
 import PersistentFileInput from "@/components/PersistentFileInput";
 import { useActionState, useState } from "react";
 import {
+  queueForBankUpload,
+  setInstallmentTds,
   approveInstallment,
   rejectInstallment,
   editAndResubmitInstallment,
@@ -35,6 +37,8 @@ export default function InstallmentActions({
   isAdmin,
   requestedAmount,
   tdsAmount = 0,
+  tdsSection = null,
+  queuedForUpload = false,
   paymentDueDate,
   dateOfWorkCompletion,
   tentativeInvoiceDate,
@@ -54,6 +58,9 @@ export default function InstallmentActions({
   requestedAmount: number;
   /** Withheld by Accounts — the vendor is paid the difference. */
   tdsAmount?: number;
+  tdsSection?: string | null;
+  /** Already picked by Accounts for the next bank file. */
+  queuedForUpload?: boolean;
   paymentDueDate: string;
   dateOfWorkCompletion: string | null;
   tentativeInvoiceDate: string | null;
@@ -73,7 +80,7 @@ export default function InstallmentActions({
   const [submitState, submitAction, submitPending] = useActionState(submitDraftInstallment, undefined);
   const [dropState, dropAction, dropPending] = useActionState(deleteDraftInstallment, undefined);
 
-  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit">(null);
+  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit" | "tds">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
   // Every field lives in state: React resets the form when an action runs,
   // so anything uncontrolled is wiped the moment the server rejects it.
@@ -87,6 +94,9 @@ export default function InstallmentActions({
   // Pre-fill with what should actually have left the bank, so the common
   // case is a confirmation rather than a re-calculation.
   const netPayable = Math.max(requestedAmount - tdsAmount, 0);
+  const [tdsState, tdsAction, tdsPending] = useActionState(setInstallmentTds, undefined);
+  const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
+  const [tdsInput, setTdsInput] = useState(tdsAmount ? String(tdsAmount) : "");
   const [paidAmt, setPaidAmt] = useState(String(netPayable));
   const [utr, setUtr] = useState("");
   const [payingAcct, setPayingAcct] = useState("");
@@ -107,6 +117,12 @@ export default function InstallmentActions({
     ["pending_approval", "clarification_required"].includes(status) &&
     vendorStatus !== "approved";
   const canBankUpload = (isAccounts || isAdmin) && status === "approved";
+  // Withholding is decided before the money leaves; after that the bank has
+  // already been told an amount.
+  const canSetTds = (isAccounts || isAdmin) && status === "approved";
+  // The same queue the Accounts list drives, reachable from the request
+  // itself — that's where you are when you've just checked the invoice.
+  const canQueue = (isAccounts || isAdmin) && status === "approved";
   const canMarkPaid = (isAccounts || isAdmin) && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = (isAccounts || isAdmin) && ["invoice_pending", "payment_processed"].includes(status);
@@ -119,7 +135,7 @@ export default function InstallmentActions({
   const canSubmitDraft = isSubmitter && status === "draft";
 
   if (
-    !canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice &&
+    !canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canSetTds && !canQueue &&
     !canClose && !canEditResubmit && !canRecall && !canUnapprove && !canSubmitDraft
   ) {
     return null;
@@ -144,6 +160,20 @@ export default function InstallmentActions({
           <Link href={`/vendors/${vendorId}`} className="font-medium underline">
             Open vendor
           </Link>
+        </p>
+      )}
+      {queuedForUpload && (
+        <p className="mb-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          Queued for the next bank file.
+        </p>
+      )}
+      {(queueState?.info || queueState?.error) && (
+        <p
+          className={`mb-2 text-xs font-medium ${
+            queueState.error ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"
+          }`}
+        >
+          {queueState.error ?? queueState.info}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
@@ -224,6 +254,36 @@ export default function InstallmentActions({
           <button onClick={() => setOpen(open === "reject" ? null : "reject")} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">
             Reject
           </button>
+        )}
+        {canSetTds && (
+          <button
+            type="button"
+            onClick={() => setOpen(open === "tds" ? null : "tds")}
+            className="rounded-md border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-zinc-900 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+          >
+            {tdsAmount > 0 ? `TDS ${formatINR(tdsAmount)}` : "Deduct TDS"}
+          </button>
+        )}
+        {canQueue && (
+          <form action={queueAction}>
+            <input type="hidden" name="installment_ids" value={installmentId} />
+            <input type="hidden" name="action" value={queuedForUpload ? "unqueue" : "queue"} />
+            <button
+              type="submit"
+              disabled={queuePending}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                queuedForUpload
+                  ? "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                  : "bg-indigo-600 text-white hover:bg-indigo-700"
+              }`}
+            >
+              {queuePending
+                ? "Moving…"
+                : queuedForUpload
+                  ? "Remove from To upload"
+                  : "Move to To upload"}
+            </button>
+          </form>
         )}
         {canBankUpload && (
           <button onClick={() => setOpen(open === "bank" ? null : "bank")} className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
@@ -342,6 +402,71 @@ export default function InstallmentActions({
 
       {open === "reject" && (
         <ReasonBox action={rejectAction} pending={rejectPending} installmentId={installmentId} label="Reason for rejection" submit="Reject" tone="red" />
+      )}
+
+      {open === "tds" && (
+        <form action={tdsAction} className="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <input type="hidden" name="installment_id" value={installmentId} />
+          <p className="text-xs text-zinc-500">
+            Withheld from this payment. The {formatINR(requestedAmount)}{" "}
+            approved doesn&apos;t change — the vendor is paid the difference.
+          </p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="text-xs text-zinc-500">
+              TDS amount (₹)
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max={requestedAmount}
+                name="tds_amount"
+                value={tdsInput}
+                onChange={(e) => setTdsInput(e.target.value)}
+                placeholder="0.00"
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </label>
+            <label className="text-xs text-zinc-500">
+              Section (optional)
+              <input
+                name="tds_section"
+                defaultValue={tdsSection ?? ""}
+                placeholder="194C"
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </label>
+            <div className="text-xs text-zinc-500 sm:self-end sm:pb-1.5">
+              Vendor gets{" "}
+              <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                {formatINR(Math.max(requestedAmount - (Number(tdsInput) || 0), 0))}
+              </span>
+            </div>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={tdsPending}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {tdsPending ? "Saving…" : "Save TDS"}
+            </button>
+            {tdsAmount > 0 && (
+              <button
+                type="button"
+                onClick={() => setTdsInput("0")}
+                className="text-xs text-zinc-500 hover:underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {tdsState?.error && (
+            <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{tdsState.error}</p>
+          )}
+          {tdsState?.info && (
+            <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{tdsState.info}</p>
+          )}
+        </form>
       )}
 
       {open === "bank" && (

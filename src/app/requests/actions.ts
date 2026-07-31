@@ -1899,8 +1899,9 @@ export async function queueForBankUpload(
   if (mode === "unqueue") {
     const { data, error } = await admin
       .from("request_installments")
-      // The deduction was part of that queuing decision, so it goes too.
-      .update({ queued_for_upload_at: null, queued_by: null, tds_amount: 0, tds_percent: null })
+      // TDS is set on the request page and survives this — it's a decision
+      // about the invoice, not about which run the payment goes out in.
+      .update({ queued_for_upload_at: null, queued_by: null })
       .in("id", ids)
       .eq("status", "approved")
       .select("id");
@@ -1977,7 +1978,7 @@ export async function queueForBankUpload(
   const { data: rows } = await admin
     .from("request_installments")
     .select(
-      `id, status, requested_amount, request:payment_requests!inner(
+      `id, status, request:payment_requests!inner(
          request_number,
          vendor:vendors(status, bank_account_number, bank_ifsc))`,
     )
@@ -1986,7 +1987,6 @@ export async function queueForBankUpload(
   type Row = {
     id: string;
     status: string;
-    requested_amount: number;
     request: {
       request_number: string;
       vendor: { status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
@@ -2007,36 +2007,14 @@ export async function queueForBankUpload(
   }
 
   if (ok.length > 0) {
-    const now = new Date().toISOString();
-    // TDS is per installment — different vendors, different sections — so
-    // each queued row carries its own figure from the same submit.
-    for (const id of ok) {
-      const row = ((rows ?? []) as unknown as Row[]).find((r) => r.id === id);
-      const raw = String(formData.get(`tds_${id}`) ?? "").trim();
-      const tds = raw === "" ? 0 : Number(raw);
-      if (!Number.isFinite(tds) || tds < 0) {
-        return { error: `TDS for ${shortRequestNumber(row?.request?.request_number)} isn't a valid amount.` };
-      }
-      if (tds > Number(row?.requested_amount ?? 0)) {
-        return {
-          error: `TDS for ${shortRequestNumber(row?.request?.request_number)} is more than the amount approved.`,
-        };
-      }
-      const requested = Number(row?.requested_amount ?? 0);
-      // Guard on status again in the write itself, so a concurrent
-      // un-approval can't be overtaken between the read above and here.
-      const { error } = await admin
-        .from("request_installments")
-        .update({
-          queued_for_upload_at: now,
-          queued_by: user.id,
-          tds_amount: tds,
-          tds_percent: tds > 0 && requested > 0 ? Math.round((tds / requested) * 10000) / 100 : null,
-        })
-        .eq("id", id)
-        .eq("status", "approved");
-      if (error) return { error: error.message };
-    }
+    // Guard on status again in the write itself, so a concurrent un-approval
+    // can't be overtaken between the read above and here.
+    const { error } = await admin
+      .from("request_installments")
+      .update({ queued_for_upload_at: new Date().toISOString(), queued_by: user.id })
+      .in("id", ok)
+      .eq("status", "approved");
+    if (error) return { error: error.message };
   }
 
   revalidatePath("/accounts");
@@ -2046,4 +2024,62 @@ export async function queueForBankUpload(
     };
   }
   return { info: `${ok.length} moved to To upload.` };
+}
+
+/**
+ * TDS withheld on one installment, set by Accounts on the request page.
+ *
+ * Only while the installment is still approved — once it is in a bank file
+ * the amount has already gone, and changing the deduction after the fact
+ * would make the record disagree with what the bank was told.
+ */
+export async function setInstallmentTds(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const installmentId = String(formData.get("installment_id") ?? "");
+  const raw = String(formData.get("tds_amount") ?? "").trim();
+  if (!installmentId) return { error: "Missing installment." };
+
+  try {
+    await requireRole("accounts", "admin");
+  } catch {
+    return { error: "Only Accounts can set TDS." };
+  }
+
+  const tds = raw === "" ? 0 : Number(raw);
+  if (!Number.isFinite(tds) || tds < 0) return { error: "Enter a valid TDS amount." };
+
+  const admin = createAdminClient();
+  const { data: inst } = await admin
+    .from("request_installments")
+    .select("id, request_id, status, requested_amount")
+    .eq("id", installmentId)
+    .maybeSingle();
+  if (!inst) return { error: "Installment not found." };
+
+  const requested = Number((inst as { requested_amount: number }).requested_amount);
+  if (tds > requested) {
+    return { error: `TDS can't be more than the ${formatExactAmount(requested)} approved.` };
+  }
+  if ((inst as { status: string }).status !== "approved") {
+    return { error: "TDS can only be set before the payment goes to the bank." };
+  }
+
+  const { error } = await admin
+    .from("request_installments")
+    .update({
+      tds_amount: tds,
+      tds_percent: tds > 0 && requested > 0 ? Math.round((tds / requested) * 10000) / 100 : null,
+      tds_section: String(formData.get("tds_section") ?? "").trim() || null,
+    })
+    .eq("id", installmentId)
+    .eq("status", "approved");
+  if (error) return { error: error.message };
+
+  revalidatePath(`/requests/${(inst as { request_id: string }).request_id}`);
+  revalidatePath("/accounts");
+  return {
+    info: tds > 0 ? `TDS set — vendor gets ${formatExactAmount(requested - tds)}.` : "TDS cleared.",
+  };
 }

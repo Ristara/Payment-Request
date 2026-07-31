@@ -51,6 +51,8 @@ type InstallmentRow = {
   installment_number: number;
   requested_amount: number;
   tds_amount: number | null;
+  tds_section: string | null;
+  queued_for_upload_at: string | null;
   payment_due_date: string;
   date_of_work_completion: string | null;
   tentative_invoice_date: string | null;
@@ -107,7 +109,7 @@ export default async function ThreadDetailPage({
     supabase
       .from("request_installments")
       .select(
-        `id, installment_number, requested_amount, tds_amount, payment_due_date, date_of_work_completion,
+        `id, installment_number, requested_amount, tds_amount, tds_section, queued_for_upload_at, payment_due_date, date_of_work_completion,
          tentative_invoice_date, purpose, status, submitted_by, submitted_at, approver_id,
          approved_at, rejection_reason, return_reason, cancelled_at, cancellation_reason,
          approver:profiles!request_installments_approver_id_fkey(full_name),
@@ -506,6 +508,8 @@ export default async function ThreadDetailPage({
                       isAdmin={isAdmin}
                       requestedAmount={Number(inst.requested_amount)}
                       tdsAmount={Number(inst.tds_amount ?? 0)}
+                      tdsSection={inst.tds_section}
+                      queuedForUpload={!!inst.queued_for_upload_at}
                       paymentDueDate={inst.payment_due_date}
                       dateOfWorkCompletion={inst.date_of_work_completion}
                       tentativeInvoiceDate={inst.tentative_invoice_date}
