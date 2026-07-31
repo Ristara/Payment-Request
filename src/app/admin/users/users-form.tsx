@@ -155,7 +155,7 @@ export default function UsersForm({
               <th className="px-5 py-3">Email</th>
               <th className="px-5 py-3">Roles</th>
               <th className="px-5 py-3">Assign role</th>
-              <th className="px-5 py-3">Account</th>
+              <th className="px-5 py-3">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -179,11 +179,6 @@ export default function UsersForm({
                   >
                     <td className="px-5 py-3 font-medium text-zinc-900 dark:text-zinc-100">
                       {u.full_name}
-                      {!u.is_active && (
-                        <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                          Turned off
-                        </span>
-                      )}
                     </td>
                     <td className="px-5 py-3 text-zinc-500">{u.email}</td>
                     <td className="px-5 py-3">
@@ -268,12 +263,13 @@ function AccountCell({
     return (
       <form action={onAction}>
         <input type="hidden" name="user_id" value={user.id} />
+        <p className="mb-1 text-[11px] font-medium text-zinc-500">Inactive</p>
         <button
           type="submit"
           disabled={onPending}
           className="rounded-md border border-emerald-300 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
         >
-          {onPending ? "Turning on…" : "Turn back on"}
+          {onPending ? "Activating…" : "Make active"}
         </button>
         {onState?.error && <p className="mt-1 text-[11px] text-red-600">{onState.error}</p>}
       </form>
@@ -281,18 +277,24 @@ function AccountCell({
   }
 
   if (isSelf) {
-    return <span className="text-[11px] text-zinc-400">You</span>;
+    return (
+      <div>
+        <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Active</p>
+        <p className="text-[11px] text-zinc-400">You</p>
+      </div>
+    );
   }
 
   if (!confirming) {
     return (
       <div>
+        <p className="mb-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Active</p>
         <button
           type="button"
           onClick={() => setConfirming(true)}
           className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
-          Turn off
+          Make inactive
         </button>
         {open.length > 0 && (
           <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
@@ -311,7 +313,7 @@ function AccountCell({
       <input type="hidden" name="user_id" value={user.id} />
       <input type="hidden" name="delete_open" value={deleteOpen ? "true" : "false"} />
       <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-        Turn off {user.full_name}?
+        Make {user.full_name} inactive?
       </p>
       <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">
         They won&apos;t be able to sign in, and all their roles are removed.
@@ -363,7 +365,7 @@ function AccountCell({
           disabled={offPending}
           className="rounded-md bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-60"
         >
-          {offPending ? "Turning off…" : deleteOpen ? "Turn off & delete" : "Turn off"}
+          {offPending ? "Saving…" : deleteOpen ? "Make inactive & delete" : "Make inactive"}
         </button>
         <button
           type="button"

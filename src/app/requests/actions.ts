@@ -47,7 +47,7 @@ async function cannotRaise(
     supabase.from("profiles").select("is_active").eq("id", userId).maybeSingle(),
   ]);
   if ((profile as { is_active?: boolean } | null)?.is_active === false) {
-    return "Your access has been turned off. Contact an admin.";
+    return "Your account is inactive. Contact an admin.";
   }
   const roles = new Set(((data ?? []) as { role: string }[]).map((r) => r.role));
   if (roles.has("requester") || roles.has("admin")) return null;
@@ -76,7 +76,7 @@ async function currentUserOrThrow() {
     .eq("id", user.id)
     .maybeSingle();
   if ((profile as { is_active?: boolean } | null)?.is_active === false) {
-    throw new Error("Your access has been turned off. Contact an admin.");
+    throw new Error("Your account is inactive. Contact an admin.");
   }
   return { supabase, user };
 }

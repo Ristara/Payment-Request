@@ -26,7 +26,7 @@ async function requireAdmin() {
     supabase.from("profiles").select("email, is_active").eq("id", user.id).maybeSingle(),
   ]);
   const prof = profile as { email?: string; is_active?: boolean } | null;
-  if (prof?.is_active === false) throw new Error("Your access has been turned off.");
+  if (prof?.is_active === false) throw new Error("Your account is inactive.");
   const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
   if (!roles.has("admin")) throw new Error("You don't have permission to do that.");
   return { supabase, user, email: prof?.email ?? null };
@@ -490,8 +490,8 @@ export async function deactivateUser(
   revalidatePath("/accounts");
   return {
     info: deleted
-      ? `Account turned off and ${deleted} open request${deleted === 1 ? "" : "s"} deleted.`
-      : "Account turned off. Their roles have been removed.",
+      ? `Account set to inactive and ${deleted} open request${deleted === 1 ? "" : "s"} deleted.`
+      : "Account set to inactive. Their roles have been removed.",
   };
 }
 
@@ -513,5 +513,5 @@ export async function reactivateUser(
     .eq("id", userId);
   if (error) return { error: error.message };
   revalidatePath("/admin/users");
-  return { info: "Account turned back on. Give them their roles again below." };
+  return { info: "Account set to active. Give them their roles again below." };
 }

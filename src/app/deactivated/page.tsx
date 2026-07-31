@@ -19,11 +19,11 @@ export default function DeactivatedPage() {
           </svg>
         </div>
         <h1 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-          Your access has been turned off
+          Your account is inactive
         </h1>
         <p className="mt-2 text-sm text-zinc-500">
-          This account is no longer active. If you think that&apos;s a mistake, ask an
-          admin at Ristara Foods to turn it back on.
+          You can&apos;t sign in while it&apos;s inactive. If you think that&apos;s a mistake, ask an
+          admin at Ristara Foods to make it active again.
         </p>
         <form action={signOut} className="mt-6">
           <button className="w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white">
