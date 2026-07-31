@@ -16,7 +16,12 @@ function monthLabel(d: Date): string {
   return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", month: "short" });
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
+  const { denied } = await searchParams;
   const user = await requireUser();
   const { roles } = await getCurrentUserRoles();
   const supabase = await createClient();
@@ -99,6 +104,13 @@ export default async function DashboardPage() {
   return (
     <AppLayoutShell pageTitle="Dashboard">
       <div className="space-y-6">
+        {/* Say why, rather than bouncing someone back with no explanation. */}
+        {denied === "raise" && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            You don&apos;t have permission to raise payment requests. Ask an admin to give you the Requester role.
+          </p>
+        )}
+
         {/* Greeting */}
         <div>
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">

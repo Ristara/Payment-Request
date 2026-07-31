@@ -29,6 +29,24 @@ function formatExactAmount(n: number): string {
  * policy also admits the thread's own submitter, so without this a submitter
  * could POST straight at approve/reject/close and clear their own payment.
  */
+/**
+ * Raising a payment request needs the requester role.
+ *
+ * Being signed in used to be the entire test, so a user whose roles had all
+ * been removed could still submit. RLS refuses these inserts too (migration
+ * 024) — this is the half that produces a sentence instead of a raw
+ * database error. Returns the message to show, or null if allowed.
+ */
+async function cannotRaise(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+): Promise<string | null> {
+  const { data } = await supabase.from("user_roles").select("role").eq("user_id", userId);
+  const roles = new Set(((data ?? []) as { role: string }[]).map((r) => r.role));
+  if (roles.has("requester") || roles.has("admin")) return null;
+  return "You don't have permission to raise payment requests. Ask an admin to give you the Requester role.";
+}
+
 async function requireRole(...allowed: string[]) {
   const { supabase, user } = await currentUserOrThrow();
   const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
@@ -195,6 +213,8 @@ export async function createThread(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  const denied = await cannotRaise(supabase, user.id);
+  if (denied) return { error: denied };
 
   const vendor_id = String(formData.get("vendor_id") ?? "");
   const title = String(formData.get("title") ?? "").trim().slice(0, 200);
@@ -457,6 +477,8 @@ export async function raiseInstallment(
   const admin = createAdminClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  const denied = await cannotRaise(supabase, user.id);
+  if (denied) return { error: denied };
 
   // Thread + line items + prior installments (for balance check)
   const [threadRes, linesRes, instRes] = await Promise.all([

@@ -30,6 +30,8 @@ export default async function AppLayoutShell({
   const isApprover = roles.includes("approver");
   const isAccounts = roles.includes("accounts");
   const isStaff = isApprover || isAccounts || isAdmin;
+  // Raising needs the requester role; don't offer a tab that would refuse.
+  const canRaise = roles.includes("requester") || isAdmin;
 
   const [profile, unread, approvalBadge, accountsBadge, vendorBadge] = await Promise.all([
     user
@@ -52,7 +54,7 @@ export default async function AppLayoutShell({
   const links = [
     { href: "/dashboard", label: "Home", icon: <HomeIcon /> },
     { href: "/requests", label: "Requests", icon: <DocumentIcon /> },
-    { href: "/requests/new", label: "Raise", icon: <PlusCircleIcon /> },
+    ...(canRaise ? [{ href: "/requests/new", label: "Raise", icon: <PlusCircleIcon /> }] : []),
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
     ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
     ...(isAccounts || isAdmin ? [{ href: "/vendors", label: "Vendors", icon: <VendorIcon />, badge: vendorBadge.count ?? 0 }] : []),

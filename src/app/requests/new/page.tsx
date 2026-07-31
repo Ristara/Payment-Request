@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireUser } from "@/lib/auth";
+import { requireUser, getCurrentUserRoles } from "@/lib/auth";
 import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
 import RequestForm from "./request-form";
 import { shortRequestNumber } from "@/lib/types";
@@ -12,6 +13,12 @@ export const dynamic = "force-dynamic";
 
 export default async function NewRequestPage() {
   const user = await requireUser();
+  // The form itself is harmless, but rendering it for someone whose submit
+  // will be refused is just a slower way of saying no.
+  const { roles } = await getCurrentUserRoles();
+  if (!roles.includes("requester") && !roles.includes("admin")) {
+    redirect("/dashboard?denied=raise");
+  }
   const supabase = await createClient();
   const admin = createAdminClient();
 
