@@ -137,9 +137,19 @@ export const ICICI_HEADER = [
 
 export const ICICI_CONSTANTS = {
   productTypeCode: "PAB_VENDOR",
-  paymentMode: "NEFT",
   creditNarration: "Ristara Foods",
 } as const;
+
+/**
+ * Paying from ICICI to an ICICI account never leaves the bank, so it goes as
+ * FT (a fund transfer) rather than NEFT. Same idea as Kotak's IFT, different
+ * code — each bank names its own internal transfer.
+ */
+const ICICI_FT_PREFIX = "ICIC";
+
+export function iciciPaymentMode(ifsc: string): "FT" | "NEFT" {
+  return ifsc.trim().toUpperCase().startsWith(ICICI_FT_PREFIX) ? "FT" : "NEFT";
+}
 
 /**
  * ICICI's sample narrates the outlet(s) and what the money is for
@@ -162,7 +172,7 @@ export function buildIciciFile(rows: BankFileRow[], debitAccount: string, when: 
     [...ICICI_HEADER],
     ...rows.map((r) => [
       ICICI_CONSTANTS.productTypeCode,
-      ICICI_CONSTANTS.paymentMode,
+      iciciPaymentMode(r.vendorIfsc),
       debitAccount,
       r.vendorName,
       r.vendorAccountNumber,
