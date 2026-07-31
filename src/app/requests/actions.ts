@@ -317,6 +317,12 @@ export async function createThread(
     };
   }
   if (!purpose) return { error: "Purpose / description is required." };
+  // Picking "Invoice" asserts the invoice exists; the other document types
+  // are exactly the cases where it doesn't yet. Checked here as well as in
+  // the form, because the form can be bypassed.
+  if (document_type === "invoice" && files.length === 0) {
+    return { error: "Attach the invoice — it's required when the document type is Invoice." };
+  }
 
   // ------ Resolve + validate line accounts ------
   const coaError = await resolveLineAccounts(supabase, lines);

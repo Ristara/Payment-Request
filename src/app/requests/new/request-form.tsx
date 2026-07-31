@@ -77,6 +77,10 @@ export default function RequestForm({
   const ccPeople = people.filter((p) => ccIds.includes(p.id));
 
   const refEnabled = docType === "po" || docType === "invoice";
+  // "Invoice" says the invoice exists — so it has to be on the request. The
+  // other document types are precisely the cases where there isn't one yet.
+  const [attachmentCount, setAttachmentCount] = useState(0);
+  const invoiceFileMissing = docType === "invoice" && attachmentCount === 0;
   const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
   const refPlaceholder =
     docType === "po" ? "PO-2026-045" : docType === "invoice" ? "INV-2026-045" : "";
@@ -849,8 +853,13 @@ export default function RequestForm({
 
       {/* Supporting documents — Zoho Expense-style drop zone with previews */}
       <section>
-        <SectionTitle>Supporting documents</SectionTitle>
-        <AttachmentsField />
+        <SectionTitle required={docType === "invoice"}>Supporting documents</SectionTitle>
+        {docType === "invoice" && (
+          <p className="mt-1 text-xs text-zinc-500">
+            Attach the invoice you&apos;re claiming against.
+          </p>
+        )}
+        <AttachmentsField onCountChange={setAttachmentCount} />
       </section>
 
       {state?.error && (
@@ -863,9 +872,14 @@ export default function RequestForm({
             Line {incompleteLine + 1}: pick a COA head and a category.
           </p>
         )}
+        {invoiceFileMissing && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            Attach the invoice before submitting.
+          </p>
+        )}
         <button
           type="submit"
-          disabled={pending || incompleteLine !== -1}
+          disabled={pending || incompleteLine !== -1 || invoiceFileMissing}
           className="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
         >
           {pending ? "Submitting…" : "Submit for approval"}
@@ -894,10 +908,15 @@ function SectionTitle({
   );
 }
 
-function AttachmentsField() {
+function AttachmentsField({ onCountChange }: { onCountChange?: (n: number) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
+
+  // The count lives here but the rule that needs it lives in the form.
+  useEffect(() => {
+    onCountChange?.(files.length);
+  });
 
   // Mirror our state into the real <input type="file">, which is what the
   // form actually submits.
