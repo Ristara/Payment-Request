@@ -198,6 +198,7 @@ export default function EditLineItems({
                   options={coaOptions}
                   value={line.coaHead}
                   onChange={(v) => update(idx, { coaHead: v, category: "", coa_account_id: "" })}
+                  onClear={() => update(idx, { coaHead: "", category: "", coa_account_id: "" })}
                   placeholder="Search COA head…"
                   ariaLabel="COA head"
                 />
@@ -206,6 +207,7 @@ export default function EditLineItems({
                   options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
                   value={line.category}
                   onChange={(v) => pickCategory(idx, v)}
+                  onClear={() => update(idx, { category: "", coa_account_id: "" })}
                   placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
                   ariaLabel="Category"
                 />
@@ -226,6 +228,9 @@ export default function EditLineItems({
                   }
                   value={line.coa_account_id}
                   onChange={(v) => pickSubcategory(idx, v)}
+                  // Only the subcategory goes; charging to the category is a
+                  // valid state.
+                  onClear={() => update(idx, { coa_account_id: "" })}
                   placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
                   ariaLabel="Subcategory (optional)"
                 />

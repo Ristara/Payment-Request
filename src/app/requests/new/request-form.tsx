@@ -449,6 +449,9 @@ export default function RequestForm({
                           onChange={(v) =>
                             updateLine(idx, { coaHead: v, category: "", coa_account_id: "" })
                           }
+                          onClear={() =>
+                            updateLine(idx, { coaHead: "", category: "", coa_account_id: "" })
+                          }
                           placeholder="Search COA head…"
                           ariaLabel="COA head"
                         />
@@ -457,6 +460,7 @@ export default function RequestForm({
                           options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
                           value={line.category}
                           onChange={(v) => pickCategory(idx, v)}
+                          onClear={() => updateLine(idx, { category: "", coa_account_id: "" })}
                           placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
                           ariaLabel="Category"
                         />
@@ -477,6 +481,9 @@ export default function RequestForm({
                           }
                           value={line.coa_account_id}
                           onChange={(v) => pickSubcategory(idx, v)}
+                          // Only the subcategory goes; the line stays charged
+                          // to its category, which is a valid state.
+                          onClear={() => updateLine(idx, { coa_account_id: "" })}
                           placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
                           ariaLabel="Subcategory (optional)"
                         />
