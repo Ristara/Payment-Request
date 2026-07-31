@@ -240,7 +240,7 @@ export default function RequestForm({
 
       {/* Store type — decides which outlets are offered below */}
       <section>
-        <SectionTitle>What is this payment for?</SectionTitle>
+        <SectionTitle required>What is this payment for?</SectionTitle>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {([
             { key: "upcoming", title: "New Store", hint: "Upcoming outlet" },
@@ -276,7 +276,7 @@ export default function RequestForm({
 
       {/* Payment kind */}
       <section>
-        <SectionTitle>Payment kind</SectionTitle>
+        <SectionTitle required>Payment kind</SectionTitle>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {([
             { key: "regular", title: "Regular", hint: "One-off / part payments" },
@@ -308,7 +308,7 @@ export default function RequestForm({
 
       {/* Title — short human-readable label for the thread */}
       <section>
-        <SectionTitle>Payment request title</SectionTitle>
+        <SectionTitle required>Payment request title</SectionTitle>
         <input
           name="title"
             value={title}
@@ -322,7 +322,7 @@ export default function RequestForm({
 
       {/* Outlet — filtered by the store-type choice above */}
       <section>
-        <SectionTitle>Outlet</SectionTitle>
+        <SectionTitle required>Outlet</SectionTitle>
         <select
           name="outlet_ids"
           value={outletId}
@@ -350,7 +350,7 @@ export default function RequestForm({
 
       {/* Vendor */}
       <section>
-        <SectionTitle>Vendor</SectionTitle>
+        <SectionTitle required>Vendor</SectionTitle>
         <div className="mt-2">
           <Combobox
             name="vendor_id"
@@ -382,7 +382,7 @@ export default function RequestForm({
       {/* Document */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <SectionTitle>Document type</SectionTitle>
+          <SectionTitle required>Document type</SectionTitle>
           <select
             name="document_type"
             required
@@ -403,7 +403,7 @@ export default function RequestForm({
           </select>
         </div>
         <div>
-          <SectionTitle>{refLabel}{refEnabled ? " *" : ""}</SectionTitle>
+          <SectionTitle required={refEnabled}>{refLabel}</SectionTitle>
           <input
             name="document_reference"
             value={docRef}
@@ -419,7 +419,7 @@ export default function RequestForm({
       {/* Line items = PO breakdown */}
       <section>
         <div className="flex items-baseline justify-between">
-          <SectionTitle>Line items</SectionTitle>
+          <SectionTitle required>Line items</SectionTitle>
           <p className="hidden text-xs text-zinc-500 sm:block">Sum of lines = PO value.</p>
         </div>
 
@@ -741,7 +741,7 @@ export default function RequestForm({
       {/* Dates */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
-          <SectionTitle>Payment due date</SectionTitle>
+          <SectionTitle required>Payment due date</SectionTitle>
           <input
             name="payment_due_date"
             value={dueDate}
@@ -762,7 +762,7 @@ export default function RequestForm({
           />
         </div>
         <div>
-          <SectionTitle>Tentative invoice date{tentativeEnabled ? " *" : ""}</SectionTitle>
+          <SectionTitle required={tentativeEnabled}>Tentative invoice date</SectionTitle>
           <input
             name="tentative_invoice_date"
             type="date"
@@ -865,9 +865,22 @@ export default function RequestForm({
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+/**
+ * Field label. `required` marks it the same way everywhere, so what the form
+ * will refuse to submit without is visible before you try.
+ */
+function SectionTitle({
+  children,
+  required,
+}: {
+  children: React.ReactNode;
+  required?: boolean;
+}) {
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{children}</h2>
+    <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+      {children}
+      {required && <span className="ml-0.5 text-red-500">*</span>}
+    </h2>
   );
 }
 
