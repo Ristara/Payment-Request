@@ -352,12 +352,30 @@ export default function AssistantWidget() {
                   wipe the transcript mid-conversation. */}
               {!liveOn && (
                 <>
+                  {/* The primary action in this panel, and now dressed like
+                      it. It used to be grey text at the same weight as "New
+                      chat", so the one thing worth doing here read as chrome
+                      sitting next to it. */}
                   <button
                     type="button"
                     onClick={() => void startLive()}
                     title="Talk to Ria"
-                    className="rounded-full px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:outline-none dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-zinc-900"
                   >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
+                    </svg>
                     Voice
                   </button>
                   {messages.length > 0 && (
