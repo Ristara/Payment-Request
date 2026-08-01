@@ -104,7 +104,9 @@ export default function AssistantWidget() {
         /* warm-up only — a failure here costs nothing but the head start */
       });
     warm("/api/assistant/live-token");
-    warm("/ria-capture-worklet.js");
+    // Must match the versioned URL addModule() actually requests, or this
+    // prefetches a different cache key and warms nothing.
+    warm("/ria-capture-worklet.js?v=2");
     return () => abort.abort();
   }, [open]);
 

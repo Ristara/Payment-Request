@@ -51,7 +51,11 @@ export async function startCapture(
   // iOS starts contexts suspended unless created inside a gesture.
   if (ctx.state === "suspended") await ctx.resume();
 
-  await ctx.audioWorklet.addModule("/ria-capture-worklet.js");
+  // The ?v= is part of the cache key, and it must be bumped whenever the
+  // message shape below changes. A stale worklet is invisible: the fetch
+  // succeeds and only the contents are old, so nothing errors — it just stops
+  // sending audio.
+  await ctx.audioWorklet.addModule("/ria-capture-worklet.js?v=2");
   const source = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "ria-capture", { numberOfOutputs: 0 });
 
@@ -59,7 +63,16 @@ export async function startCapture(
   // message carries the PCM that goes to Gemini and the level that drives the
   // UI, so the two cannot disagree about whether audio is flowing.
   node.port.onmessage = (e) => {
-    const data = e.data as { pcm?: Int16Array; rms?: number };
+    const data = e.data as { pcm?: Int16Array; rms?: number } | Int16Array;
+    // A bare Int16Array is the older worklet, which posted only PCM. Accepting
+    // it costs nothing and means a stale copy degrades to "no level meter"
+    // rather than "no audio at all" — reading only the new shape is what
+    // turned a cached worklet into a microphone that captured perfectly and
+    // sent nothing, with no error to show for it.
+    if (data instanceof Int16Array) {
+      onChunk(data.buffer as ArrayBuffer);
+      return;
+    }
     if (typeof data.rms === "number") hooks.onLevel?.(data.rms);
     if (data.pcm) onChunk(data.pcm.buffer as ArrayBuffer);
   };

@@ -3,7 +3,10 @@
 // - Push notification handler
 // - Notification click → open the request URL
 
-const CACHE = "pay-app-v3";
+// Bumped to v4 to evict a poisoned entry: the old cache holds a copy of
+// ria-capture-worklet.js from before it carried audio levels, and activate()
+// below deletes every cache whose name is not this one.
+const CACHE = "pay-app-v4";
 // Precache ONLY truly static files. Never SSR HTML — install-time HTML
 // snapshots go stale, can capture a login redirect, and every install
 // would re-run the server's full query fan-out for pages nobody asked for.
@@ -64,6 +67,16 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+  // The capture worklet is never cached. It is one half of a contract with
+  // src/lib/live/audio.ts — the worklet posts a message shape, the page parses
+  // it — and caching one half means a new page can be handed an old worklet
+  // that speaks the previous shape. That is not theoretical: it silently
+  // stopped all microphone audio reaching Gemini, so Ria greeted and then
+  // never responded, with no error anywhere because the fetch itself
+  // succeeded. Everything under /_next/static/ is content-hashed and cannot
+  // go stale this way; this file is not.
+  if (url.pathname === "/ria-capture-worklet.js") return;
+
   if (url.pathname.startsWith("/_next/static/") || url.pathname.match(/\.(png|jpg|svg|css|js|ico)$/)) {
     event.respondWith(
       caches.match(req).then(
