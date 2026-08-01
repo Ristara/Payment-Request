@@ -1,0 +1,64 @@
+import "server-only";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export { EXPENSE_LABEL, EXPENSE_HINT } from "@/lib/access-labels";
+import { EXPENSE_LABEL } from "@/lib/access-labels";
+export type { ExpenseType } from "@/lib/access-labels";
+import type { ExpenseType } from "@/lib/access-labels";
+
+/**
+ * What a person is allowed to RAISE for.
+ *
+ * Governs raising only. Seeing, approving and paying are decided by role and
+ * are deliberately untouched — narrowing those would hide in-flight payments
+ * from the people chasing them.
+ *
+ * No grants means nothing, not everything. That's the strict reading and it
+ * was chosen on purpose, so a new joiner can't raise against a branch nobody
+ * meant to give them. Admins are exempt, or a fresh install would have nobody
+ * able to set the grants up in the first place.
+ */
+export type RaiseAccess = {
+  outletIds: string[];
+  expenseTypes: ExpenseType[];
+  /** Admins bypass both lists. */
+  unrestricted: boolean;
+};
+
+export async function getRaiseAccess(userId: string, isAdmin: boolean): Promise<RaiseAccess> {
+  if (isAdmin) return { outletIds: [], expenseTypes: ["capex", "opex"], unrestricted: true };
+
+  const admin = createAdminClient();
+  const [branches, expenses] = await Promise.all([
+    admin.from("user_branch_access").select("outlet_id").eq("user_id", userId),
+    admin.from("user_expense_access").select("expense_type").eq("user_id", userId),
+  ]);
+
+  return {
+    outletIds: ((branches.data ?? []) as { outlet_id: string }[]).map((r) => r.outlet_id),
+    expenseTypes: ((expenses.data ?? []) as { expense_type: ExpenseType }[]).map((r) => r.expense_type),
+    unrestricted: false,
+  };
+}
+
+/** The message to show, or null if this person may raise this. */
+export function raiseDenied(
+  access: RaiseAccess,
+  outletIds: string[],
+  expenseType: ExpenseType,
+): string | null {
+  if (access.unrestricted) return null;
+
+  if (access.outletIds.length === 0) {
+    return "You haven't been given any branches to raise for. Ask an admin to assign yours.";
+  }
+  if (!access.expenseTypes.includes(expenseType)) {
+    return `You can't raise ${EXPENSE_LABEL[expenseType]} requests. Ask an admin if you should be able to.`;
+  }
+  const allowed = new Set(access.outletIds);
+  const outside = outletIds.filter((id) => !allowed.has(id));
+  if (outside.length > 0) {
+    return "One of the branches you picked isn't yours to raise for.";
+  }
+  return null;
+}

@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { COA_LABEL, COA_PATH } from "@/lib/coa-labels";
+import { EXPENSE_HINT, EXPENSE_LABEL, type ExpenseType } from "@/lib/access-labels";
 import { createThread } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import { computeRollupIds } from "@/lib/coa";
@@ -47,12 +48,15 @@ export default function RequestForm({
   coaAccounts,
   reservedNumber,
   people,
+  expenseTypes,
 }: {
   vendors: Vendor[];
   outlets: Outlet[];
   coaAccounts: CoaAccount[];
   reservedNumber: string | null;
   people: Person[];
+  /** What this person may raise — anything else is shown disabled. */
+  expenseTypes: ExpenseType[];
 }) {
   const [state, formAction, pending] = useActionState(createThread, undefined);
 
@@ -61,6 +65,10 @@ export default function RequestForm({
   const [outletId, setOutletId] = useState("");
   // "New Store Opening" → upcoming outlets; "Existing Outlet" → operational.
   const [storeType, setStoreType] = useState<"" | "upcoming" | "operational">("");
+  // Pre-select the only one they have, so the common case is no decision.
+  const [expenseType, setExpenseType] = useState<ExpenseType>(
+    expenseTypes.length === 1 ? expenseTypes[0] : "capex",
+  );
   const visibleOutlets = storeType ? outlets.filter((o) => o.stage === storeType) : [];
   const [paymentKind, setPaymentKind] = useState<"" | "regular" | "milestone">("");
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
@@ -210,36 +218,42 @@ export default function RequestForm({
         <input type="hidden" name="request_number" value={reservedNumber} />
       )}
 
-      {/* Expense type — CapEx is live; OpEx is a future module */}
+      {/* Expense type — only the ones this person may raise. */}
       <section>
-        <SectionTitle>Expense type</SectionTitle>
+        <SectionTitle required>Expense type</SectionTitle>
+        <input type="hidden" name="expense_type" value={expenseType} />
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <div
-            aria-pressed="true"
-            className="rounded-xl border border-indigo-600 bg-indigo-50 px-3 py-2.5 text-center dark:border-indigo-400 dark:bg-indigo-950/40"
-          >
-            <span className="block text-sm font-semibold text-indigo-700 dark:text-indigo-200">
-              CapEx
-            </span>
-            <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
-              Assets &amp; construction
-            </span>
-          </div>
-          <div
-            aria-disabled="true"
-            title="OpEx module is coming soon"
-            className="relative cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-center opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <span className="absolute right-1.5 top-1.5 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-              Soon
-            </span>
-            <span className="block text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-              OpEx
-            </span>
-            <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-              Rent &amp; utilities
-            </span>
-          </div>
+          {(["capex", "opex"] as const).map((t) => {
+            const allowed = expenseTypes.includes(t);
+            const active = expenseType === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                disabled={!allowed}
+                onClick={() => setExpenseType(t)}
+                title={allowed ? undefined : `You haven't been given ${EXPENSE_LABEL[t]} access`}
+                className={`rounded-xl border px-3 py-2.5 text-center disabled:cursor-not-allowed disabled:opacity-50 ${
+                  active
+                    ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
+                    : "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
+                }`}
+              >
+                <span
+                  className={`block text-sm font-semibold ${
+                    active
+                      ? "text-indigo-700 dark:text-indigo-200"
+                      : "text-zinc-600 dark:text-zinc-300"
+                  }`}
+                >
+                  {EXPENSE_LABEL[t]}
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+                  {EXPENSE_HINT[t]}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
 

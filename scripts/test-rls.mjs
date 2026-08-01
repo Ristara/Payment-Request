@@ -110,6 +110,12 @@ async function makeThread(status) {
   return { rid, inst };
 }
 
+// Raising now needs branch + expense grants, so the base requester gets them.
+await c.query(
+  `insert into user_branch_access (user_id, outlet_id)
+   select $1, id from outlets where is_active`, [REQUESTER]);
+await c.query("insert into user_expense_access (user_id, expense_type) values ($1,'capex'),($1,'opex')", [REQUESTER]);
+
 const pending = await makeThread("pending_approval");
 const approved = await makeThread("approved");
 
@@ -189,6 +195,45 @@ check("not CC'd: raise an installment on it", "BLOCKED", await as(OUTSIDER,
   `insert into public.request_installments
      (request_id, installment_number, requested_amount, payment_due_date, status, submitted_by)
    values ($1, 8, 1, current_date, 'pending_approval', $2)`, [approved.rid, OUTSIDER]));
+
+// --- Branch + expense-type access (governs raising only) ------------------
+const GRANTED = await makeUser("granted", ["requester"]);
+const UNGRANTED = await makeUser("ungranted", ["requester"]);
+const { rows: [o1] } = await c.query("select id from outlets where is_active limit 1");
+const { rows: [o2] } = await c.query("select id from outlets where is_active offset 1 limit 1");
+await c.query("insert into user_branch_access (user_id, outlet_id) values ($1,$2)", [GRANTED, o1.id]);
+await c.query("insert into user_expense_access (user_id, expense_type) values ($1,'capex')", [GRANTED]);
+
+const newReq = (etype) => `insert into public.payment_requests
+  (request_number, submitter_id, vendor_id, title, purpose, payment_kind,
+   document_type, document_reference, expense_type)
+  values ('PR-ACC-' || substr(md5(random()::text),1,6), $1, $2, 't', 'p', 'regular', 'po', 'PO-1', '${etype}')`;
+
+check("no branches granted: raise at all", "BLOCKED",
+  await as(UNGRANTED, newReq("capex"), [UNGRANTED, vendorApproved]));
+check("granted CapEx: raise CapEx", "ALLOWED",
+  await as(GRANTED, newReq("capex"), [GRANTED, vendorApproved]));
+check("granted CapEx only: raise OpEx", "BLOCKED",
+  await as(GRANTED, newReq("opex"), [GRANTED, vendorApproved]));
+
+// The branch itself is checked on the join row.
+const { rows: [pr] } = await c.query(
+  `insert into public.payment_requests
+     (request_number, submitter_id, vendor_id, title, purpose, payment_kind, document_type, document_reference, expense_type)
+   values ('PR-ACC-J', $1, $2, 't','p','regular','po','PO-1','capex') returning id`,
+  [GRANTED, vendorApproved]);
+check("granted branch: attach that branch", "ALLOWED", await as(GRANTED,
+  "insert into request_outlets (request_id, outlet_id) values ($1,$2)", [pr.id, o1.id]));
+check("ungranted branch: attach it anyway", "BLOCKED", await as(GRANTED,
+  "insert into request_outlets (request_id, outlet_id) values ($1,$2)", [pr.id, o2.id]));
+
+// Access governs raising, not sight: GRANTED raised PR-ACC-J against a
+// branch; revoking the grant must not hide it from them.
+await c.query("delete from user_branch_access where user_id=$1", [GRANTED]);
+check("grants revoked: still sees own request", "ALLOWED", await as(GRANTED,
+  "select id from public.payment_requests where id=$1", [pr.id]));
+check("grants revoked: can no longer raise", "BLOCKED",
+  await as(GRANTED, newReq("capex"), [GRANTED, vendorApproved]));
 
 check("user: switch their own account back on", "BLOCKED", await as(NOBODY,
   "update public.profiles set is_active=true where id=$1", [NOBODY]));

@@ -516,3 +516,72 @@ export async function reactivateUser(
   revalidatePath("/admin/users");
   return { info: "Account set to active. Give them their roles again below." };
 }
+
+// ---------------------------------------------------------------------------
+// Branch + expense-type access (governs raising only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace a person's branch grants wholesale.
+ *
+ * Wholesale rather than add/remove one at a time so the form submits what the
+ * admin sees, and two admins editing at once can't merge into a set neither
+ * of them chose.
+ */
+export async function setBranchAccess(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+
+  const userId = String(formData.get("user_id") ?? "");
+  if (!userId) return { error: "Missing user." };
+  const outletIds = formData.getAll("outlet_ids").map(String).filter(Boolean);
+
+  const admin = createAdminClient();
+  await admin.from("user_branch_access").delete().eq("user_id", userId);
+  if (outletIds.length > 0) {
+    const { error } = await admin
+      .from("user_branch_access")
+      .insert(outletIds.map((outlet_id) => ({ user_id: userId, outlet_id })));
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/admin/users");
+  return {
+    info: outletIds.length
+      ? `Can raise for ${outletIds.length} branch${outletIds.length === 1 ? "" : "es"}.`
+      : "No branches — they can't raise anything until you assign one.",
+  };
+}
+
+/** Same, for CapEx / OpEx. */
+export async function setExpenseAccess(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+
+  const userId = String(formData.get("user_id") ?? "");
+  if (!userId) return { error: "Missing user." };
+  const types = formData
+    .getAll("expense_types")
+    .map(String)
+    .filter((t) => t === "capex" || t === "opex");
+
+  const admin = createAdminClient();
+  await admin.from("user_expense_access").delete().eq("user_id", userId);
+  if (types.length > 0) {
+    const { error } = await admin
+      .from("user_expense_access")
+      .insert(types.map((expense_type) => ({ user_id: userId, expense_type })));
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/admin/users");
+  return {
+    info: types.length ? `Can raise ${types.join(" and ")}.` : "No expense types — they can't raise.",
+  };
+}

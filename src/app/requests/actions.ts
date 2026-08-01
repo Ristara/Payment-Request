@@ -10,6 +10,7 @@ import { invalidateMasters } from "@/lib/cache";
 import { oversizedFile } from "@/lib/uploads";
 import { shortRequestNumber } from "@/lib/types";
 import { getDeletionImpact, purgeRequest } from "@/lib/purge-request";
+import { getRaiseAccess, raiseDenied, type ExpenseType } from "@/lib/access";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -285,6 +286,8 @@ export async function createThread(
     | "po" | "invoice" | "no_invoice" | "invoice_pending" | "";
   const document_reference = String(formData.get("document_reference") ?? "").trim() || null;
   const payment_kind = String(formData.get("payment_kind") ?? "") as "regular" | "milestone" | "";
+  const expenseRaw = String(formData.get("expense_type") ?? "capex");
+  const expense_type: ExpenseType = expenseRaw === "opex" ? "opex" : "capex";
   const installment_amount = Number(formData.get("installment_amount") ?? 0);
   const payment_due_date = String(formData.get("payment_due_date") ?? "");
   const date_of_work_completion = String(formData.get("date_of_work_completion") ?? "") || null;
@@ -371,6 +374,17 @@ export async function createThread(
     else console.error("[createThread] next_request_number RPC failed:", seqErr?.message);
   }
 
+  // ------ Branch + expense-type access ------
+  // Checked here as well as in RLS: this is the message the submitter reads,
+  // and the policy is the thing a crafted request runs into.
+  {
+    const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+    const isAdmin = ((roleRows ?? []) as { role: string }[]).some((r) => r.role === "admin");
+    const access = await getRaiseAccess(user.id, isAdmin);
+    const noAccess = raiseDenied(access, outlet_ids, expense_type);
+    if (noAccess) return { error: noAccess };
+  }
+
   // ------ Insert thread ------
   const { data: inserted, error } = await supabase
     .from("payment_requests")
@@ -379,6 +393,7 @@ export async function createThread(
       submitter_id: user.id,
       title,
       vendor_id,
+      expense_type,
       document_type,
       document_reference:
         document_type === "po" || document_type === "invoice" ? document_reference : null,

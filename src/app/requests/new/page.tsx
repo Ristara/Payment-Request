@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser, getCurrentUserRoles } from "@/lib/auth";
+import { getRaiseAccess } from "@/lib/access";
 import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
 import RequestForm from "./request-form";
 import { shortRequestNumber } from "@/lib/types";
@@ -19,6 +20,9 @@ export default async function NewRequestPage() {
   if (!roles.includes("requester") && !roles.includes("admin")) {
     redirect("/dashboard?denied=raise");
   }
+  // Only offer what they may actually raise for — a branch they can't use
+  // has no business being in the dropdown.
+  const access = await getRaiseAccess(user.id, roles.includes("admin"));
   const supabase = await createClient();
   const admin = createAdminClient();
 
@@ -71,7 +75,17 @@ export default async function NewRequestPage() {
       <div className="mt-8">
         <RequestForm
           vendors={(vendors.data ?? []) as { id: string; name: string; gstin: string | null; status: string }[]}
-          outlets={outlets as { id: string; code: string; name: string; stage: "upcoming" | "operational" }[]}
+          outlets={
+            (access.unrestricted
+              ? outlets
+              : (outlets as { id: string }[]).filter((o) => access.outletIds.includes(o.id))) as {
+              id: string;
+              code: string;
+              name: string;
+              stage: "upcoming" | "operational";
+            }[]
+          }
+          expenseTypes={access.expenseTypes}
           coaAccounts={coaAccounts as { id: string; code: number; subcategory: string; category: string; coa: string }[]}
           reservedNumber={reservedNumber}
           people={people}

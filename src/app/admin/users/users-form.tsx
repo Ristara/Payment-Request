@@ -3,6 +3,8 @@
 import { useActionState, useMemo, useState } from "react";
 import { assignRole, createUser, deactivateUser, reactivateUser, removeRole } from "@/app/admin/actions";
 import { ROLE_LABEL, formatINR } from "@/lib/types";
+import AccessCell, { type Outlet } from "./access-cell";
+import type { ExpenseType } from "@/lib/access-labels";
 
 type UserRow = {
   id: string;
@@ -26,10 +28,16 @@ export default function UsersForm({
   users,
   openByUser,
   currentUserId,
+  outlets,
+  branchByUser,
+  expenseByUser,
 }: {
   users: UserRow[];
   openByUser: Record<string, OpenRequest[]>;
   currentUserId: string;
+  outlets: Outlet[];
+  branchByUser: Record<string, string[]>;
+  expenseByUser: Record<string, ExpenseType[]>;
 }) {
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
   // Kept in state so a failed submit doesn't wipe what was typed.
@@ -155,13 +163,14 @@ export default function UsersForm({
               <th className="px-5 py-3">Email</th>
               <th className="px-5 py-3">Roles</th>
               <th className="px-5 py-3">Assign role</th>
+              <th className="px-5 py-3">Can raise for</th>
               <th className="px-5 py-3">Status</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-sm text-zinc-500">
+                <td colSpan={6} className="px-5 py-8 text-center text-sm text-zinc-500">
                   {users.length === 0
                     ? "No users yet."
                     : `No users matching "${query}".`}
@@ -217,6 +226,15 @@ export default function UsersForm({
                           </form>
                         ))}
                       </div>
+                    </td>
+                    <td className="px-5 py-3 align-top">
+                      <AccessCell
+                        userId={u.id}
+                        outlets={outlets}
+                        branchIds={branchByUser[u.id] ?? []}
+                        expenseTypes={expenseByUser[u.id] ?? []}
+                        isAdmin={held.has("admin")}
+                      />
                     </td>
                     <td className="px-5 py-3 align-top">
                       <AccountCell
