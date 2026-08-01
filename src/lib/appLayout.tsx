@@ -30,8 +30,17 @@ export default async function AppLayoutShell({
   const isApprover = roles.includes("approver");
   const isAccounts = roles.includes("accounts");
   const isStaff = isApprover || isAccounts || isAdmin;
-  // Raising needs the requester role; don't offer a tab that would refuse.
-  const canRaise = roles.includes("requester") || isAdmin;
+  // Raising needs the requester role AND somewhere to raise for. A tab that
+  // can only say no isn't worth a slot in the nav.
+  const hasRaiseRole = roles.includes("requester") || isAdmin;
+  const grants = hasRaiseRole && !isAdmin
+    ? await Promise.all([
+        supabase.from("user_branch_access").select("outlet_id", { count: "exact", head: true }).eq("user_id", user!.id),
+        supabase.from("user_expense_access").select("expense_type", { count: "exact", head: true }).eq("user_id", user!.id),
+      ])
+    : null;
+  const canRaise =
+    hasRaiseRole && (isAdmin || ((grants?.[0].count ?? 0) > 0 && (grants?.[1].count ?? 0) > 0));
 
   const [profile, unread, approvalBadge, accountsBadge, vendorBadge] = await Promise.all([
     user

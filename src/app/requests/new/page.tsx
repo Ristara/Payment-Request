@@ -23,6 +23,11 @@ export default async function NewRequestPage() {
   // Only offer what they may actually raise for — a branch they can't use
   // has no business being in the dropdown.
   const access = await getRaiseAccess(user.id, roles.includes("admin"));
+  // Nothing to raise for means nothing to show — an empty form that can only
+  // be rejected wastes the trip.
+  if (!access.unrestricted && (access.outletIds.length === 0 || access.expenseTypes.length === 0)) {
+    redirect("/dashboard?denied=noaccess");
+  }
   const supabase = await createClient();
   const admin = createAdminClient();
 

@@ -55,7 +55,7 @@ export default function RequestForm({
   coaAccounts: CoaAccount[];
   reservedNumber: string | null;
   people: Person[];
-  /** What this person may raise — anything else is shown disabled. */
+  /** What this person may raise. Anything they don't hold isn't rendered. */
   expenseTypes: ExpenseType[];
 }) {
   const [state, formAction, pending] = useActionState(createThread, undefined);
@@ -73,8 +73,15 @@ export default function RequestForm({
   // a project milestone. Both questions are answered by the choice itself, so
   // asking them again is a step that can only be got wrong.
   const isOpex = expenseType === "opex";
-  const visibleOutlets = storeType ? outlets.filter((o) => o.stage === storeType) : [];
+  // Derived, not set by the click handler: someone who holds ONLY OpEx never
+  // clicks the button, so the answers those hidden sections stand for have to
+  // hold from the first render.
+  const effectiveStoreType = isOpex ? "operational" : storeType;
+  const visibleOutlets = effectiveStoreType
+    ? outlets.filter((o) => o.stage === effectiveStoreType)
+    : [];
   const [paymentKind, setPaymentKind] = useState<"" | "regular" | "milestone">("");
+  const effectivePaymentKind = isOpex ? "regular" : paymentKind;
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
@@ -226,15 +233,15 @@ export default function RequestForm({
       <section>
         <SectionTitle required>Expense type</SectionTitle>
         <input type="hidden" name="expense_type" value={expenseType} />
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          {(["capex", "opex"] as const).map((t) => {
-            const allowed = expenseTypes.includes(t);
+        {/* Only what they hold. An option someone can never pick is noise —
+            and a disabled control still invites the question "why not me?". */}
+        <div className={`mt-2 grid gap-2 ${expenseTypes.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+          {expenseTypes.map((t) => {
             const active = expenseType === t;
             return (
               <button
                 key={t}
                 type="button"
-                disabled={!allowed}
                 onClick={() => {
                   setExpenseType(t);
                   if (t === "opex") {
@@ -246,8 +253,7 @@ export default function RequestForm({
                     }
                   }
                 }}
-                title={allowed ? undefined : `You haven't been given ${EXPENSE_LABEL[t]} access`}
-                className={`rounded-xl border px-3 py-2.5 text-center disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`rounded-xl border px-3 py-2.5 text-center ${
                   active
                     ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40"
                     : "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
@@ -337,7 +343,7 @@ export default function RequestForm({
             );
           })}
         </div>
-        <input type="hidden" name="payment_kind" value={paymentKind} />
+        <input type="hidden" name="payment_kind" value={effectivePaymentKind} />
       </section>
 
       {/* Title — short human-readable label for the thread */}
@@ -362,11 +368,11 @@ export default function RequestForm({
           value={outletId}
           onChange={(e) => setOutletId(e.target.value)}
           required
-          disabled={!storeType}
+          disabled={!effectiveStoreType}
           className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:disabled:bg-zinc-800"
         >
           <option value="" disabled>
-            {storeType ? "Pick an outlet…" : "Choose New Store / Existing Outlet first…"}
+            {effectiveStoreType ? "Pick an outlet…" : "Choose New Store / Existing Outlet first…"}
           </option>
           {visibleOutlets.map((o) => (
             <option key={o.id} value={o.id}>
@@ -374,10 +380,10 @@ export default function RequestForm({
             </option>
           ))}
         </select>
-        {storeType && visibleOutlets.length === 0 && (
+        {effectiveStoreType && visibleOutlets.length === 0 && (
           <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-            No {storeType === "upcoming" ? "upcoming" : "operational"} outlets yet — ask your admin
-            to mark one as {storeType === "upcoming" ? "Upcoming" : "Operational"} in Admin → Outlets.
+            No {effectiveStoreType === "upcoming" ? "upcoming" : "operational"} outlets yet — ask your admin
+            to mark one as {effectiveStoreType === "upcoming" ? "Upcoming" : "Operational"} in Admin → Outlets.
           </p>
         )}
       </section>

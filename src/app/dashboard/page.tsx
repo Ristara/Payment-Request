@@ -105,6 +105,12 @@ export default async function DashboardPage({
     <AppLayoutShell pageTitle="Dashboard">
       <div className="space-y-6">
         {/* Say why, rather than bouncing someone back with no explanation. */}
+        {denied === "noaccess" && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            You haven&apos;t been given any branches or expense types to raise for yet. Ask an admin
+            to set yours up.
+          </p>
+        )}
         {denied === "raise" && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             You don&apos;t have permission to raise payment requests. Ask an admin to give you the Requester role.
