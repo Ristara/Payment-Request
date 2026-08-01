@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { LiveSession } from "@/lib/live/session";
 import { useAssistant } from "@/components/AssistantContext";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -34,22 +35,21 @@ function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
 /**
  * Ria (Raghav Intelligent Assistant) — the floating in-app assistant.
  *
- * Voice today uses the BROWSER's Web Speech API for both listening and
- * speaking, with Gemini only handling the text in between. That keeps it free
- * and simple, at the cost of a flat system voice and a speak-wait-listen
- * rhythm.
+ * Two ways to talk to her, and they work differently:
  *
- * PLANNED: move to Gemini's Live API for a real spoken conversation — natural
- * voice, interruption mid-sentence, no transcribe-then-reply lag. It's a
- * different shape: a persistent WebSocket streaming audio both ways, relayed
- * through our server so the key never reaches the browser, and billed per
- * minute of audio rather than per message. Models already available on our
- * key (bidiGenerateContent): gemini-2.5-flash-native-audio-latest and
- * gemini-3.1-flash-live-preview. Roughly 2-3 days of work.
+ *  - TEXT goes to /api/assistant, which calls Gemini and runs her data tools
+ *    server-side under the user's RLS.
+ *  - VOICE is a real spoken conversation on Gemini's Live API. The browser
+ *    holds the socket to Google directly, using a short-lived token minted by
+ *    /api/assistant/live-token — proxying it through us would cap every call
+ *    at Vercel's 300-second function limit. Tool calls still come back to
+ *    /api/assistant/tool so the data lookup never happens in the browser.
  *
- * Privacy: the transcript lives only in
- * this component's state, nothing is stored on the server, so no user can
- * ever see another user's chat.
+ * The mic in the text row is neither of those — it is plain browser dictation
+ * that fills the input box.
+ *
+ * Privacy: the transcript lives only in this component's state. Nothing is
+ * stored server-side, so no user can ever see another user's conversation.
  */
 export default function AssistantWidget() {
   // Shared so the phone trigger can live up in the top bar.
@@ -65,14 +65,57 @@ export default function AssistantWidget() {
   // Hands-free mode: listen → send on a pause → speak the reply → listen
   // again. Refs mirror the state because the speech callbacks are created
   // once and would otherwise close over stale values.
-  const [voiceMode, setVoiceMode] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const voiceModeRef = useRef(false);
-  const sendRef = useRef<(text?: string) => void>(() => {});
-  useEffect(() => {
-    voiceModeRef.current = voiceMode;
-  }, [voiceMode]);
 
+  // Live voice: a real spoken conversation with Gemini, replacing the
+  // browser's speech engine. The old path stays below as a fallback for
+  // anything that can't hold the session — it's a worse experience, but a
+  // worse experience beats a dead button.
+  const liveRef = useRef<LiveSession | null>(null);
+  const [liveStatus, setLiveStatus] = useState<
+    "idle" | "connecting" | "listening" | "speaking" | "thinking" | "closed"
+  >("idle");
+  const [liveOn, setLiveOn] = useState(false);
+
+  async function startLive() {
+    if (liveRef.current) return;
+    setLiveOn(true);
+    setLiveStatus("connecting");
+    const session = new LiveSession({
+      onStatus: (st) => setLiveStatus(st),
+      onTranscript: (role, text, final) => {
+        if (!final) return; // only commit settled lines to the transcript
+        setMessages((prev) => [...prev, { role, content: text }]);
+      },
+      onError: (message) => {
+        setMessages((prev) => [...prev, { role: "assistant", content: message }]);
+        setLiveOn(false);
+      },
+    });
+    liveRef.current = session;
+    await session.start();
+  }
+
+  function stopLive() {
+    liveRef.current?.stop();
+    liveRef.current = null;
+    setLiveOn(false);
+    setLiveStatus("idle");
+  }
+
+  // iOS suspends the page when the phone locks or the user switches apps, and
+  // the session dies with it. Closing deliberately means "Voice ended" rather
+  // than a silent mic that looks like it's still listening.
+  useEffect(() => {
+    if (!liveOn) return;
+    const onHide = () => {
+      if (document.visibilityState === "hidden") stopLive();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [liveOn]);
+
+  useEffect(() => () => liveRef.current?.stop(), []);
+  const sendRef = useRef<(text?: string) => void>(() => {});
   useEffect(() => {
     setVoiceSupported(getRecognitionCtor() !== null);
   }, []);
@@ -96,11 +139,9 @@ export default function AssistantWidget() {
         if (e.results[i].isFinal) done = true;
       }
       setInput(text);
-      // Hands-free: a completed phrase is the cue to send, no tap needed.
-      if (done && voiceModeRef.current && text.trim()) {
-        rec.stop();
-        sendRef.current(text.trim());
-      }
+      // Dictation only fills the box — the send is the user's call. Auto-send
+      // belonged to the hands-free loop that Live voice replaced.
+      if (done) rec.stop();
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
@@ -132,41 +173,23 @@ export default function AssistantWidget() {
     }
     // Interrupt a long answer rather than waiting it out.
     if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-    setSpeaking(false);
     startListening();
   }
 
-  /** Turning voice mode off must silence anything mid-sentence. */
-  function toggleVoiceMode() {
-    const next = !voiceMode;
-    setVoiceMode(next);
-    voiceModeRef.current = next;
-    if (next) {
-      startListening();
-    } else {
-      stopListening();
-      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-      setSpeaking(false);
-    }
-  }
 
-  function speak(text: string, onDone?: () => void) {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      onDone?.();
-      return;
-    }
+
+  /**
+   * Read one written answer aloud, using the browser's own voice.
+   *
+   * Not the same thing as voice mode — that streams Ria's real voice from
+   * Gemini. This is for when you've typed a question, got a wall of text and
+   * just want to hear it while doing something else.
+   */
+  function speakText(text: string) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-IN";
-    setSpeaking(true);
-    u.onend = () => {
-      setSpeaking(false);
-      onDone?.();
-    };
-    u.onerror = () => {
-      setSpeaking(false);
-      onDone?.();
-    };
     window.speechSynthesis.speak(u);
   }
 
@@ -189,12 +212,6 @@ export default function AssistantWidget() {
       const data = (await res.json().catch(() => ({}))) as { reply?: string; error?: string };
       const reply = res.ok && data.reply ? data.reply : data.error || "Something went wrong — try again.";
       setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-      // Hands-free: read the answer out, then reopen the mic for the reply.
-      if (voiceModeRef.current) {
-        speak(reply, () => {
-          if (voiceModeRef.current) startListening();
-        });
-      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -215,17 +232,13 @@ export default function AssistantWidget() {
   // closed or the page navigates away.
   useEffect(() => {
     if (open) return;
-    voiceModeRef.current = false;
-    setVoiceMode(false);
     stopListening();
     if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-    setSpeaking(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
     return () => {
-      voiceModeRef.current = false;
       recRef.current?.stop();
       if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     };
@@ -262,21 +275,27 @@ export default function AssistantWidget() {
               <p className="text-[10px] text-zinc-500">Private to you — chats aren&apos;t saved</p>
             </div>
             <div className="flex items-center gap-2">
-              {voiceSupported && (
-                <button
-                  type="button"
-                  onClick={toggleVoiceMode}
-                  aria-pressed={voiceMode}
-                  title={voiceMode ? "Leave voice conversation" : "Talk to Ria hands-free"}
-                  className={`rounded-full px-2 py-1 text-[11px] font-medium ${
-                    voiceMode
-                      ? "bg-indigo-600 text-white"
-                      : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {voiceMode ? "Voice on" : "Voice"}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => (liveOn ? stopLive() : void startLive())}
+                aria-pressed={liveOn}
+                title={liveOn ? "End the conversation" : "Talk to Ria"}
+                className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                  liveOn
+                    ? "bg-indigo-600 text-white"
+                    : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {liveOn
+                  ? liveStatus === "connecting"
+                    ? "Connecting…"
+                    : liveStatus === "speaking"
+                      ? "Ria is speaking"
+                      : liveStatus === "thinking"
+                        ? "Looking it up…"
+                        : "Listening — tap to end"
+                  : "Voice"}
+              </button>
               {messages.length > 0 && (
                 <button
                   type="button"
@@ -307,7 +326,8 @@ export default function AssistantWidget() {
                   Hi, I&rsquo;m Ria — ask me about your payments
                   {voiceSupported && (
                     <span className="mt-1 block text-xs font-normal text-zinc-500">
-                      Tap <span className="font-medium">Voice</span> above to just talk.
+                      Tap <span className="font-medium">Voice</span> above and just talk — you can
+                      cut in whenever you like.
                     </span>
                   )}
                 </p>
@@ -344,7 +364,7 @@ export default function AssistantWidget() {
                   {m.role === "assistant" && (
                     <button
                       type="button"
-                      onClick={() => speak(m.content)}
+                      onClick={() => speakText(m.content)}
                       aria-label="Read aloud"
                       className="mt-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-300"
                     >
@@ -376,54 +396,55 @@ export default function AssistantWidget() {
             className="border-t border-zinc-100 p-3 dark:border-zinc-800"
             style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
           >
-            {voiceMode ? (
+            {liveOn ? (
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={toggleMic}
-                  aria-label={listening ? "Stop listening" : "Start listening"}
-                  className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
-                    listening
+                <span
+                  className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+                    liveStatus === "listening"
                       ? "bg-indigo-600 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+                      : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                   }`}
                 >
-                  {listening && (
+                  {liveStatus === "listening" && (
                     <span className="absolute inset-0 animate-ping rounded-full bg-indigo-500/30" />
                   )}
                   <svg className="relative" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
                     <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
                   </svg>
-                </button>
+                </span>
 
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
                     <span
                       className={`inline-block h-1.5 w-1.5 rounded-full ${
-                        listening
+                        liveStatus === "listening"
                           ? "animate-pulse bg-red-500"
-                          : speaking
+                          : liveStatus === "speaking"
                             ? "animate-pulse bg-emerald-500"
-                            : busy
+                            : liveStatus === "thinking" || liveStatus === "connecting"
                               ? "animate-pulse bg-indigo-500"
                               : "bg-zinc-300"
                       }`}
                     />
-                    {listening ? "Listening" : speaking ? "Ria is speaking" : busy ? "Thinking" : "Tap the mic to talk"}
+                    {liveStatus === "connecting"
+                      ? "Connecting"
+                      : liveStatus === "speaking"
+                        ? "Ria is speaking"
+                        : liveStatus === "thinking"
+                          ? "Looking it up"
+                          : "Listening"}
                   </p>
-                  <p className="truncate text-sm text-zinc-900 dark:text-zinc-100">
-                    {input || (
-                      <span className="text-zinc-400">
-                        {speaking ? "Tap the mic to interrupt." : "Just speak — it sends when you pause."}
-                      </span>
-                    )}
+                  <p className="truncate text-sm text-zinc-500">
+                    {liveStatus === "speaking"
+                      ? "Just talk over her if you want to cut in."
+                      : "Speak whenever you're ready."}
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={toggleVoiceMode}
+                  onClick={stopLive}
                   className="shrink-0 rounded-full bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
                 >
                   End
