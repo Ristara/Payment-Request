@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { COA_PATH } from "@/lib/coa-labels";
 import { createClient } from "@/lib/supabase/server";
 
 async function counts() {
@@ -21,7 +22,7 @@ export default async function AdminHome() {
   const tiles = [
     { href: "/admin/users", label: "Users", value: c.users, hint: "invite people + assign roles" },
     { href: "/admin/outlets", label: "Outlets", value: c.outlets, hint: "branches / locations" },
-    { href: "/admin/coa", label: "COA accounts", value: c.coa, hint: "subcategory · category · COA" },
+    { href: "/admin/coa", label: "Accounts", value: c.coa, hint: COA_PATH.toLowerCase() },
   ];
 
   return (

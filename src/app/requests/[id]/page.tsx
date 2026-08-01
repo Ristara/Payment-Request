@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { COA_LABEL } from "@/lib/coa-labels";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -370,7 +371,7 @@ export default async function ThreadDetailPage({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                    <th className="px-2 py-2 font-medium">Category / Subcategory</th>
+                    <th className="px-2 py-2 font-medium">{COA_LABEL.level2} / {COA_LABEL.level3}</th>
                     <th className="px-2 py-2 text-right font-medium">Qty</th>
                     <th className="px-2 py-2 text-right font-medium">Rate</th>
                     <th className="px-2 py-2 text-right font-medium">Amount</th>

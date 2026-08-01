@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { COA_LABEL } from "@/lib/coa-labels";
 import { createClient } from "@/lib/supabase/server";
 import { shortRequestNumber } from "@/lib/types";
 
@@ -544,7 +545,7 @@ export async function POST(req: Request) {
     `Money is released through INSTALLMENTS against that PO, each with its own life: draft (recalled by the submitter) → pending approval → approved → uploaded in bank → invoice pending / payment processed → closed; or rejected. ` +
     `Accounts download a Kotak bank file which moves approved installments to "uploaded in bank". ` +
     `A payment cannot be approved until the vendor is approved, and a vendor cannot be approved without bank account, IFSC and mobile number — if someone asks why they cannot approve or pay something, check vendor_status first. ` +
-    `Accounts are three levels: COA head → Category → Subcategory, and a line with no subcategory is charged to the whole category.`;
+    `The chart of accounts is three levels: ${COA_LABEL.level1} → ${COA_LABEL.level2} → ${COA_LABEL.level3}. A line with no ${COA_LABEL.level3.toLowerCase()} is charged to the whole ${COA_LABEL.level2.toLowerCase()}. Use those words with users — the underlying columns are named coa/category/subcategory, which they never see.`;
 
   const contents: GeminiContent[] = messages.map((m) => ({
     role: m.role === "user" ? "user" : "model",

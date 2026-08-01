@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { COA_LABEL } from "@/lib/coa-labels";
 import { createPortal } from "react-dom";
 import { computeRollupIds } from "@/lib/coa";
 
@@ -30,9 +31,9 @@ export default function HierarchicalPicker({
   onChange,
   name,
   required,
-  placeholder = "Pick a subcategory",
-  ariaLabel = "Subcategory",
-  title = "Category",
+  placeholder = `Pick an ${COA_LABEL.level3.toLowerCase()}`,
+  ariaLabel = COA_LABEL.level3,
+  title = COA_LABEL.level2,
   size = "md",
 }: {
   accounts: CoaOption[];

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { COA_LABEL } from "@/lib/coa-labels";
 import AppShell from "@/components/AppShell";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -32,7 +33,7 @@ export default async function AdminLayout({
     { href: "/admin", label: "Home", icon: <HomeIcon /> },
     { href: "/admin/users", label: "Users", icon: <UsersIcon /> },
     { href: "/admin/outlets", label: "Outlets", icon: <OutletsIcon /> },
-    { href: "/admin/coa", label: "COA", icon: <CoaIcon /> },
+    { href: "/admin/coa", label: "Accounts", icon: <CoaIcon /> },
   ];
 
   const p = (profile as { data: { full_name?: string; email?: string } | null }).data;

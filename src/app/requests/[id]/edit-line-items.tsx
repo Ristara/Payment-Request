@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import { COA_LABEL } from "@/lib/coa-labels";
 import { updateThreadLineItems } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import { computeRollupIds } from "@/lib/coa";
@@ -199,8 +200,8 @@ export default function EditLineItems({
                   value={line.coaHead}
                   onChange={(v) => update(idx, { coaHead: v, category: "", coa_account_id: "" })}
                   onClear={() => update(idx, { coaHead: "", category: "", coa_account_id: "" })}
-                  placeholder="Search COA head…"
-                  ariaLabel="COA head"
+                  placeholder={`Search ${COA_LABEL.level1.toLowerCase()}…`}
+                  ariaLabel={COA_LABEL.level1}
                 />
                 <Combobox
                   size="sm"
@@ -208,8 +209,8 @@ export default function EditLineItems({
                   value={line.category}
                   onChange={(v) => pickCategory(idx, v)}
                   onClear={() => update(idx, { category: "", coa_account_id: "" })}
-                  placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
-                  ariaLabel="Category"
+                  placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
+                  ariaLabel={COA_LABEL.level2}
                 />
                 <Combobox
                   size="sm"
@@ -219,8 +220,8 @@ export default function EditLineItems({
                           {
                             value: "",
                             label: subs.length
-                              ? "Whole category (no subcategory)"
-                              : "No subcategories — charges to category",
+                              ? `Whole ${COA_LABEL.level2.toLowerCase()} (no ${COA_LABEL.level3.toLowerCase()})`
+                              : `No ${COA_LABEL.level3.toLowerCase()}s — charges to the ${COA_LABEL.level2.toLowerCase()}`,
                           },
                           ...subs.map((sub) => ({ value: sub.id, label: sub.subcategory })),
                         ]
@@ -231,8 +232,8 @@ export default function EditLineItems({
                   // Only the subcategory goes; charging to the category is a
                   // valid state.
                   onClear={() => update(idx, { coa_account_id: "" })}
-                  placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
-                  ariaLabel="Subcategory (optional)"
+                  placeholder={line.category ? `${COA_LABEL.level3} (optional)…` : `Or search any ${COA_LABEL.level3.toLowerCase()}…`}
+                  ariaLabel={`${COA_LABEL.level3} (optional)`}
                 />
               </div>
               <div className="mt-2 grid grid-cols-3 items-end gap-2">

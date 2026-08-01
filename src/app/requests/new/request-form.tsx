@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { COA_LABEL, COA_PATH } from "@/lib/coa-labels";
 import { createThread } from "@/app/requests/actions";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import { computeRollupIds } from "@/lib/coa";
@@ -433,7 +434,7 @@ export default function RequestForm({
             <thead>
               <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
                 <th className="px-2 py-2 font-medium">
-                  COA · Category · Subcategory <span className="text-red-500">*</span>
+                  {COA_PATH} <span className="text-red-500">*</span>
                 </th>
                 <th className="px-2 py-2 text-right font-medium w-24">
                   Qty <span className="text-red-500">*</span>
@@ -462,8 +463,8 @@ export default function RequestForm({
                           onClear={() =>
                             updateLine(idx, { coaHead: "", category: "", coa_account_id: "" })
                           }
-                          placeholder="Search COA head…"
-                          ariaLabel="COA head"
+                          placeholder={`Search ${COA_LABEL.level1.toLowerCase()}…`}
+                          ariaLabel={COA_LABEL.level1}
                         />
                         <Combobox
                           size="sm"
@@ -471,8 +472,8 @@ export default function RequestForm({
                           value={line.category}
                           onChange={(v) => pickCategory(idx, v)}
                           onClear={() => updateLine(idx, { category: "", coa_account_id: "" })}
-                          placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
-                          ariaLabel="Category"
+                          placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
+                          ariaLabel={COA_LABEL.level2}
                         />
                         <Combobox
                           size="sm"
@@ -482,8 +483,8 @@ export default function RequestForm({
                                   {
                                     value: "",
                                     label: subs.length
-                                      ? "Whole category (no subcategory)"
-                                      : "No subcategories — charges to category",
+                                      ? `Whole ${COA_LABEL.level2.toLowerCase()} (no ${COA_LABEL.level3.toLowerCase()})`
+                                      : `No ${COA_LABEL.level3.toLowerCase()}s — charges to the ${COA_LABEL.level2.toLowerCase()}`,
                                   },
                                   ...subs.map((s) => ({ value: s.id, label: s.subcategory })),
                                 ]
@@ -494,8 +495,8 @@ export default function RequestForm({
                           // Only the subcategory goes; the line stays charged
                           // to its category, which is a valid state.
                           onClear={() => updateLine(idx, { coa_account_id: "" })}
-                          placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
-                          ariaLabel="Subcategory (optional)"
+                          placeholder={line.category ? `${COA_LABEL.level3} (optional)…` : `Or search any ${COA_LABEL.level3.toLowerCase()}…`}
+                          ariaLabel={`${COA_LABEL.level3} (optional)`}
                         />
                       </div>
                     </td>
@@ -579,7 +580,7 @@ export default function RequestForm({
                 </div>
                 <div className="mt-2">
                   <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                    COA head <span className="text-red-500">*</span>
+                    {COA_LABEL.level1} <span className="text-red-500">*</span>
                   </label>
                   <div className="mt-1">
                     <Combobox
@@ -588,22 +589,22 @@ export default function RequestForm({
                       onChange={(v) =>
                         updateLine(idx, { coaHead: v, category: "", coa_account_id: "" })
                       }
-                      placeholder="Search COA head…"
-                      ariaLabel="COA head"
+                      placeholder={`Search ${COA_LABEL.level1.toLowerCase()}…`}
+                      ariaLabel={COA_LABEL.level1}
                     />
                   </div>
                 </div>
                 <div className="mt-2">
                   <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                    Category <span className="text-red-500">*</span>
+                    {COA_LABEL.level2} <span className="text-red-500">*</span>
                   </label>
                   <div className="mt-1">
                     <Combobox
                       options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
                       value={line.category}
                       onChange={(v) => pickCategory(idx, v)}
-                      placeholder={line.coaHead ? "Search category…" : "Or search any category…"}
-                      ariaLabel="Category"
+                      placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
+                      ariaLabel={COA_LABEL.level2}
                     />
                   </div>
                 </div>
@@ -619,8 +620,8 @@ export default function RequestForm({
                               {
                                 value: "",
                                 label: subs.length
-                                  ? "Whole category (no subcategory)"
-                                  : "No subcategories — charges to category",
+                                  ? `Whole ${COA_LABEL.level2.toLowerCase()} (no ${COA_LABEL.level3.toLowerCase()})`
+                                  : `No ${COA_LABEL.level3.toLowerCase()}s — charges to the ${COA_LABEL.level2.toLowerCase()}`,
                               },
                               ...subs.map((s) => ({ value: s.id, label: s.subcategory })),
                             ]
@@ -628,8 +629,8 @@ export default function RequestForm({
                       }
                       value={line.coa_account_id}
                       onChange={(v) => pickSubcategory(idx, v)}
-                      placeholder={line.category ? "Subcategory (optional)…" : "Or search any subcategory…"}
-                      ariaLabel="Subcategory (optional)"
+                      placeholder={line.category ? `${COA_LABEL.level3} (optional)…` : `Or search any ${COA_LABEL.level3.toLowerCase()}…`}
+                      ariaLabel={`${COA_LABEL.level3} (optional)`}
                     />
                   </div>
                 </div>
@@ -869,7 +870,7 @@ export default function RequestForm({
       <div className="flex flex-col items-end gap-2">
         {incompleteLine !== -1 && (
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            Line {incompleteLine + 1}: pick a COA head and a category.
+            Line {incompleteLine + 1}: pick a {COA_LABEL.level1.toLowerCase()} and a {COA_LABEL.level2.toLowerCase()}.
           </p>
         )}
         {invoiceFileMissing && (

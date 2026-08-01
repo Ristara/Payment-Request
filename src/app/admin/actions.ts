@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { COA_LABEL } from "@/lib/coa-labels";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { invalidateMasters } from "@/lib/cache";
@@ -152,7 +153,7 @@ export async function createCoaAccount(
   // under its COA head.
   const category = String(formData.get("category") ?? "").trim() || coa;
   if (!subcategory || !coa) {
-    return { error: "Name and COA head are both required." };
+    return { error: `Name and ${COA_LABEL.level1.toLowerCase()} are both required.` };
   }
   if (subcategory === category) {
     return { error: `"${subcategory}" is already the name of its group — give the item its own name.` };
@@ -199,7 +200,7 @@ export async function updateCoaAccount(
     .maybeSingle();
   if (current) {
     if (subcategory === (current.category as string)) {
-      return { error: `"${subcategory}" is the category's own name — pick a different one.` };
+      return { error: `"${subcategory}" is the ${COA_LABEL.level2.toLowerCase()}'s own name — pick a different one.` };
     }
     const { data: sibling } = await supabase
       .from("coa_accounts")
@@ -209,7 +210,7 @@ export async function updateCoaAccount(
       .limit(1)
       .maybeSingle();
     if (sibling) {
-      return { error: `"${subcategory}" is already a category under ${current.coa} — pick a different name.` };
+      return { error: `"${subcategory}" is already a ${COA_LABEL.level2.toLowerCase()} under ${current.coa} — pick a different name.` };
     }
   }
   const { error } = await supabase
@@ -322,7 +323,7 @@ export async function renameCategoryGroup(
   if (subErr) return { error: subErr.message };
   invalidateMasters();
   revalidatePath("/admin/coa");
-  return { info: "Category renamed." };
+  return { info: `${COA_LABEL.level2} renamed.` };
 }
 
 /**
@@ -358,7 +359,7 @@ export async function renameCoaGroup(
   if (error) return { error: error.message };
   invalidateMasters();
   revalidatePath("/admin/coa");
-  return { info: "COA head renamed." };
+  return { info: `${COA_LABEL.level1} renamed.` };
 }
 
 // ---------------------------------------------------------------------------

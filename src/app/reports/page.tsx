@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { COA_LABEL } from "@/lib/coa-labels";
 import { formatINR } from "@/lib/types";
 
 type LineRow = {
@@ -102,9 +103,9 @@ export default async function SpendReportPage({
         <div>
           <label className="block text-xs text-zinc-500">Group by</label>
           <select name="groupBy" defaultValue={groupBy} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <option value="subcategory">Subcategory</option>
-            <option value="category">Category</option>
-            <option value="coa">COA head</option>
+            <option value="subcategory">{COA_LABEL.level3}</option>
+            <option value="category">{COA_LABEL.level2}</option>
+            <option value="coa">{COA_LABEL.level1}</option>
             <option value="vendor">Vendor</option>
             <option value="outlet">Outlet</option>
           </select>
@@ -121,7 +122,7 @@ export default async function SpendReportPage({
             <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
               <tr>
                 <th className="px-5 py-3">
-                  {groupBy === "coa" ? "COA head" : groupBy === "vendor" ? "Vendor" : groupBy === "category" ? "Category" : groupBy === "outlet" ? "Outlet" : "Subcategory"}
+                  {groupBy === "coa" ? COA_LABEL.level1 : groupBy === "vendor" ? "Vendor" : groupBy === "category" ? COA_LABEL.level2 : groupBy === "outlet" ? "Outlet" : COA_LABEL.level3}
                 </th>
                 <th className="px-5 py-3 text-right">Requests</th>
                 <th className="px-5 py-3 text-right">Total</th>

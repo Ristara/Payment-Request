@@ -1,4 +1,5 @@
 import { getCoaAccounts } from "@/lib/masters";
+import { COA_LABEL } from "@/lib/coa-labels";
 import CoaForm from "./coa-form";
 
 export default async function CoaPage() {
@@ -9,9 +10,10 @@ export default async function CoaPage() {
         Chart of Accounts
       </h1>
       <p className="mt-1 text-sm text-zinc-500">
-        Manage COA heads, categories, and subcategories as a tree. Renaming a
-        COA head or category updates every subcategory under it. Codes are
-        auto-generated per subcategory and can&apos;t be edited.
+        Manage {COA_LABEL.level1.toLowerCase()}s, {COA_LABEL.level2.toLowerCase()}s and
+        {" "}{COA_LABEL.level3.toLowerCase()}s. Renaming a {COA_LABEL.level1.toLowerCase()} or
+        {" "}{COA_LABEL.level2.toLowerCase()} updates everything under it. Codes are
+        auto-generated per {COA_LABEL.level3.toLowerCase()} and can&apos;t be edited.
       </p>
 
       <div className="mt-6">
