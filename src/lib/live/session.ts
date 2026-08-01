@@ -454,8 +454,26 @@ export class LiveSession {
           },
         },
       );
-    } catch {
-      this.events.onError("Couldn't use the microphone. Check the permission and try again.");
+    } catch (e) {
+      // getUserMedia rejects with a DOMException whose name is the whole
+      // diagnosis, and this used to throw it away and say "check the
+      // permission" for all of them. On a phone permission really is the usual
+      // cause; on a desktop it is far more often a machine with no microphone,
+      // or one already held by Zoom or Teams — and telling someone to check a
+      // permission they have already granted sends them looking in the one
+      // place the answer isn't.
+      const name = e instanceof DOMException ? e.name : "";
+      this.events.onError(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "This site isn't allowed to use the microphone. Click the icon at the left of the address bar and allow it, then try again."
+          : name === "NotFoundError"
+            ? "No microphone found on this computer. Plug one in, or use Voice on your phone."
+            : name === "NotReadableError" || name === "TrackStartError"
+              ? "Another app is using the microphone. Close it — Zoom, Teams and Meet all hold it — then try again."
+              : name === "OverconstrainedError"
+                ? "This microphone won't record at the quality Ria needs. Try a different input device."
+                : `Couldn't use the microphone${name ? ` (${name})` : ""}.`,
+      );
       this.stop();
       return;
     }
