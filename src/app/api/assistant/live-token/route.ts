@@ -24,6 +24,23 @@ export const dynamic = "force-dynamic";
  * here — otherwise someone could re-prompt Ria into a general-purpose chatbot
  * running on the company's quota.
  */
+/**
+ * Warm-up ping. Does nothing on purpose — booting the module IS the work.
+ *
+ * Measured on the deployed function: 967ms for the first request after an
+ * idle period against 135ms warm. That ~830ms is Node starting, ~1MB of
+ * chunks loading (the Gemini SDK is 593KB of it) and Sentry initialising, and
+ * all of it used to land on the first tap of Voice — which is exactly the
+ * "the first conversation takes time" complaint. Opening the assistant panel
+ * gives us a few seconds of warning, so the boot is moved there.
+ *
+ * No auth, no database, no Google call: this must stay cheap enough that
+ * pinging it is never worse than the problem it solves.
+ */
+export function GET() {
+  return new NextResponse(null, { status: 204 });
+}
+
 export async function POST() {
   const supabase = await createClient();
   const {
@@ -31,16 +48,8 @@ export async function POST() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, is_active")
-    .eq("id", user.id)
-    .maybeSingle();
-  const prof = profile as { full_name?: string; is_active?: boolean } | null;
-  if (prof?.is_active === false) {
-    return NextResponse.json({ error: "Your account is inactive." }, { status: 403 });
-  }
-
+  // Checked before the queries, not after, so a missing key still fails fast
+  // instead of paying for two round-trips it is about to throw away.
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -49,10 +58,22 @@ export async function POST() {
     );
   }
 
-  const { data: roleRows } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id);
+  // Both of these need only user.id, so they were sequential for no reason
+  // other than the order they were written in. src/lib/auth.ts already reads
+  // the same two tables this way.
+  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+    supabase.from("profiles").select("full_name, is_active").eq("id", user.id).maybeSingle(),
+    supabase.from("user_roles").select("role").eq("user_id", user.id),
+  ]);
+
+  const prof = profile as { full_name?: string; is_active?: boolean } | null;
+  // Stays above the mint: deactivation strips roles in the database too
+  // (migration 025), so this gate is what stops a deactivated account getting
+  // a working voice token.
+  if (prof?.is_active === false) {
+    return NextResponse.json({ error: "Your account is inactive." }, { status: 403 });
+  }
+
   const roles = ((roleRows ?? []) as { role: string }[]).map((r) => r.role);
 
   // Short window to START a session; the session itself then runs on its own.

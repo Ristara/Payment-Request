@@ -76,12 +76,39 @@ export default function AssistantWidget() {
   >("idle");
   const [liveOn, setLiveOn] = useState(false);
 
+  // Booting the token function costs ~830ms on a cold instance (measured: 967ms
+  // first hit after idle, 135ms warm), and every bit of that used to land on
+  // the first tap of Voice. Opening the panel is a few seconds of warning, so
+  // the boot happens here, while the user is still reading.
+  //
+  // The worklet gets the same treatment: addModule() fetches it over the
+  // network on the microphone path, where it delays the moment the mic goes
+  // live. Fetching it here puts it in the HTTP cache first.
+  useEffect(() => {
+    if (!open) return;
+    const abort = new AbortController();
+    const warm = (url: string) =>
+      void fetch(url, { signal: abort.signal, cache: "no-store" }).catch(() => {
+        /* warm-up only — a failure here costs nothing but the head start */
+      });
+    warm("/api/assistant/live-token");
+    warm("/ria-capture-worklet.js");
+    return () => abort.abort();
+  }, [open]);
+
   async function startLive() {
     if (liveRef.current) return;
     setLiveOn(true);
     setLiveStatus("connecting");
     const session = new LiveSession({
-      onStatus: (st) => setLiveStatus(st),
+      onStatus: (st) => {
+        setLiveStatus(st);
+        // A socket that closes on its own — network drop, session expiry, the
+        // phone locking — left the panel showing "Listening — tap to end" over
+        // a dead connection, because only the explicit stop and error paths
+        // cleared this.
+        if (st === "closed") setLiveOn(false);
+      },
       onTranscript: (role, text) => {
         setMessages((prev) => [...prev, { role, content: text }]);
       },
