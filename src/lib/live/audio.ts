@@ -20,7 +20,21 @@ export type Capture = {
   setMuted: (muted: boolean) => void;
 };
 
-export async function startCapture(onChunk: (pcm16: ArrayBuffer) => void): Promise<Capture> {
+export type CaptureHooks = {
+  /** Mic RMS, once per posted chunk (~15/sec). Only while unmuted. */
+  onLevel?: (rms: number) => void;
+  /**
+   * The microphone went away mid-session — device unplugged, permission
+   * revoked, another app took it. Without this a dead mic is indistinguishable
+   * from a quiet room, which is the worst thing a voice UI can be vague about.
+   */
+  onLost?: () => void;
+};
+
+export async function startCapture(
+  onChunk: (pcm16: ArrayBuffer) => void,
+  hooks: CaptureHooks = {},
+): Promise<Capture> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       // Without these the mic hears Ria through the speaker and the model
@@ -41,11 +55,19 @@ export async function startCapture(onChunk: (pcm16: ArrayBuffer) => void): Promi
   const source = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "ria-capture", { numberOfOutputs: 0 });
 
+  // The worklet now posts an object rather than a bare Int16Array: the same
+  // message carries the PCM that goes to Gemini and the level that drives the
+  // UI, so the two cannot disagree about whether audio is flowing.
   node.port.onmessage = (e) => {
-    const data = e.data as Int16Array;
-    onChunk(data.buffer as ArrayBuffer);
+    const data = e.data as { pcm?: Int16Array; rms?: number };
+    if (typeof data.rms === "number") hooks.onLevel?.(data.rms);
+    if (data.pcm) onChunk(data.pcm.buffer as ArrayBuffer);
   };
   source.connect(node);
+
+  // A track that ends on its own is the only signal that the mic died.
+  const track = stream.getAudioTracks()[0];
+  if (track) track.addEventListener("ended", () => hooks.onLost?.());
 
   return {
     stop: () => {
@@ -71,6 +93,8 @@ export type Player = {
   stop: () => void;
   /** True while there is still audio to play. */
   isPlaying: () => boolean;
+  /** 0..1 RMS of what is coming out of the speaker right now. */
+  level: () => number;
 };
 
 export async function startPlayback(): Promise<Player> {
@@ -113,7 +137,23 @@ export async function startPlayback(): Promise<Player> {
     pcA = pcB = null; sink = null;
   }
 
-  const output: AudioNode = pcA ? dest : ctx.destination;
+  const outputSink: AudioNode = pcA ? dest : ctx.destination;
+
+  // A pass-through analyser in front of the sink, so inserting it changes
+  // nothing audible and every source still lands in the same place.
+  //
+  // Measuring at push() time instead would be wrong and would look right for
+  // about a second: a five-second answer arrives as a burst of chunks in
+  // ~200ms, so a push-time meter spikes once and then reads zero for the
+  // entire time Ria is actually audible. The analyser reads the SCHEDULED
+  // timeline, and it silences itself for free when flush() drops a barged-in
+  // answer.
+  const meter = ctx.createAnalyser();
+  meter.fftSize = 256;
+  meter.smoothingTimeConstant = 0.35;
+  meter.connect(outputSink);
+  const frame = new Uint8Array(meter.fftSize);
+  const output: AudioNode = meter;
 
   // Scheduled queue: each chunk is booked to start where the last one ends,
   // so consecutive chunks play gaplessly instead of overlapping.
@@ -157,6 +197,15 @@ export async function startPlayback(): Promise<Player> {
       void ctx.close();
     },
     isPlaying: () => live.size > 0,
+    level() {
+      meter.getByteTimeDomainData(frame);
+      let sum = 0;
+      for (let i = 0; i < frame.length; i++) {
+        const v = (frame[i] - 128) / 128;
+        sum += v * v;
+      }
+      return Math.sqrt(sum / frame.length);
+    },
   };
 }
 

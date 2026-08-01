@@ -14,8 +14,28 @@ export type LiveEvents = {
   onStatus: (s: "connecting" | "listening" | "speaking" | "thinking" | "closed") => void;
   /** Transcript lines, so the conversation still reads like the chat above it. */
   onTranscript: (role: "user" | "assistant", text: string) => void;
+  /**
+   * The line currently being spoken, replaced on every fragment and cleared
+   * with "" when it settles. Fires several times a second, so the handler must
+   * be cheap.
+   */
+  onPartial: (role: "user" | "assistant", text: string) => void;
+  /**
+   * Fired once, when the microphone gate genuinely opens. Deliberately
+   * separate from onStatus("listening"): during the opening greeting the mic
+   * is shut on purpose, and the UI has to be able to say so rather than
+   * claiming to listen over a deaf microphone.
+   */
+  onMicOpen: () => void;
   onError: (message: string) => void;
 };
+
+/** How long a mic reading stays believable before it is treated as stale. */
+const LEVEL_TTL_MS = 400;
+/** Mic ramp floor — see beginCapture. */
+const RAMP_MS = 300;
+/** Hard ceiling on waiting for the greeting before opening the mic anyway. */
+const GREETING_CEILING_MS = 6000;
 
 /**
  * One spoken conversation with Ria.
@@ -38,6 +58,25 @@ export class LiveSession {
   private closedByUser = false;
   private userLine = "";
   private assistantLine = "";
+
+  /** Latest mic RMS, written by the capture callback ~15 times a second. */
+  private micLevel = 0;
+  /**
+   * When that reading arrived. A plain field would hold its last value forever
+   * if the capture died, and a frozen level is visually indistinguishable from
+   * someone talking steadily — the orb would sit there inflated under
+   * "Listening" with a dead microphone.
+   */
+  private micLevelAt = 0;
+  /** The user's own mute, kept apart from the greeting gate below. */
+  private userMuted = false;
+  /** True once the mic gate is genuinely open. */
+  private micOpen = false;
+  /** Earliest wall-clock time the gate may open — the ramp floor. */
+  private micReadyAt = 0;
+  private greeted = false;
+  private listenTimer: number | null = null;
+  private ceilingTimer: number | null = null;
 
   constructor(private events: LiveEvents) {}
 
@@ -113,12 +152,15 @@ export class LiveSession {
         callbacks: {
           onopen: () => void this.beginCapture(),
           onmessage: (m: LiveServerMessage) => void this.handle(m),
-          onerror: () => this.events.onError("Voice connection had a problem."),
-          onclose: () => {
-            this.capture?.stop();
-            this.capture = null;
-            this.events.onStatus("closed");
+          onerror: () => {
+            // Was: report and carry on. That left the microphone open, the
+            // socket half-dead and the panel still showing a working
+            // conversation, because nothing here changed the status or tore
+            // anything down.
+            this.events.onError("The voice connection dropped.");
+            this.stop();
           },
+          onclose: () => this.stop(),
         },
       });
 
@@ -134,10 +176,22 @@ export class LiveSession {
         return;
       }
 
+      // ai.live.connect() already awaits setupComplete before resolving, so
+      // this session is post-handshake and can be spoken to immediately.
+      // Hanging the greeting off onopen instead would put a clientContent
+      // frame ahead of the setup message on the wire — and would silently
+      // no-op anyway, because this.session is still null at that point.
       this.session = session;
-      // Anything the user said during the setup handshake is waiting; send it
-      // now rather than losing it.
-      this.flushPending();
+      this.greet();
+
+      // If she never speaks — the greeting is ignored, the model errors, the
+      // turn never completes — the mic must still open. A voice UI whose
+      // microphone waits forever on something that already failed is worse
+      // than one that greets badly.
+      this.ceilingTimer = window.setTimeout(() => {
+        this.ceilingTimer = null;
+        this.openMic();
+      }, GREETING_CEILING_MS);
     } catch {
       this.player?.stop();
       this.player = null;
@@ -146,27 +200,70 @@ export class LiveSession {
     }
   }
 
-  /**
-   * Audio captured before the socket finished its setup handshake.
-   *
-   * The SDK fires onopen — and therefore beginCapture — before it has sent
-   * BidiGenerateContentSetup and awaited setupComplete, so `this.session` is
-   * still null for a moment after the mic goes live. That gap used to be
-   * covered only by the 1200ms mute, which is to say it was covered by
-   * accident; shortening the mute without this would have started quietly
-   * eating the user's first words.
-   */
-  private pending: ArrayBuffer[] = [];
+  /* ---------------------------------------------------------------------- */
+  /* Greeting                                                               */
+  /* ---------------------------------------------------------------------- */
 
-  private flushPending() {
-    if (!this.session) return;
-    for (const pcm of this.pending) {
-      this.session.sendRealtimeInput({
-        audio: { data: bufferToB64(pcm), mimeType: "audio/pcm;rate=16000" },
-      });
+  /**
+   * Hand the model the turn so it speaks first.
+   *
+   * No `turns` payload: the SDK sends a bare
+   * `{ clientContent: { turnComplete: true } }`, which is exactly the
+   * "managing turns when not using audio input" case it documents. Because
+   * nothing is said, there is no instruction-shaped text for the model to read
+   * aloud and nothing lands in the context as a spurious user turn — the
+   * wording lives in the system instruction, server-side, next to the name.
+   *
+   * If resume-on-drop is ever added (the token already sets sessionResumption)
+   * set `greeted = true` before calling this when resuming: the greeting is
+   * already in the resumed context and would otherwise fire again mid-chat.
+   */
+  private greet() {
+    if (this.greeted || this.closedByUser || !this.session) return;
+    this.greeted = true;
+    try {
+      this.session.sendClientContent({ turnComplete: true });
+    } catch {
+      // Nothing was sent, so nothing will complete — open up rather than
+      // waiting out the ceiling in silence.
+      this.openMic();
     }
-    this.pending = [];
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* Levels and mute                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * 0..1 microphone level. A pull rather than an event, deliberately: the view
+   * reads it inside its own animation frame, so the level never enters React
+   * state and the panel never re-renders for it.
+   *
+   * Returns 0 whenever the number would be a claim we can't stand behind — the
+   * gate is shut, the user muted, or the last reading is stale enough that the
+   * capture may be dead.
+   */
+  getMicLevel(): number {
+    if (!this.micOpen || this.userMuted) return 0;
+    if (performance.now() - this.micLevelAt > LEVEL_TTL_MS) return 0;
+    return this.micLevel;
+  }
+
+  /** 0..1 level of what is coming out of the speaker right now. */
+  getVoiceLevel(): number {
+    return this.player?.level() ?? 0;
+  }
+
+  setMuted(muted: boolean) {
+    this.userMuted = muted;
+    // Only touch the gate once it is ours to touch. Before the greeting
+    // finishes the capture is muted for a different reason, and unmuting here
+    // would open the microphone into Ria's own voice.
+    if (this.micOpen) this.capture?.setMuted(muted);
+    if (muted) this.micLevel = 0;
+  }
+
+  /* ---------------------------------------------------------------------- */
 
   private async handle(msg: LiveServerMessage) {
     const content = msg.serverContent;
@@ -175,15 +272,30 @@ export class LiveSession {
       // The user talked over the answer. What's queued is now wrong — drop it
       // rather than letting it play out over them.
       this.player?.flush();
+      // Commit what she had already said rather than wiping it. She said some
+      // of it out loud, and a transcript people check amounts against should
+      // not have a hole exactly where someone cut in to correct a figure. It
+      // can over-reach a little — transcription runs slightly ahead of
+      // playback, so the tail may be text generated but never heard — and that
+      // is the safer of the two errors.
+      if (this.assistantLine.trim()) {
+        this.events.onTranscript("assistant", this.assistantLine.trim());
+      }
       this.assistantLine = "";
-      this.events.onStatus("listening");
+      this.events.onPartial("assistant", "");
+      this.scheduleListen();
     }
 
     if (content?.inputTranscription?.text) {
       this.userLine += content.inputTranscription.text;
+      // Emitted as it arrives, not at turn end. "fifteen thousand" heard as
+      // "fifty thousand" has to be on screen while there is still time to say
+      // "no, fifteen" — after turnComplete the lookup has already gone out.
+      this.events.onPartial("user", this.userLine);
     }
     if (content?.outputTranscription?.text) {
       this.assistantLine += content.outputTranscription.text;
+      this.events.onPartial("assistant", this.assistantLine);
     }
 
     for (const part of content?.modelTurn?.parts ?? []) {
@@ -202,13 +314,68 @@ export class LiveSession {
       }
       this.userLine = "";
       this.assistantLine = "";
-      this.events.onStatus("listening");
+      this.events.onPartial("user", "");
+      this.events.onPartial("assistant", "");
+      this.scheduleListen();
     }
 
     if (msg.toolCall?.functionCalls?.length) {
       this.events.onStatus("thinking");
       await this.runTools(msg.toolCall.functionCalls);
     }
+  }
+
+  /**
+   * Say "Listening" when it is actually true, and not a moment before.
+   *
+   * turnComplete means generation finished, not that the speaker has. Chunks
+   * are scheduled ahead of wall clock, so a five-second answer arrives in
+   * ~200ms and then plays out for another ~4.8 seconds. Announcing "listening"
+   * at turnComplete meant the panel invited the user to speak while Ria was
+   * still audibly talking — and, on the first turn, while the gate was shut.
+   */
+  private scheduleListen() {
+    if (this.closedByUser) return;
+    if (this.listenTimer !== null) {
+      window.clearTimeout(this.listenTimer);
+      this.listenTimer = null;
+    }
+    if (this.player?.isPlaying()) {
+      this.listenTimer = window.setTimeout(() => this.scheduleListen(), 100);
+      return;
+    }
+    this.openMic();
+  }
+
+  /** Open the gate, once, and only then claim to be listening. */
+  private openMic() {
+    if (this.closedByUser) return;
+    if (this.listenTimer !== null) {
+      window.clearTimeout(this.listenTimer);
+      this.listenTimer = null;
+    }
+    // beginCapture may still be inside getUserMedia — on a first-ever session
+    // that spans the browser's permission prompt. Wait rather than announce.
+    if (!this.capture) {
+      this.listenTimer = window.setTimeout(() => this.openMic(), 100);
+      return;
+    }
+    const wait = this.micReadyAt - Date.now();
+    if (wait > 0) {
+      this.listenTimer = window.setTimeout(() => this.openMic(), wait);
+      return;
+    }
+    if (this.ceilingTimer !== null) {
+      window.clearTimeout(this.ceilingTimer);
+      this.ceilingTimer = null;
+    }
+    if (!this.micOpen) {
+      this.micOpen = true;
+      this.micLevelAt = performance.now();
+      this.capture.setMuted(this.userMuted);
+      this.events.onMicOpen();
+    }
+    this.events.onStatus("listening");
   }
 
   private async runTools(
@@ -238,19 +405,31 @@ export class LiveSession {
     if (this.closedByUser) return;
     let capture: Capture;
     try {
-      capture = await startCapture((pcm) => {
-        if (this.session) {
+      capture = await startCapture(
+        (pcm) => {
+          // The gate is shut until openMic, and openMic cannot run before the
+          // session exists, so this is only ever reached with a live session.
+          // The check stays as a guard, not as a buffer: the old `pending`
+          // queue existed to protect the user's first words, and with Ria
+          // greeting first there are no first words to protect at t=0 — its
+          // only remaining effect would have been to fire the microphone's
+          // ramp transient at the model in the middle of the greeting.
+          if (!this.session) return;
           this.session.sendRealtimeInput({
             audio: { data: bufferToB64(pcm), mimeType: "audio/pcm;rate=16000" },
           });
-          return;
-        }
-        // Socket open, setup handshake still in flight. Hold the audio instead
-        // of dropping it. Bounded and oldest-first so a connection that never
-        // completes can't grow this without limit — roughly 3 seconds' worth.
-        this.pending.push(pcm);
-        if (this.pending.length > 48) this.pending.shift();
-      });
+        },
+        {
+          onLevel: (rms) => {
+            this.micLevel = rms;
+            this.micLevelAt = performance.now();
+          },
+          onLost: () => {
+            this.events.onError("The microphone stopped. Check it isn't in use elsewhere.");
+            this.stop();
+          },
+        },
+      );
     } catch {
       this.events.onError("Couldn't use the microphone. Check the permission and try again.");
       this.stop();
@@ -273,31 +452,39 @@ export class LiveSession {
     // settle over the first fraction of a second, and that transient is enough
     // to trip the model's turn detection into answering a noise.
     //
-    // This was 1200ms, on the theory that the echo canceller needed to
-    // converge. At session start there is nothing playing to converge against
-    // — Ria hasn't spoken yet — so that reasoning didn't hold, and the cost
-    // was real: the UI said "Listening" while the mic was deaf, so the first
-    // thing the user said went nowhere and they had to say it again. That is
-    // most of what "the first conversation takes time" felt like.
+    // This used to be a bare 1200ms, then a bare 300ms, on a timer that
+    // unmuted whatever else was happening. Now that Ria speaks first a fixed
+    // timer cannot be right at all: it would have to cover token latency plus
+    // the greeting plus the playback tail, none of which are constant. So the
+    // ramp is only a FLOOR now, and the gate is opened by state — greeting
+    // finished and the speaker drained — in openMic().
     //
-    // 300ms covers the ramp. It is still a guess, and it wants checking on a
-    // real handset with the speaker on — I can't test audio from here.
+    // The worklet also starts muted, so nothing escapes between addModule
+    // resolving and this line.
+    this.micReadyAt = Date.now() + RAMP_MS;
     this.capture.setMuted(true);
-    setTimeout(() => {
-      if (this.closedByUser) return;
-      this.capture?.setMuted(false);
-      // Only now is the microphone genuinely live, so only now do we say so.
-      this.events.onStatus("listening");
-    }, 300);
   }
 
   stop() {
+    // Idempotent: the user's End calls session.close(), which fires onclose,
+    // which lands back here.
+    if (this.closedByUser) return;
     this.closedByUser = true;
+    if (this.listenTimer !== null) window.clearTimeout(this.listenTimer);
+    if (this.ceilingTimer !== null) window.clearTimeout(this.ceilingTimer);
+    this.listenTimer = null;
+    this.ceilingTimer = null;
     this.capture?.stop();
     this.player?.stop();
     this.capture = null;
     this.player = null;
-    this.pending = [];
+    this.micLevel = 0;
+    this.micLevelAt = 0;
+    this.micOpen = false;
+    this.userLine = "";
+    this.assistantLine = "";
+    this.events.onPartial("user", "");
+    this.events.onPartial("assistant", "");
     try {
       this.session?.close();
     } catch {

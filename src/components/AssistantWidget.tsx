@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { LiveSession } from "@/lib/live/session";
+import VoiceView from "@/components/VoiceView";
 import { useAssistant } from "@/components/AssistantContext";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -75,6 +76,17 @@ export default function AssistantWidget() {
     "idle" | "connecting" | "listening" | "speaking" | "thinking" | "closed"
   >("idle");
   const [liveOn, setLiveOn] = useState(false);
+  // The half-finished line on each side, so a mishearing is visible while
+  // there is still time to correct it.
+  const [partialUser, setPartialUser] = useState("");
+  const [partialAssistant, setPartialAssistant] = useState("");
+  const [liveMuted, setLiveMuted] = useState(false);
+  const [micLive, setMicLive] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  // Whether the session ending was our doing. A socket that drops on its own
+  // has to stay on screen and say so; an End tap should just close.
+  const endedByUserRef = useRef(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Booting the token function costs ~830ms on a cold instance (measured: 967ms
   // first hit after idle, 135ms warm), and every bit of that used to land on
@@ -98,23 +110,45 @@ export default function AssistantWidget() {
 
   async function startLive() {
     if (liveRef.current) return;
+    endedByUserRef.current = false;
     setLiveOn(true);
     setLiveStatus("connecting");
+    setLiveError(null);
+    setLiveMuted(false);
+    setMicLive(false);
+    setPartialUser("");
+    setPartialAssistant("");
     const session = new LiveSession({
       onStatus: (st) => {
         setLiveStatus(st);
-        // A socket that closes on its own — network drop, session expiry, the
-        // phone locking — left the panel showing "Listening — tap to end" over
-        // a dead connection, because only the explicit stop and error paths
-        // cleared this.
-        if (st === "closed") setLiveOn(false);
+        if (st === "closed") {
+          // Nulling this is what makes Voice work a second time. It used to
+          // happen only in stopLive, so any close we did not initiate — a
+          // network drop, an expired session, a refused microphone — left a
+          // dead LiveSession in the ref and startLive returned at its first
+          // line forever after. The button was there, and did nothing.
+          liveRef.current = null;
+          setMicLive(false);
+          setPartialUser("");
+          setPartialAssistant("");
+          // Only an End tap closes the panel. Anything else keeps the view up
+          // showing what happened, with a way back in.
+          if (endedByUserRef.current) setLiveOn(false);
+        }
       },
       onTranscript: (role, text) => {
         setMessages((prev) => [...prev, { role, content: text }]);
       },
+      onPartial: (role, text) => {
+        if (role === "user") setPartialUser(text);
+        else setPartialAssistant(text);
+      },
+      onMicOpen: () => setMicLive(true),
       onError: (message) => {
-        setMessages((prev) => [...prev, { role: "assistant", content: message }]);
-        setLiveOn(false);
+        // Was: pushed into `messages` as role "assistant", so "Couldn't use
+        // the microphone" appeared as a grey bubble attributed to Ria, behind
+        // a panel the user was not looking at because they were on a call.
+        setLiveError(message);
       },
     });
     liveRef.current = session;
@@ -122,10 +156,15 @@ export default function AssistantWidget() {
   }
 
   function stopLive() {
+    endedByUserRef.current = true;
     liveRef.current?.stop();
     liveRef.current = null;
     setLiveOn(false);
     setLiveStatus("idle");
+    setLiveError(null);
+    setMicLive(false);
+    setPartialUser("");
+    setPartialAssistant("");
   }
 
   // iOS suspends the page when the phone locks or the user switches apps, and
@@ -259,6 +298,12 @@ export default function AssistantWidget() {
   useEffect(() => {
     if (open) return;
     stopListening();
+    // Closing the panel used to leave a live voice session running: the
+    // markup is behind {open && ...}, so the unmount cleanup never fired and
+    // nothing else reached stopLive. The socket stayed open, the microphone
+    // stayed hot and the phone's recording indicator stayed lit, with no UI
+    // anywhere to end it.
+    if (liveRef.current) stopLive();
     if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -301,39 +346,39 @@ export default function AssistantWidget() {
               <p className="text-[10px] text-zinc-500">Private to you — chats aren&apos;t saved</p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => (liveOn ? stopLive() : void startLive())}
-                aria-pressed={liveOn}
-                title={liveOn ? "End the conversation" : "Talk to Ria"}
-                className={`rounded-full px-2 py-1 text-[11px] font-medium ${
-                  liveOn
-                    ? "bg-indigo-600 text-white"
-                    : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                }`}
-              >
-                {liveOn
-                  ? liveStatus === "connecting"
-                    ? "Connecting…"
-                    : liveStatus === "speaking"
-                      ? "Ria is speaking"
-                      : liveStatus === "thinking"
-                        ? "Looking it up…"
-                        : "Listening — tap to end"
-                  : "Voice"}
-              </button>
-              {messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setMessages([])}
-                  className="rounded-md px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  New chat
-                </button>
+              {/* During a call the status lives in one place — the view below.
+                  Two places narrating the same state is how the old strip
+                  ended up reading as chrome. New chat is hidden too: it would
+                  wipe the transcript mid-conversation. */}
+              {!liveOn && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void startLive()}
+                    title="Talk to Ria"
+                    className="rounded-full px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    Voice
+                  </button>
+                  {messages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setMessages([])}
+                      className="rounded-md px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      New chat
+                    </button>
+                  )}
+                </>
               )}
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  // Hang up first. Closing the panel is not a reason to leave
+                  // a microphone open.
+                  if (liveRef.current) stopLive();
+                  setOpen(false);
+                }}
                 aria-label="Close"
                 className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
               >
@@ -344,6 +389,38 @@ export default function AssistantWidget() {
             </div>
           </div>
 
+          {/* Voice takes over the whole body, not just the composer strip.
+              The old layout kept a mostly-empty message list above a cramped
+              status row, which is how a conversation ended up looking like a
+              status bar. */}
+          {liveOn ? (
+            <VoiceView
+              status={liveStatus === "idle" ? "connecting" : liveStatus}
+              lines={messages}
+              partialUser={partialUser}
+              partialAssistant={partialAssistant}
+              micLive={micLive}
+              muted={liveMuted}
+              error={liveError}
+              getMicLevel={() => liveRef.current?.getMicLevel() ?? 0}
+              getVoiceLevel={() => liveRef.current?.getVoiceLevel() ?? 0}
+              onToggleMute={() => {
+                const next = !liveMuted;
+                liveRef.current?.setMuted(next);
+                setLiveMuted(next);
+              }}
+              onEnd={stopLive}
+              onRetry={() => {
+                stopLive();
+                void startLive();
+              }}
+              onKeyboard={() => {
+                stopLive();
+                requestAnimationFrame(() => inputRef.current?.focus());
+              }}
+            />
+          ) : (
+            <>
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {messages.length === 0 && (
@@ -422,63 +499,9 @@ export default function AssistantWidget() {
             className="border-t border-zinc-100 p-3 dark:border-zinc-800"
             style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
           >
-            {liveOn ? (
-              <div className="flex items-center gap-3">
-                <span
-                  className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
-                    liveStatus === "listening"
-                      ? "bg-indigo-600 text-white"
-                      : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                  }`}
-                >
-                  {liveStatus === "listening" && (
-                    <span className="absolute inset-0 animate-ping rounded-full bg-indigo-500/30" />
-                  )}
-                  <svg className="relative" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
-                  </svg>
-                </span>
-
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
-                    <span
-                      className={`inline-block h-1.5 w-1.5 rounded-full ${
-                        liveStatus === "listening"
-                          ? "animate-pulse bg-red-500"
-                          : liveStatus === "speaking"
-                            ? "animate-pulse bg-emerald-500"
-                            : liveStatus === "thinking" || liveStatus === "connecting"
-                              ? "animate-pulse bg-indigo-500"
-                              : "bg-zinc-300"
-                      }`}
-                    />
-                    {liveStatus === "connecting"
-                      ? "Connecting"
-                      : liveStatus === "speaking"
-                        ? "Ria is speaking"
-                        : liveStatus === "thinking"
-                          ? "Looking it up"
-                          : "Listening"}
-                  </p>
-                  <p className="truncate text-sm text-zinc-500">
-                    {liveStatus === "speaking"
-                      ? "Just talk over her if you want to cut in."
-                      : "Speak whenever you're ready."}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={stopLive}
-                  className="shrink-0 rounded-full bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
-                >
-                  End
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2">
                 <textarea
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -521,8 +544,9 @@ export default function AssistantWidget() {
                   </svg>
                 </button>
               </div>
-            )}
           </div>
+            </>
+          )}
         </div>
       )}
     </>
