@@ -74,9 +74,18 @@ export class LiveSession {
     try {
       this.session = await ai.live.connect({
         model: body.model ?? "gemini-3.1-flash-live-preview",
-        // Everything else — system instruction, tools, transcription — is
-        // pinned into the token server-side and can't be overridden here.
-        config: { responseModalities: [Modality.AUDIO] },
+        // System instruction and tools are pinned into the token server-side
+        // and cannot be overridden from here. These are the operational bits:
+        // transcription so the conversation still reads back in the chat, and
+        // resumption plus a sliding context window so a long conversation
+        // survives Google closing the socket.
+        config: {
+          responseModalities: [Modality.AUDIO],
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          contextWindowCompression: { slidingWindow: {} },
+          sessionResumption: {},
+        },
         callbacks: {
           onopen: () => void this.beginCapture(),
           onmessage: (m: LiveServerMessage) => void this.handle(m),

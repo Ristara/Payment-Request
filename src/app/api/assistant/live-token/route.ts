@@ -75,6 +75,12 @@ export async function POST() {
       expireTime: expire,
       newSessionExpireTime: startBy,
       // Pinned so a token loose in a browser can't be repurposed.
+      // Only what matters for SECURITY is pinned here: which model runs, that
+      // it answers in audio, who it thinks it is, and what it may look up.
+      // Operational preferences — transcription, resumption, context
+      // compression — are set by the client, because pinning fields the
+      // constraint schema may not accept risks failing the mint outright, and
+      // none of them are a way in.
       liveConnectConstraints: {
         model: `models/${LIVE_MODEL}`,
         config: {
@@ -83,12 +89,6 @@ export async function POST() {
             parts: [{ text: riaSystemInstruction(prof?.full_name ?? "there", roles) }],
           },
           tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          // Without this a long conversation dies at the session cap; with it
-          // the model keeps a sliding window and runs indefinitely.
-          contextWindowCompression: { slidingWindow: {} },
-          sessionResumption: {},
         },
       },
     }),
@@ -96,15 +96,30 @@ export async function POST() {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    // Never echo the upstream body — it can contain the key in the URL.
-    console.error("live-token mint failed", res.status, detail.slice(0, 300));
+    console.error("live-token mint failed", res.status, detail.slice(0, 500));
+
+    // Google returns {error:{code,message,status}}. Surfacing that message is
+    // safe now the key travels in a header rather than the URL, and it is the
+    // difference between an admin fixing this in a minute and guessing.
+    // The first version hid it behind "try again in a moment", which is
+    // advice to repeat something that will never work.
+    let upstream = "";
+    try {
+      const parsed = JSON.parse(detail) as { error?: { message?: string; status?: string } };
+      upstream = parsed.error?.message ?? "";
+    } catch {
+      upstream = detail.slice(0, 200);
+    }
+
     const message =
       res.status === 401 || res.status === 403
-        ? "The AI key was rejected. An admin should check GEMINI_API_KEY in Vercel."
+        ? `The AI key was rejected. An admin should check GEMINI_API_KEY in Vercel. (${upstream || res.status})`
         : res.status === 404
-          ? "Live voice isn't available to this key. An admin should check the Generative Language API is enabled, and that the model is still current."
-          : "Couldn't start voice right now. Try again in a moment.";
-    return NextResponse.json({ error: message }, { status: 502 });
+          ? `Live voice isn't available to this key — check the model id in GEMINI_LIVE_MODEL and that the Generative Language API is enabled. (${upstream || res.status})`
+          : res.status === 429
+            ? `This key has no Live quota right now. (${upstream || res.status})`
+            : `Couldn't start voice — ${upstream || `the AI service returned ${res.status}`}.`;
+    return NextResponse.json({ error: message, status: res.status }, { status: 502 });
   }
 
   const body = (await res.json()) as { name?: string };
