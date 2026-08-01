@@ -69,6 +69,10 @@ export default function RequestForm({
   const [expenseType, setExpenseType] = useState<ExpenseType>(
     expenseTypes.length === 1 ? expenseTypes[0] : "capex",
   );
+  // OpEx is rent and utilities on a running outlet: never a new store, never
+  // a project milestone. Both questions are answered by the choice itself, so
+  // asking them again is a step that can only be got wrong.
+  const isOpex = expenseType === "opex";
   const visibleOutlets = storeType ? outlets.filter((o) => o.stage === storeType) : [];
   const [paymentKind, setPaymentKind] = useState<"" | "regular" | "milestone">("");
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
@@ -231,7 +235,17 @@ export default function RequestForm({
                 key={t}
                 type="button"
                 disabled={!allowed}
-                onClick={() => setExpenseType(t)}
+                onClick={() => {
+                  setExpenseType(t);
+                  if (t === "opex") {
+                    setStoreType("operational");
+                    setPaymentKind("regular");
+                    // An upcoming-outlet pick can't survive the switch.
+                    if (!outlets.some((o) => o.id === outletId && o.stage === "operational")) {
+                      setOutletId("");
+                    }
+                  }
+                }}
                 title={allowed ? undefined : `You haven't been given ${EXPENSE_LABEL[t]} access`}
                 className={`rounded-xl border px-3 py-2.5 text-center disabled:cursor-not-allowed disabled:opacity-50 ${
                   active
@@ -257,8 +271,9 @@ export default function RequestForm({
         </div>
       </section>
 
-      {/* Store type — decides which outlets are offered below */}
-      <section>
+      {/* Store type — decides which outlets are offered below. OpEx is always
+          an existing outlet, so the question isn't asked. */}
+      <section className={isOpex ? "hidden" : undefined}>
         <SectionTitle required>What is this payment for?</SectionTitle>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {([
@@ -293,8 +308,8 @@ export default function RequestForm({
         </div>
       </section>
 
-      {/* Payment kind */}
-      <section>
+      {/* Payment kind — OpEx is always a regular payment. */}
+      <section className={isOpex ? "hidden" : undefined}>
         <SectionTitle required>Payment kind</SectionTitle>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {([

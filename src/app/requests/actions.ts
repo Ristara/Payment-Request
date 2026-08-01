@@ -319,6 +319,23 @@ export async function createThread(
   if (!installment_amount || installment_amount <= 0) return { error: "First installment amount must be positive." };
   if (!payment_due_date) return { error: "Payment due date is required." };
   if (!payment_kind) return { error: "Pick a payment kind — Regular or Milestone." };
+  // OpEx is rent and utilities on a running outlet. The form doesn't offer
+  // the other answers; this is what stops a crafted request supplying them.
+  if (expense_type === "opex") {
+    if (payment_kind !== "regular") {
+      return { error: "OpEx is always a regular payment." };
+    }
+    const { data: picked } = await supabase
+      .from("outlets")
+      .select("id, stage")
+      .in("id", outlet_ids);
+    const notOperational = ((picked ?? []) as { stage: string }[]).some(
+      (o) => o.stage !== "operational",
+    );
+    if (notOperational) {
+      return { error: "OpEx can only be raised against an existing outlet." };
+    }
+  }
   if (!document_type) return { error: "Pick a document type." };
   if ((document_type === "po" || document_type === "invoice") && !document_reference) {
     return { error: `Enter the ${document_type === "po" ? "PO" : "invoice"} number.` };
