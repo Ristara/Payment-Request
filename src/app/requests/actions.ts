@@ -8,7 +8,7 @@ import { sendPushToUsers } from "@/lib/push";
 import { computeRollupIds } from "@/lib/coa";
 import { invalidateMasters } from "@/lib/cache";
 import { oversizedFile } from "@/lib/uploads";
-import { shortRequestNumber } from "@/lib/types";
+import { formatINR, shortRequestNumber } from "@/lib/types";
 import { getDeletionImpact, purgeRequest } from "@/lib/purge-request";
 import { getRaiseAccess, raiseDenied, type ExpenseType } from "@/lib/access";
 
@@ -1302,7 +1302,17 @@ export async function markInstallmentPaid(
     .like("storage_path", `%/installments/${installmentId}/%`);
   const nextStatus = (invCount ?? 0) > 0 ? "payment_processed" : "invoice_pending";
   try {
-    await transitionInstallment(installmentId, nextStatus, "Payment processed");
+    // This line is carried by three things at once: the installment's own
+    // history, the submitter's in-app notification, and the push that reaches
+    // their phone. "Payment processed" told them something had happened
+    // without saying what — the amount and the UTR are what they actually
+    // need, and the UTR is the first thing they'll be asked for when the
+    // vendor rings to ask whether the money has left.
+    await transitionInstallment(
+      installmentId,
+      nextStatus,
+      `Paid ${formatINR(paid_amount)} · UTR ${utr_reference}`,
+    );
   } catch (e) {
     return { error: (e as Error).message };
   }
