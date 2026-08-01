@@ -236,8 +236,9 @@ export class LiveSession {
 
   private async beginCapture() {
     if (this.closedByUser) return;
+    let capture: Capture;
     try {
-      this.capture = await startCapture((pcm) => {
+      capture = await startCapture((pcm) => {
         if (this.session) {
           this.session.sendRealtimeInput({
             audio: { data: bufferToB64(pcm), mimeType: "audio/pcm;rate=16000" },
@@ -255,6 +256,18 @@ export class LiveSession {
       this.stop();
       return;
     }
+
+    // The user can end voice while getUserMedia is still resolving — and on a
+    // first-ever session that await spans the browser's permission prompt, so
+    // the window is as long as they take to answer it. stop() has already run
+    // by then and found this.capture still null, so assigning it here handed
+    // the page a live microphone that nothing would ever close: the phone's
+    // recording indicator stayed on until the tab was closed.
+    if (this.closedByUser) {
+      capture.stop();
+      return;
+    }
+    this.capture = capture;
 
     // A freshly opened microphone ramps: autoGainControl and noiseSuppression
     // settle over the first fraction of a second, and that transient is enough
