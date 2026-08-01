@@ -36,6 +36,12 @@ const LEVEL_TTL_MS = 400;
 const RAMP_MS = 300;
 /** Hard ceiling on waiting for the greeting before opening the mic anyway. */
 const GREETING_CEILING_MS = 6000;
+/**
+ * Hard backstop from the moment the mic exists. Long enough that a normal
+ * greeting finishes first and the drain gate opens the mic on its own; short
+ * enough that a broken signal costs a pause, not the whole conversation.
+ */
+const FAILSAFE_MS = 3000;
 
 /**
  * One spoken conversation with Ria.
@@ -77,6 +83,18 @@ export class LiveSession {
   private greeted = false;
   private listenTimer: number | null = null;
   private ceilingTimer: number | null = null;
+  /**
+   * The backstop that makes the mic gate incapable of failing shut.
+   *
+   * Everything else here waits on a signal: the greeting completing, playback
+   * reporting drained, the capture resolving. Each is a chance for the
+   * microphone to stay closed forever if that signal never arrives — and a
+   * closed microphone is indistinguishable, to the person holding the phone,
+   * from the whole feature being broken. Voice worked before any of this
+   * existed. An optimisation that can silence it is worse than the echo it
+   * was added to prevent.
+   */
+  private failsafeTimer: number | null = null;
 
   constructor(private events: LiveEvents) {}
 
@@ -348,7 +366,7 @@ export class LiveSession {
   }
 
   /** Open the gate, once, and only then claim to be listening. */
-  private openMic() {
+  private openMic(force = false) {
     if (this.closedByUser) return;
     if (this.listenTimer !== null) {
       window.clearTimeout(this.listenTimer);
@@ -357,10 +375,12 @@ export class LiveSession {
     // beginCapture may still be inside getUserMedia — on a first-ever session
     // that spans the browser's permission prompt. Wait rather than announce.
     if (!this.capture) {
-      this.listenTimer = window.setTimeout(() => this.openMic(), 100);
+      this.listenTimer = window.setTimeout(() => this.openMic(force), 100);
       return;
     }
-    const wait = this.micReadyAt - Date.now();
+    // Forced, the ramp floor is skipped too. A little gain-ramp noise reaching
+    // the model is a much smaller problem than a mic that never opens.
+    const wait = force ? 0 : this.micReadyAt - Date.now();
     if (wait > 0) {
       this.listenTimer = window.setTimeout(() => this.openMic(), wait);
       return;
@@ -368,6 +388,10 @@ export class LiveSession {
     if (this.ceilingTimer !== null) {
       window.clearTimeout(this.ceilingTimer);
       this.ceilingTimer = null;
+    }
+    if (this.failsafeTimer !== null) {
+      window.clearTimeout(this.failsafeTimer);
+      this.failsafeTimer = null;
     }
     if (!this.micOpen) {
       this.micOpen = true;
@@ -462,6 +486,14 @@ export class LiveSession {
     // The worklet also starts muted, so nothing escapes between addModule
     // resolving and this line.
     this.micReadyAt = Date.now() + RAMP_MS;
+
+    // Waits for nothing and asks nothing. If the greeting never completes, or
+    // playback never reports drained, or a message we depend on simply never
+    // arrives, the microphone opens anyway and the user can still talk.
+    this.failsafeTimer = window.setTimeout(() => {
+      this.failsafeTimer = null;
+      this.openMic(true);
+    }, RAMP_MS + FAILSAFE_MS);
     this.capture.setMuted(true);
   }
 
@@ -472,8 +504,10 @@ export class LiveSession {
     this.closedByUser = true;
     if (this.listenTimer !== null) window.clearTimeout(this.listenTimer);
     if (this.ceilingTimer !== null) window.clearTimeout(this.ceilingTimer);
+    if (this.failsafeTimer !== null) window.clearTimeout(this.failsafeTimer);
     this.listenTimer = null;
     this.ceilingTimer = null;
+    this.failsafeTimer = null;
     this.capture?.stop();
     this.player?.stop();
     this.capture = null;
