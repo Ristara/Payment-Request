@@ -580,17 +580,24 @@ export async function POST(req: Request) {
       let friendly: string;
       if (res.status === 503) {
         friendly = "Google's AI service is busy at the moment. Give it a few seconds and ask again.";
-      } else if (res.status === 429) {
-        friendly = "Ria is a bit busy right now (free-tier limit). Try again in a minute.";
-      } else if (res.status === 401 || res.status === 403) {
+      } else if (res.status === 429 && detail.includes("limit: 0")) {
+        // Must be tested BEFORE the general 429. It used to sit after it, so
+        // this branch could never run and a key with no quota — the most
+        // likely setup failure — reported "try again in a minute" forever.
         friendly =
-          "The AI key isn't valid. An admin needs to set GEMINI_API_KEY in Vercel to a Google AI Studio key (starts with AIza) and redeploy.";
+          "This Gemini key has no request quota (its limit is 0). An admin should enable the Generative Language API on the key's Google Cloud project, or create the key from Google AI Studio.";
+      } else if (res.status === 429) {
+        friendly = "Ria is a bit busy right now (rate limited). Try again in a minute.";
+      } else if (res.status === 401 || res.status === 403) {
+        // Deliberately doesn't prescribe a key format. Both AIza… and AQ.…
+        // keys authenticate; guessing at the prefix sent an admin chasing a
+        // non-problem once already.
+        friendly =
+          "The AI key was rejected. An admin should check GEMINI_API_KEY in Vercel and redeploy.";
       } else if (res.status === 400) {
         friendly = "Ria couldn't process that request (code 400) — a setup issue, not your question.";
       } else if (res.status === 404) {
-        friendly = "The AI model isn't available to this key (code 404). An admin should check the Gemini API is enabled for the key's project.";
-      } else if (res.status === 429 && detail.includes("limit: 0")) {
-        friendly = "This Gemini key has no request quota (free-tier limit is 0). An admin should create the key from Google AI Studio, or enable billing on its Google Cloud project.";
+        friendly = "The AI model isn't available to this key (code 404). An admin should check the Generative Language API is enabled for the key's project.";
       } else {
         friendly = `Ria had a problem answering (code ${res.status}). Try again.`;
       }
