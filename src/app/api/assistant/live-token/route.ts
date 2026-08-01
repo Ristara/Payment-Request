@@ -59,34 +59,40 @@ export async function POST() {
   const startBy = new Date(Date.now() + 2 * 60_000).toISOString();
   const expire = new Date(Date.now() + 32 * 60_000).toISOString();
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1alpha/auth_tokens?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        uses: 1,
-        expireTime: expire,
-        newSessionExpireTime: startBy,
-        // Pinned so a token loose in a browser can't be repurposed.
-        liveConnectConstraints: {
-          model: LIVE_MODEL,
-          config: {
-            responseModalities: ["AUDIO"],
-            systemInstruction: {
-              parts: [{ text: riaSystemInstruction(prof?.full_name ?? "there", roles) }],
-            },
-            tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
-            // Without this a long conversation dies at the session cap; with
-            // it the model keeps a sliding window and runs indefinitely.
-            contextWindowCompression: { slidingWindow: {} },
-            sessionResumption: {},
-          },
-        },
-        lockAdditionalFields: [],
-      }),
+  // Endpoint details verified against Google's ephemeral-tokens doc rather
+  // than assumed: it is v1beta (not v1alpha), the key goes in the
+  // x-goog-api-key HEADER (not a query parameter), and the model needs the
+  // "models/" prefix. All three were wrong in the first cut and each one
+  // fails the call on its own.
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/auth_tokens", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
-  );
+    body: JSON.stringify({
+      uses: 1,
+      expireTime: expire,
+      newSessionExpireTime: startBy,
+      // Pinned so a token loose in a browser can't be repurposed.
+      liveConnectConstraints: {
+        model: `models/${LIVE_MODEL}`,
+        config: {
+          responseModalities: ["AUDIO"],
+          systemInstruction: {
+            parts: [{ text: riaSystemInstruction(prof?.full_name ?? "there", roles) }],
+          },
+          tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          // Without this a long conversation dies at the session cap; with it
+          // the model keeps a sliding window and runs indefinitely.
+          contextWindowCompression: { slidingWindow: {} },
+          sessionResumption: {},
+        },
+      },
+    }),
+  });
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

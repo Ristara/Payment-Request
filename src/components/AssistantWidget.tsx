@@ -82,8 +82,7 @@ export default function AssistantWidget() {
     setLiveStatus("connecting");
     const session = new LiveSession({
       onStatus: (st) => setLiveStatus(st),
-      onTranscript: (role, text, final) => {
-        if (!final) return; // only commit settled lines to the transcript
+      onTranscript: (role, text) => {
         setMessages((prev) => [...prev, { role, content: text }]);
       },
       onError: (message) => {

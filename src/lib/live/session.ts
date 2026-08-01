@@ -1,54 +1,43 @@
 "use client";
 
-import { b64ToBuffer, bufferToB64, startCapture, startPlayback, type Capture, type Player } from "./audio";
-
-const WS_BASE =
-  "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from "@google/genai";
+import {
+  b64ToBuffer,
+  bufferToB64,
+  startCapture,
+  startPlayback,
+  type Capture,
+  type Player,
+} from "./audio";
 
 export type LiveEvents = {
   onStatus: (s: "connecting" | "listening" | "speaking" | "thinking" | "closed") => void;
   /** Transcript lines, so the conversation still reads like the chat above it. */
-  onTranscript: (role: "user" | "assistant", text: string, final: boolean) => void;
+  onTranscript: (role: "user" | "assistant", text: string) => void;
   onError: (message: string) => void;
-};
-
-type ServerMessage = {
-  setupComplete?: unknown;
-  serverContent?: {
-    modelTurn?: { parts?: { inlineData?: { data?: string }; text?: string }[] };
-    inputTranscription?: { text?: string };
-    outputTranscription?: { text?: string };
-    interrupted?: boolean;
-    turnComplete?: boolean;
-  };
-  toolCall?: { functionCalls?: { id?: string; name?: string; args?: Record<string, unknown> }[] };
-  goAway?: { timeLeft?: string };
-  sessionResumptionUpdate?: { newHandle?: string; resumable?: boolean };
 };
 
 /**
  * One spoken conversation with Ria.
  *
- * The browser talks to Google directly using a short-lived token minted by
- * our server — see api/assistant/live-token for why it isn't proxied. The
- * model's tool calls come back HERE, and this posts them to our own endpoint
- * so the actual data lookup still runs server-side under the user's RLS.
+ * Uses Google's own SDK rather than talking to the WebSocket by hand. The
+ * first attempt hand-rolled the protocol and got the setup message, the audio
+ * envelope and the tool-response shape from inference — Google documents the
+ * SDK, not the wire format, so that was guesswork dressed as code. The SDK
+ * accepts an ephemeral token in place of an API key precisely so a browser
+ * can hold the session without ever seeing the real one.
  *
- * Three things this has to survive that a naive version doesn't:
- *  - the user cutting in mid-answer (flush the queued audio, immediately)
- *  - Google closing the socket every ~10 minutes (reconnect on the resumption
- *    handle so the conversation carries on)
- *  - iOS suspending the page when the phone locks (close cleanly; there is no
- *    way to keep it alive)
+ * Tool calls still come back to our server: the model asks the browser, and
+ * the browser asks /api/assistant/tool, which runs the lookup under the
+ * user's own RLS. The browser never queries anything itself.
  */
 export class LiveSession {
-  private ws: WebSocket | null = null;
+  private session: Session | null = null;
   private capture: Capture | null = null;
   private player: Player | null = null;
-  private resumeHandle: string | null = null;
   private closedByUser = false;
-  private assistantLine = "";
   private userLine = "";
+  private assistantLine = "";
 
   constructor(private events: LiveEvents) {}
 
@@ -57,118 +46,91 @@ export class LiveSession {
     this.events.onStatus("connecting");
 
     const res = await fetch("/api/assistant/live-token", { method: "POST" });
-    const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
+    const body = (await res.json().catch(() => ({}))) as {
+      token?: string;
+      model?: string;
+      error?: string;
+    };
     if (!res.ok || !body.token) {
       this.events.onError(body.error ?? "Couldn't start voice.");
       this.events.onStatus("closed");
       return;
     }
 
-    // Playback first: it creates the AudioContext, and doing that inside the
-    // user's tap is what unlocks audio on iOS.
-    this.player = await startPlayback();
-    await this.connect(body.token);
-  }
-
-  private async connect(token: string) {
-    const ws = new WebSocket(`${WS_BASE}?access_token=${encodeURIComponent(token)}`);
-    ws.binaryType = "arraybuffer";
-    this.ws = ws;
-
-    ws.onopen = () => {
-      // Model, instruction and tools are pinned into the token itself, so the
-      // setup here only carries what the token deliberately left open.
-      ws.send(
-        JSON.stringify({
-          setup: {
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
-            ...(this.resumeHandle ? { sessionResumption: { handle: this.resumeHandle } } : {}),
-          },
-        }),
-      );
-    };
-
-    ws.onmessage = async (e) => {
-      const raw = typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer);
-      let msg: ServerMessage;
-      try {
-        msg = JSON.parse(raw) as ServerMessage;
-      } catch {
-        return;
-      }
-      await this.handle(msg);
-    };
-
-    ws.onerror = () => this.events.onError("Voice connection had a problem.");
-
-    ws.onclose = () => {
-      this.capture?.stop();
-      this.capture = null;
-      if (this.closedByUser) {
-        this.events.onStatus("closed");
-        return;
-      }
-      // Google closes the socket periodically by design. With a resumption
-      // handle this is a sub-second gap rather than a lost conversation.
-      if (this.resumeHandle) void this.reconnect();
-      else this.events.onStatus("closed");
-    };
-  }
-
-  private async reconnect() {
-    const res = await fetch("/api/assistant/live-token", { method: "POST" });
-    const body = (await res.json().catch(() => ({}))) as { token?: string };
-    if (!body.token || this.closedByUser) {
+    // Playback first — creating the AudioContext inside the user's tap is
+    // what unlocks audio on iOS.
+    try {
+      this.player = await startPlayback();
+    } catch {
+      this.events.onError("Couldn't start audio on this device.");
       this.events.onStatus("closed");
       return;
     }
-    await this.connect(body.token);
+
+    // The ephemeral token stands in for the API key. The real key never
+    // reaches this file.
+    const ai = new GoogleGenAI({ apiKey: body.token });
+
+    try {
+      this.session = await ai.live.connect({
+        model: body.model ?? "gemini-3.1-flash-live-preview",
+        // Everything else — system instruction, tools, transcription — is
+        // pinned into the token server-side and can't be overridden here.
+        config: { responseModalities: [Modality.AUDIO] },
+        callbacks: {
+          onopen: () => void this.beginCapture(),
+          onmessage: (m: LiveServerMessage) => void this.handle(m),
+          onerror: () => this.events.onError("Voice connection had a problem."),
+          onclose: () => {
+            this.capture?.stop();
+            this.capture = null;
+            this.events.onStatus("closed");
+          },
+        },
+      });
+    } catch {
+      this.player?.stop();
+      this.player = null;
+      this.events.onError("Couldn't reach the voice service. Try again.");
+      this.events.onStatus("closed");
+    }
   }
 
-  private async handle(msg: ServerMessage) {
-    if (msg.setupComplete) {
-      await this.beginCapture();
-      return;
-    }
-
-    if (msg.sessionResumptionUpdate?.newHandle) {
-      this.resumeHandle = msg.sessionResumptionUpdate.newHandle;
-    }
-
+  private async handle(msg: LiveServerMessage) {
     const content = msg.serverContent;
-    if (content) {
-      // The user started talking over the answer. Everything queued is now
-      // wrong — drop it rather than letting it play out over them.
-      if (content.interrupted) {
-        this.player?.flush();
-        this.assistantLine = "";
-        this.events.onStatus("listening");
-      }
 
-      if (content.inputTranscription?.text) {
-        this.userLine += content.inputTranscription.text;
-        this.events.onTranscript("user", this.userLine, false);
-      }
-      if (content.outputTranscription?.text) {
-        this.assistantLine += content.outputTranscription.text;
-        this.events.onTranscript("assistant", this.assistantLine, false);
-      }
+    if (content?.interrupted) {
+      // The user talked over the answer. What's queued is now wrong — drop it
+      // rather than letting it play out over them.
+      this.player?.flush();
+      this.assistantLine = "";
+      this.events.onStatus("listening");
+    }
 
-      for (const part of content.modelTurn?.parts ?? []) {
-        if (part.inlineData?.data) {
-          this.player?.push(b64ToBuffer(part.inlineData.data));
-          this.events.onStatus("speaking");
-        }
-      }
+    if (content?.inputTranscription?.text) {
+      this.userLine += content.inputTranscription.text;
+    }
+    if (content?.outputTranscription?.text) {
+      this.assistantLine += content.outputTranscription.text;
+    }
 
-      if (content.turnComplete) {
-        if (this.userLine.trim()) this.events.onTranscript("user", this.userLine.trim(), true);
-        if (this.assistantLine.trim()) this.events.onTranscript("assistant", this.assistantLine.trim(), true);
-        this.userLine = "";
-        this.assistantLine = "";
-        this.events.onStatus("listening");
+    for (const part of content?.modelTurn?.parts ?? []) {
+      if (part.inlineData?.data) {
+        this.player?.push(b64ToBuffer(part.inlineData.data));
+        this.events.onStatus("speaking");
       }
+    }
+
+    if (content?.turnComplete) {
+      // Commit both sides only once settled, so the transcript doesn't
+      // flicker mid-word.
+      if (this.userLine.trim()) this.events.onTranscript("user", this.userLine.trim());
+      if (this.assistantLine.trim()) {
+        this.events.onTranscript("assistant", this.assistantLine.trim());
+      }
+      this.userLine = "";
+      this.assistantLine = "";
+      this.events.onStatus("listening");
     }
 
     if (msg.toolCall?.functionCalls?.length) {
@@ -177,13 +139,13 @@ export class LiveSession {
     }
   }
 
-  private async runTools(calls: { id?: string; name?: string; args?: Record<string, unknown> }[]) {
-    const responses = await Promise.all(
+  private async runTools(
+    calls: { id?: string; name?: string; args?: Record<string, unknown> }[],
+  ) {
+    const functionResponses = await Promise.all(
       calls.map(async (call) => {
         let result: unknown;
         try {
-          // Server-side, under the user's own session. The browser never
-          // queries anything itself.
           const r = await fetch("/api/assistant/tool", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -197,21 +159,22 @@ export class LiveSession {
         return { id: call.id, name: call.name, response: { output: result } };
       }),
     );
-    this.ws?.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
+    this.session?.sendToolResponse({ functionResponses });
   }
 
   private async beginCapture() {
     this.events.onStatus("listening");
-    this.capture = await startCapture((pcm) => {
-      if (this.ws?.readyState !== WebSocket.OPEN) return;
-      this.ws.send(
-        JSON.stringify({
-          realtimeInput: {
-            audio: { mimeType: "audio/pcm;rate=16000", data: bufferToB64(pcm) },
-          },
-        }),
-      );
-    });
+    try {
+      this.capture = await startCapture((pcm) => {
+        this.session?.sendRealtimeInput({
+          audio: { data: bufferToB64(pcm), mimeType: "audio/pcm;rate=16000" },
+        });
+      });
+    } catch {
+      this.events.onError("Couldn't use the microphone. Check the permission and try again.");
+      this.stop();
+      return;
+    }
 
     // The echo canceller needs a moment to settle. Sending audio before it
     // has means Ria's own first syllables reach the model and she answers
@@ -227,9 +190,11 @@ export class LiveSession {
     this.capture = null;
     this.player = null;
     try {
-      this.ws?.close();
-    } catch { /* already closing */ }
-    this.ws = null;
+      this.session?.close();
+    } catch {
+      /* already closing */
+    }
+    this.session = null;
     this.events.onStatus("closed");
   }
 }
