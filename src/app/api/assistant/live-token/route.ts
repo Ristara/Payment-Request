@@ -89,11 +89,20 @@ export async function POST() {
             tools: [
               { functionDeclarations: TOOL_DECLARATIONS as unknown as FunctionDeclaration[] },
             ],
+            // These have to be here rather than on the client. With the
+            // constraint set and lockAdditionalFields omitted, every field is
+            // locked and anything the client asks for is silently IGNORED —
+            // so transcription set browser-side would simply never happen,
+            // and the conversation would never appear in the chat log.
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            contextWindowCompression: { slidingWindow: {} },
+            sessionResumption: {},
           },
         },
-        // Empty array = lock exactly the fields set above, leaving the rest
-        // (transcription, resumption) for the client to choose.
-        lockAdditionalFields: [],
+        // Deliberately omitted. An empty array is what produced
+        // "field_mask is invalid for BidiGenerateContentSetup"; leaving it out
+        // locks exactly the fields set above, which is what we want anyway.
       },
     });
     token = created.name;
