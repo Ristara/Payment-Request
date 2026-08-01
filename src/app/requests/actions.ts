@@ -75,6 +75,30 @@ async function hasSettledPayment(
   return !!rec && (rec.paid_amount != null || !!rec.utr_reference);
 }
 
+/**
+ * Is this person on the thread — the one who raised it, or someone CC'd?
+ *
+ * CC is how a request gets picked up by a second person, so a watcher works
+ * it the same way the submitter would: raising the next installment,
+ * extending the PO, resubmitting a correction. It does NOT confer a role —
+ * raising still needs `requester`.
+ */
+async function isThreadParticipant(
+  admin: ReturnType<typeof createAdminClient>,
+  requestId: string,
+  userId: string,
+  submitterId: string,
+): Promise<boolean> {
+  if (submitterId === userId) return true;
+  const { data } = await admin
+    .from("request_watchers")
+    .select("user_id")
+    .eq("request_id", requestId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return !!data;
+}
+
 async function requireRole(...allowed: string[]) {
   const { supabase, user } = await currentUserOrThrow();
   const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
@@ -941,8 +965,11 @@ export async function editAndResubmitInstallment(
   if (!thread) return { error: "Thread not found." };
   const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
   const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
-  if (thread.submitter_id !== user.id && !roles.has("admin")) {
-    return { error: "Only the submitter can edit and resubmit." };
+  if (
+    !(await isThreadParticipant(admin, thread.id as string, user.id, thread.submitter_id as string)) &&
+    !roles.has("admin")
+  ) {
+    return { error: "Only the person who raised this, or someone CC'd on it, can edit and resubmit." };
   }
 
   // Balance guard: PO value minus every OTHER live installment.
@@ -1671,8 +1698,11 @@ export async function updateThreadLineItems(
   if (!thread) return { error: "Request not found." };
   const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
   const roles = new Set(((roleRows ?? []) as { role: string }[]).map((r) => r.role));
-  if (thread.submitter_id !== user.id && !roles.has("admin")) {
-    return { error: "Only the submitter can edit the PO." };
+  if (
+    !(await isThreadParticipant(admin, thread.id as string, user.id, thread.submitter_id as string)) &&
+    !roles.has("admin")
+  ) {
+    return { error: "Only the person who raised this, or someone CC'd on it, can edit the PO." };
   }
 
   const { data: insts } = await admin

@@ -159,6 +159,15 @@ export default async function ThreadDetailPage({
   const req = threadRes.data as unknown as ThreadRow;
 
   const isSubmitter = user!.id === req.submitter_id;
+  // Being CC'd is how a second person picks a request up — they carry it
+  // forward the same way the person who raised it would.
+  const { data: watchRow } = await supabase
+    .from("request_watchers")
+    .select("user_id")
+    .eq("request_id", req.id)
+    .eq("user_id", user!.id)
+    .maybeSingle();
+  const isParticipant = isSubmitter || !!watchRow;
   const isApprover = roles.includes("approver");
   const isAccounts = roles.includes("accounts");
   const isAdmin = roles.includes("admin");
@@ -269,16 +278,16 @@ export default async function ThreadDetailPage({
   // an approver's sign-off must not shift underneath them.
   const PO_LOCKED = ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed", "closed"];
   const canEditPo =
-    (isSubmitter || isAdmin) && !installments.some((i) => PO_LOCKED.includes(i.status));
+    (isParticipant || isAdmin) && !installments.some((i) => PO_LOCKED.includes(i.status));
 
   // Whether the submitter can raise another installment.
-  const canRaiseInstallment = isSubmitter && balanceRemaining > 0.005;
+  const canRaiseInstallment = isParticipant && balanceRemaining > 0.005;
 
   return (
     <div>
       <MarkRead requestId={req.id} />
       <div className="mb-4 text-sm">
-        <Link href={isSubmitter ? "/requests" : "/approvals"} className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+        <Link href={isParticipant ? "/requests" : "/approvals"} className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
           ← Back
         </Link>
       </div>
@@ -503,7 +512,7 @@ export default async function ThreadDetailPage({
                       status={inst.status}
                       vendorStatus={req.vendor?.status ?? "approved"}
                       vendorId={req.vendor_id}
-                      isSubmitter={isSubmitter}
+                      isSubmitter={isParticipant}
                       isApprover={isApprover}
                       isAccounts={isAccounts}
                       isAdmin={isAdmin}
@@ -567,7 +576,7 @@ export default async function ThreadDetailPage({
               <AttachmentsGrid
                 items={requestStageAtt}
                 urlByPath={urlByPath}
-                canDelete={isSubmitter || isAdmin}
+                canDelete={isParticipant || isAdmin}
                 requestId={req.id}
               />
             </Card>

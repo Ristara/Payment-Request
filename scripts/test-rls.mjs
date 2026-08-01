@@ -154,6 +154,42 @@ check("requester: edit their own pending vendor directly", "BLOCKED", await as(R
 check("accounts: edit an approved vendor", "ALLOWED", await as(ACCOUNTS,
   "update public.vendors set bank_account_number='9' where id=$1", [vendorApproved]));
 
+// --- CC'd (watcher) access ------------------------------------------------
+const WATCHER = await makeUser("watcher", ["requester"]);
+const OUTSIDER = await makeUser("outsider", ["requester"]);
+await c.query("insert into public.request_watchers (request_id, user_id) values ($1,$2)",
+  [approved.rid, WATCHER]);
+// The timeline check needs something on the timeline, or "0 rows" reads as
+// a denial when it just means the fixture was empty.
+await c.query(
+  `insert into public.status_history (request_id, installment_id, actor_id, from_status, to_status, comment)
+   values ($1, $2, $3, 'pending_approval', 'approved', 'fixture')`,
+  [approved.rid, approved.inst, REQUESTER]);
+
+check("CC'd: read the thread", "ALLOWED", await as(WATCHER,
+  "select id from public.payment_requests where id=$1", [approved.rid]));
+check("CC'd: read its INSTALLMENTS (the status)", "ALLOWED", await as(WATCHER,
+  "select id from public.request_installments where request_id=$1", [approved.rid]));
+check("CC'd: read its line items", "ALLOWED", await as(WATCHER,
+  "select id from public.request_line_items where request_id=$1", [approved.rid]));
+check("CC'd: read its timeline", "ALLOWED", await as(WATCHER,
+  "select id from public.status_history where request_id=$1", [approved.rid]));
+check("CC'd: raise the next installment", "ALLOWED", await as(WATCHER,
+  `insert into public.request_installments
+     (request_id, installment_number, requested_amount, payment_due_date, status, submitted_by)
+   values ($1, 9, 1, current_date, 'pending_approval', $2)`, [approved.rid, WATCHER]));
+check("CC'd: approve it themselves", "BLOCKED", await as(WATCHER,
+  "update public.request_installments set status='approved' where id=$1", [approved.inst]));
+
+check("not CC'd: read the thread", "BLOCKED", await as(OUTSIDER,
+  "select id from public.payment_requests where id=$1", [approved.rid]));
+check("not CC'd: read its installments", "BLOCKED", await as(OUTSIDER,
+  "select id from public.request_installments where request_id=$1", [approved.rid]));
+check("not CC'd: raise an installment on it", "BLOCKED", await as(OUTSIDER,
+  `insert into public.request_installments
+     (request_id, installment_number, requested_amount, payment_due_date, status, submitted_by)
+   values ($1, 8, 1, current_date, 'pending_approval', $2)`, [approved.rid, OUTSIDER]));
+
 check("user: switch their own account back on", "BLOCKED", await as(NOBODY,
   "update public.profiles set is_active=true where id=$1", [NOBODY]));
 check("user: edit their own name", "ALLOWED", await as(NOBODY,
