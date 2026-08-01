@@ -19,7 +19,8 @@ type SpeechRecognitionLike = {
       }) => void)
     | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  /** The event carries an `error` code; the old signature threw it away. */
+  onerror: ((e: { error?: string }) => void) | null;
   start: () => void;
   stop: () => void;
 };
@@ -60,6 +61,13 @@ export default function AssistantWidget() {
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
+  /**
+   * Why dictation stopped. It used to fail completely silently: the button
+   * flicked off and nothing else happened, so a blocked permission, a mic in
+   * use by another app and a browser that cannot do this at all were all
+   * indistinguishable from "the mic is broken".
+   */
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -211,8 +219,23 @@ export default function AssistantWidget() {
       if (done) rec.stop();
     };
     rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    rec.onerror = (e) => {
+      setListening(false);
+      const code = e?.error ?? "";
+      setDictationError(
+        code === "not-allowed" || code === "service-not-allowed"
+          ? "Dictation needs microphone permission. Allow it for this site in your browser settings, then try again."
+          : code === "no-speech"
+            ? "I didn't catch anything — tap the mic and start speaking straight away."
+            : code === "audio-capture"
+              ? "No microphone available. Check it isn't already in use by another app."
+              : code === "network"
+                ? "Dictation sends audio to the browser's speech service, so it needs a connection."
+                : "Dictation didn't work in this browser. Type your question, or use Voice above for a spoken conversation.",
+      );
+    };
     recRef.current = rec;
+    setDictationError(null);
     setListening(true);
     try {
       rec.start();
@@ -519,6 +542,11 @@ export default function AssistantWidget() {
             className="border-t border-zinc-100 p-3 dark:border-zinc-800"
             style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
           >
+            {dictationError && (
+              <p className="mb-2 px-1 text-xs leading-relaxed text-red-600 dark:text-red-400">
+                {dictationError}
+              </p>
+            )}
             <div className="flex items-end gap-2">
                 <textarea
                   ref={inputRef}
