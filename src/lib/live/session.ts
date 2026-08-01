@@ -69,7 +69,12 @@ export class LiveSession {
 
     // The ephemeral token stands in for the API key. The real key never
     // reaches this file.
-    const ai = new GoogleGenAI({ apiKey: body.token });
+    const ai = new GoogleGenAI({
+      apiKey: body.token,
+      // Ephemeral tokens are a v1alpha feature; the connection must match
+      // the version the token was minted under.
+      httpOptions: { apiVersion: "v1alpha" },
+    });
 
     try {
       this.session = await ai.live.connect({
