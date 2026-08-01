@@ -37,7 +37,7 @@ export const getCoaAccounts = cached(
     const admin = createAdminClient();
     const { data } = await admin
       .from("coa_accounts")
-      .select("id, code, subcategory, category, coa, is_active")
+      .select("id, code, subcategory, category, coa, is_active, expense_type")
       .order("code");
     return data ?? [];
   },
@@ -45,13 +45,17 @@ export const getCoaAccounts = cached(
   { revalidate: CACHE_TTL.masters, tags: [CACHE_TAGS.masters] },
 );
 
-/** Only active COA accounts — used to populate submitter dropdown. */
+/**
+ * Active accounts from BOTH charts. The Raise form narrows to the one that
+ * matches the expense type — fetching once keeps this cached as a single
+ * masters lookup rather than two that fall out of step.
+ */
 export const getActiveCoaAccounts = cached(
   async () => {
     const admin = createAdminClient();
     const { data } = await admin
       .from("coa_accounts")
-      .select("id, code, subcategory, category, coa")
+      .select("id, code, subcategory, category, coa, expense_type")
       .eq("is_active", true)
       .order("subcategory");
     return data ?? [];

@@ -2,6 +2,7 @@
 
 import { useActionState, useMemo, useState } from "react";
 import { COA_LABEL } from "@/lib/coa-labels";
+import type { ExpenseType } from "@/lib/access-labels";
 import {
   createCoaAccount,
   deleteCoaAccount,
@@ -40,7 +41,16 @@ type TableRow = {
  * lands on; they are plumbing, shown here as a blank Subcategory cell rather
  * than a duplicate line.
  */
-export default function CoaForm({ rows }: { rows: Row[] }) {
+export default function CoaForm({
+  rows,
+  expenseType,
+}: {
+  rows: Row[];
+  expenseType: ExpenseType;
+}) {
+  // OpEx has no middle level: its category is the top one, so the column
+  // would repeat the value beside it on every row.
+  const isOpex = expenseType === "opex";
   const [query, setQuery] = useState("");
   const [showRetired, setShowRetired] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -134,9 +144,10 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
       {adding && (
         <AddInlineForm
           heading="New account"
+          fixed={{ expense_type: expenseType }}
           fields={[
             { name: "coa", label: COA_LABEL.level1, placeholder: "e.g. Plant & Machinery" },
-            { name: "category", label: COA_LABEL.level2, placeholder: "e.g. Food Processing Machinery" },
+            ...(isOpex ? [] : [{ name: "category", label: COA_LABEL.level2, placeholder: "e.g. Food Processing Machinery" }]),
             { name: "subcategory", label: COA_LABEL.level3, placeholder: "e.g. Dough Kneader" },
           ]}
           onDone={() => setAdding(false)}
@@ -150,7 +161,7 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
             <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
               <tr>
                 <th className="px-4 py-2.5 font-semibold">{COA_LABEL.level1}</th>
-                <th className="px-4 py-2.5 font-semibold">{COA_LABEL.level2}</th>
+                {!isOpex && <th className="px-4 py-2.5 font-semibold">{COA_LABEL.level2}</th>}
                 <th className="px-4 py-2.5 font-semibold">{COA_LABEL.level3}</th>
                 <th className="w-16 px-4 py-2.5 text-right font-semibold">Code</th>
                 <th className="w-44 px-4 py-2.5" />
@@ -159,7 +170,7 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
             <tbody>
               {tableRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-sm text-zinc-500">
+                  <td colSpan={isOpex ? 4 : 5} className="px-4 py-12 text-center text-sm text-zinc-500">
                     {query ? `No matches for "${query}".` : "No accounts yet."}
                   </td>
                 </tr>
@@ -175,6 +186,7 @@ export default function CoaForm({ rows }: { rows: Row[] }) {
                       showCoa={newCoa}
                       showCategory={newCat}
                       startsGroup={newCoa}
+                      expenseType={expenseType}
                     />
                   );
                 })
@@ -192,12 +204,15 @@ function TableLine({
   showCoa,
   showCategory,
   startsGroup,
+  expenseType,
 }: {
   line: TableRow;
   showCoa: boolean;
   showCategory: boolean;
   startsGroup: boolean;
+  expenseType: ExpenseType;
 }) {
+  const isOpex = expenseType === "opex";
   const [editing, setEditing] = useState<null | "coa" | "category" | "subcategory">(null);
   const [editState, editAction] = useActionState(updateCoaAccount, undefined);
   const [coaState, coaAction] = useActionState(renameCoaGroup, undefined);
@@ -238,29 +253,33 @@ function TableLine({
             ))}
         </td>
 
-        {/* Category */}
-        <td className="px-4 py-2 align-top">
-          {showCategory &&
-            (editing === "category" ? (
-              <RenameForm
-                action={catAction}
-                hidden={{ coa: line.coa, old_category: line.category }}
-                field="new_category"
-                value={line.category}
-                onDone={() => setEditing(null)}
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditing("category")}
-                title={`Rename this ${COA_LABEL.level2.toLowerCase()} everywhere`}
-                className="text-left text-zinc-800 hover:text-indigo-600 dark:text-zinc-200 dark:hover:text-indigo-400"
-              >
-                {line.category}
-              </button>
-            ))}
-        </td>
-
+        {/* Category — absent on OpEx, whose category IS the top level. */}
+        {!isOpex && (
+          <>
+          <td className="px-4 py-2 align-top">
+            {showCategory &&
+              (editing === "category" ? (
+                <RenameForm
+                  action={catAction}
+                  hidden={{ coa: line.coa, old_category: line.category }}
+                  field="new_category"
+                  value={line.category}
+                  onDone={() => setEditing(null)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditing("category")}
+                  title={`Rename this ${COA_LABEL.level2.toLowerCase()} everywhere`}
+                  className="text-left text-zinc-800 hover:text-indigo-600 dark:text-zinc-200 dark:hover:text-indigo-400"
+                >
+                  {line.category}
+                </button>
+              ))}
+          </td>
+  
+          </>
+        )}
         {/* Subcategory */}
         <td className="px-4 py-2 align-top">
           {!r ? (
@@ -357,7 +376,7 @@ function TableLine({
 
       {err && (
         <tr>
-          <td colSpan={5} className="bg-red-50 px-4 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          <td colSpan={isOpex ? 4 : 5} className="bg-red-50 px-4 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
             {err}
           </td>
         </tr>
@@ -365,10 +384,10 @@ function TableLine({
 
       {addingSub && (
         <tr>
-          <td colSpan={5} className="bg-zinc-50 px-4 py-2 dark:bg-zinc-950">
+          <td colSpan={isOpex ? 4 : 5} className="bg-zinc-50 px-4 py-2 dark:bg-zinc-950">
             <AddInlineForm
-              heading={`New subcategory under ${line.category}`}
-              fixed={{ coa: line.coa, category: line.category }}
+              heading={`New ${COA_LABEL.level3.toLowerCase()} under ${line.category}`}
+              fixed={{ coa: line.coa, category: line.category, expense_type: expenseType }}
               fields={[{ name: "subcategory", label: COA_LABEL.level3, placeholder: "e.g. Dough Kneader" }]}
               onDone={() => setAddingSub(false)}
             />

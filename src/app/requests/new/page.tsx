@@ -91,7 +91,16 @@ export default async function NewRequestPage() {
             }[]
           }
           expenseTypes={access.expenseTypes}
-          coaAccounts={coaAccounts as { id: string; code: number; subcategory: string; category: string; coa: string }[]}
+          coaAccounts={
+            coaAccounts as {
+              id: string;
+              code: number;
+              subcategory: string;
+              category: string;
+              coa: string;
+              expense_type: "capex" | "opex";
+            }[]
+          }
           reservedNumber={reservedNumber}
           people={people}
         />

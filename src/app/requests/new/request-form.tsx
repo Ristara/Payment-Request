@@ -10,7 +10,14 @@ import { formatINR } from "@/lib/types";
 
 type Vendor = { id: string; name: string; gstin: string | null; status: string };
 type Outlet = { id: string; code: string; name: string; stage: "upcoming" | "operational" };
-type CoaAccount = { id: string; code: number; subcategory: string; category: string; coa: string };
+type CoaAccount = {
+  id: string;
+  code: number;
+  subcategory: string;
+  category: string;
+  coa: string;
+  expense_type: ExpenseType;
+};
 
 type LineRow = {
   key: string;
@@ -82,6 +89,12 @@ export default function RequestForm({
     : [];
   const [paymentKind, setPaymentKind] = useState<"" | "regular" | "milestone">("");
   const effectivePaymentKind = isOpex ? "regular" : paymentKind;
+  // The two charts are different shapes, not two halves of one tree, so the
+  // form works from whichever matches the expense type.
+  const chart = useMemo(
+    () => coaAccounts.filter((a) => a.expense_type === expenseType),
+    [coaAccounts, expenseType],
+  );
   const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
@@ -108,40 +121,40 @@ export default function RequestForm({
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
 
-  const rollupIds = useMemo(() => computeRollupIds(coaAccounts), [coaAccounts]);
+  const rollupIds = useMemo(() => computeRollupIds(chart), [chart]);
 
   // Three levels: COA head → Category (both required) → Subcategory
   // (optional). Rows where subcategory === category are the anchors a
   // category-level charge lands on, so they're never offered as a choice.
   const coaOptions = useMemo<ComboOption[]>(
     () =>
-      [...new Set(coaAccounts.map((a) => a.coa))]
+      [...new Set(chart.map((a) => a.coa))]
         .sort((a, b) => a.localeCompare(b))
         .map((coa) => ({ value: coa, label: coa })),
-    [coaAccounts],
+    [chart],
   );
 
   function categoryOptionsFor(coaHead: string): ComboOption[] {
     if (!coaHead) return [];
-    return [...new Set(coaAccounts.filter((a) => a.coa === coaHead).map((a) => a.category))]
+    return [...new Set(chart.filter((a) => a.coa === coaHead).map((a) => a.category))]
       .sort((a, b) => a.localeCompare(b))
       .map((c) => ({ value: c, label: c }));
   }
 
   /** Real spendable rows — anchors and knit rows are never offered. */
   const spendable = useMemo(
-    () => coaAccounts.filter((a) => !rollupIds.has(a.id) && a.subcategory !== a.category),
-    [coaAccounts, rollupIds],
+    () => chart.filter((a) => !rollupIds.has(a.id) && a.subcategory !== a.category),
+    [chart, rollupIds],
   );
 
   /** Every category, so a line can start at the middle level. */
   const allCategoryOptions = useMemo<ComboOption[]>(() => {
     const seen = new Set<string>();
-    return coaAccounts
+    return chart
       .filter((a) => (seen.has(a.category) ? false : (seen.add(a.category), true)))
       .sort((x, y) => x.category.localeCompare(y.category))
       .map((a) => ({ value: a.category, label: a.category, hint: a.coa }));
-  }, [coaAccounts]);
+  }, [chart]);
 
   /** Picking a category fills in its COA head. */
   function pickCategory(idx: number, category: string) {
@@ -149,7 +162,7 @@ export default function RequestForm({
       updateLine(idx, { category: "", coa_account_id: "" });
       return;
     }
-    const a = coaAccounts.find((x) => x.category === category);
+    const a = chart.find((x) => x.category === category);
     updateLine(idx, { coaHead: a?.coa ?? "", category, coa_account_id: "" });
   }
 
@@ -168,14 +181,14 @@ export default function RequestForm({
       updateLine(idx, { coa_account_id: "" });
       return;
     }
-    const a = coaAccounts.find((x) => x.id === accountId);
+    const a = chart.find((x) => x.id === accountId);
     if (!a) return;
     updateLine(idx, { coaHead: a.coa, category: a.category, coa_account_id: a.id });
   }
 
   function subOptionsFor(coaHead: string, category: string) {
     if (!coaHead || !category) return [];
-    return coaAccounts
+    return chart
       .filter(
         (a) =>
           a.coa === coaHead &&
@@ -469,7 +482,8 @@ export default function RequestForm({
             <thead>
               <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
                 <th className="px-2 py-2 font-medium">
-                  {COA_PATH} <span className="text-red-500">*</span>
+                  {isOpex ? `${COA_LABEL.level1} · ${COA_LABEL.level3}` : COA_PATH}{" "}
+                  <span className="text-red-500">*</span>
                 </th>
                 <th className="px-2 py-2 text-right font-medium w-24">
                   Qty <span className="text-red-500">*</span>
@@ -493,7 +507,13 @@ export default function RequestForm({
                           options={coaOptions}
                           value={line.coaHead}
                           onChange={(v) =>
-                            updateLine(idx, { coaHead: v, category: "", coa_account_id: "" })
+                            // OpEx has no middle level — the category IS the
+                            // top level, so it fills both slots.
+                            updateLine(idx, {
+                              coaHead: v,
+                              category: isOpex ? v : "",
+                              coa_account_id: "",
+                            })
                           }
                           onClear={() =>
                             updateLine(idx, { coaHead: "", category: "", coa_account_id: "" })
@@ -501,15 +521,18 @@ export default function RequestForm({
                           placeholder={`Search ${COA_LABEL.level1.toLowerCase()}…`}
                           ariaLabel={COA_LABEL.level1}
                         />
-                        <Combobox
-                          size="sm"
-                          options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
-                          value={line.category}
-                          onChange={(v) => pickCategory(idx, v)}
-                          onClear={() => updateLine(idx, { category: "", coa_account_id: "" })}
-                          placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
-                          ariaLabel={COA_LABEL.level2}
-                        />
+                        {/* OpEx has no middle level — its category is the top one. */}
+                        {!isOpex && (
+                          <Combobox
+                            size="sm"
+                            options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
+                            value={line.category}
+                            onChange={(v) => pickCategory(idx, v)}
+                            onClear={() => updateLine(idx, { category: "", coa_account_id: "" })}
+                            placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
+                            ariaLabel={COA_LABEL.level2}
+                          />
+                        )}
                         <Combobox
                           size="sm"
                           options={
@@ -622,7 +645,11 @@ export default function RequestForm({
                       options={coaOptions}
                       value={line.coaHead}
                       onChange={(v) =>
-                        updateLine(idx, { coaHead: v, category: "", coa_account_id: "" })
+                        updateLine(idx, {
+                          coaHead: v,
+                          category: isOpex ? v : "",
+                          coa_account_id: "",
+                        })
                       }
                       placeholder={`Search ${COA_LABEL.level1.toLowerCase()}…`}
                       ariaLabel={COA_LABEL.level1}
@@ -634,13 +661,16 @@ export default function RequestForm({
                     {COA_LABEL.level2} <span className="text-red-500">*</span>
                   </label>
                   <div className="mt-1">
-                    <Combobox
-                      options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
-                      value={line.category}
-                      onChange={(v) => pickCategory(idx, v)}
-                      placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
-                      ariaLabel={COA_LABEL.level2}
-                    />
+                    {/* OpEx has no middle level — its category is the top one. */}
+                    {!isOpex && (
+                      <Combobox
+                        options={line.coaHead ? categoryOptionsFor(line.coaHead) : allCategoryOptions}
+                        value={line.category}
+                        onChange={(v) => pickCategory(idx, v)}
+                        placeholder={line.coaHead ? `Search ${COA_LABEL.level2.toLowerCase()}…` : `Or search any ${COA_LABEL.level2.toLowerCase()}…`}
+                        ariaLabel={COA_LABEL.level2}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="mt-2">

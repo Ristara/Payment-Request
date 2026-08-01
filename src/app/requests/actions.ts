@@ -141,6 +141,7 @@ type LineIn = { coa_account_id: string; coa?: string; category?: string; quantit
 async function resolveLineAccounts(
   supabase: Awaited<ReturnType<typeof createClient>>,
   lines: LineIn[],
+  expenseType: ExpenseType,
 ): Promise<string | null> {
   // ------ Resolve category-level lines (no subcategory picked) ------
   // Such a line charges the category's SELF-NAMED anchor row (subcategory =
@@ -190,7 +191,9 @@ async function resolveLineAccounts(
       // On a concurrent-insert race, fall back to re-reading the winner.
       const { data: created, error: createErr } = await adminDb
         .from("coa_accounts")
-        .insert({ subcategory: category, category, coa: coaHead })
+        // Carrying the chart matters: an anchor minted into the wrong one is
+        // rejected by the line-item trigger a moment later.
+        .insert({ subcategory: category, category, coa: coaHead, expense_type: expenseType })
         .select("id")
         .single();
       let anchorId = created?.id as string | undefined;
@@ -201,6 +204,7 @@ async function resolveLineAccounts(
           .eq("coa", coaHead)
           .eq("category", category)
           .eq("subcategory", category)
+          .eq("expense_type", expenseType)
           .eq("is_active", true)
           .order("code")
           .limit(1)
@@ -369,7 +373,7 @@ export async function createThread(
   }
 
   // ------ Resolve + validate line accounts ------
-  const coaError = await resolveLineAccounts(supabase, lines);
+  const coaError = await resolveLineAccounts(supabase, lines, expense_type);
   if (coaError) return { error: coaError };
   // ------ Vendor sanity ------
   const { data: vendor } = await supabase
@@ -1761,7 +1765,16 @@ export async function updateThreadLineItems(
     };
   }
 
-  const coaError = await resolveLineAccounts(supabase, lines);
+  const { data: threadType } = await admin
+    .from("payment_requests")
+    .select("expense_type")
+    .eq("id", requestId)
+    .single();
+  const coaError = await resolveLineAccounts(
+    supabase,
+    lines,
+    ((threadType as { expense_type: ExpenseType } | null)?.expense_type ?? "capex"),
+  );
   if (coaError) return { error: coaError };
 
   // Replace wholesale: line ids aren't referenced anywhere else.
