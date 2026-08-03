@@ -31,6 +31,15 @@ type Row = {
 // reaches the bank file once Accounts queue it (migration 027) — so they're
 // split by `queued` below rather than by status.
 const TAB_STATUSES: Record<string, string[]> = {
+  // Not yet Accounts' work — it is what is heading their way. Seeing it early
+  // is how you know a large payment is coming before it lands in the queue and
+  // is suddenly due. Deliberately kept OUT of "all", which means "approved and
+  // needing processing"; mixing the two would make that tab's count a
+  // different thing from the work it represents.
+  //
+  // Same two statuses the Approvals page calls "waiting", so the two screens
+  // cannot disagree about what is outstanding.
+  pending_approval: ["pending_approval", "clarification_required"],
   all: ["approved", "uploaded_in_bank", "invoice_pending", "payment_processed"],
   approved: ["approved"],
   to_upload: ["approved"],
@@ -42,6 +51,7 @@ const TAB_STATUSES: Record<string, string[]> = {
 
 /** null = no extra filter; true/false = only queued / only not-yet-queued. */
 const TAB_QUEUED: Record<string, boolean | null> = {
+  pending_approval: null,
   all: null, approved: false, to_upload: true,
   in_bank: null, invoice_pending: null, to_close: null, closed: null,
 };
@@ -135,6 +145,7 @@ export default async function AccountsQueuePage({
   }));
 
   const tabs = [
+    { key: "pending_approval", label: "Pending approval" },
     { key: "all", label: "All open" },
     { key: "approved", label: "Approved" },
     { key: "to_upload", label: "To upload" },
