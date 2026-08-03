@@ -715,7 +715,12 @@ async function transitionInstallment(
     // Recalled by the submitter while it is still awaiting a decision.
     draft: ["pending_approval", "clarification_required"],
     uploaded_in_bank: ["approved"],
-    invoice_pending: ["uploaded_in_bank", "approved"],
+    // "closed" is here so Accounts can reopen one they closed too early —
+    // an invoice that turned out to be wrong, or was never really received.
+    // It goes back to invoice_pending rather than anywhere else because the
+    // only reason to reopen a closed payment is that its invoice is unfinished
+    // business; the money has already gone.
+    invoice_pending: ["uploaded_in_bank", "approved", "closed"],
     payment_processed: ["uploaded_in_bank", "approved", "invoice_pending"],
     closed: ["invoice_pending", "payment_processed"],
     cancelled: ["pending_approval", "clarification_required", "returned_for_correction", "approved"],
@@ -1812,6 +1817,44 @@ export async function updateThreadLineItems(
   revalidatePath(`/requests/${requestId}`);
   revalidatePath("/requests");
   return { info: `PO updated to ${formatExactAmount(poValue)}.` };
+}
+
+/**
+ * Put a closed installment back to invoice pending.
+ *
+ * Closing is the last step and was one-way, so an installment closed against
+ * the wrong invoice — or before the invoice actually arrived — was stuck that
+ * way, and the only remaining fix was editing the database by hand.
+ *
+ * This does not touch the payment record. The money left the bank and that
+ * fact is not in question; what is being reopened is the paperwork.
+ */
+export async function reopenInstallment(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const installmentId = String(formData.get("installment_id") ?? "");
+  if (!installmentId) return { error: "Missing installment." };
+  try {
+    // Role first. Validating the form before the role check answers "does this
+    // action exist and what does it want?" for someone who may not call it at
+    // all — the same order every other action here uses.
+    await requireRole("accounts");
+    const reason = String(formData.get("reason") ?? "").trim();
+    if (reason.length < 3) {
+      return { error: "Say why it is being reopened — it goes in the history." };
+    }
+    const inst = await transitionInstallment(
+      installmentId,
+      "invoice_pending",
+      `Reopened: ${reason.slice(0, 200)}`,
+    );
+    revalidatePath(`/requests/${inst.request_id}`);
+    revalidatePath("/accounts");
+    return { info: "Reopened — back to invoice pending." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }
 
 export async function closeInstallment(

@@ -13,6 +13,7 @@ import {
   markInstallmentPaid,
   uploadInstallmentInvoice,
   closeInstallment,
+  reopenInstallment,
   recallInstallment,
   unapproveInstallment,
   submitDraftInstallment,
@@ -75,12 +76,13 @@ export default function InstallmentActions({
   const [payState, payAction, payPending] = useActionState(markInstallmentPaid, undefined);
   const [invState, invAction, invPending] = useActionState(uploadInstallmentInvoice, undefined);
   const [closeState, closeAction, closePending] = useActionState(closeInstallment, undefined);
+  const [reopenState, reopenAction, reopenPending] = useActionState(reopenInstallment, undefined);
   const [recallState, recallAction, recallPending] = useActionState(recallInstallment, undefined);
   const [unapproveState, unapproveAction, unapprovePending] = useActionState(unapproveInstallment, undefined);
   const [submitState, submitAction, submitPending] = useActionState(submitDraftInstallment, undefined);
   const [dropState, dropAction, dropPending] = useActionState(deleteDraftInstallment, undefined);
 
-  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit" | "tds" | "amend">(null);
+  const [open, setOpen] = useState<null | "reject" | "bank" | "pay" | "invoice" | "edit" | "tds" | "amend" | "reopen">(null);
   const [editAmount, setEditAmount] = useState(String(requestedAmount));
   // Every field lives in state: React resets the form when an action runs,
   // so anything uncontrolled is wiped the moment the server rejects it.
@@ -137,6 +139,9 @@ export default function InstallmentActions({
   const canMarkPaid = isAccounts && (status === "uploaded_in_bank" || status === "approved");
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = isAccounts && ["invoice_pending", "payment_processed"].includes(status);
+  // Closing was one-way. Accounts can now pull one back when it was closed
+  // against the wrong invoice, or before the invoice actually arrived.
+  const canReopen = isAccounts && status === "closed";
   const canEditResubmit =
     (isSubmitter || isAdmin) && ["rejected", "returned_for_correction", "draft"].includes(status);
   // Withdraw your own ask while it's still waiting on a decision.
@@ -147,18 +152,18 @@ export default function InstallmentActions({
 
   if (
     !canApprove && !canReject && !canBankUpload && !canMarkPaid && !canUploadInvoice && !canSetTds && !canQueue &&
-    !canClose && !canEditResubmit && !canRecall && !canUnapprove && !canSubmitDraft
+    !canClose && !canReopen && !canEditResubmit && !canRecall && !canUnapprove && !canSubmitDraft
   ) {
     return null;
   }
 
   const info =
     editState?.info || approveState?.info || rejectState?.info ||
-    bankState?.info || payState?.info || invState?.info || closeState?.info ||
+    bankState?.info || payState?.info || invState?.info || closeState?.info || reopenState?.info ||
     recallState?.info || unapproveState?.info || submitState?.info || dropState?.info;
   const err =
     editState?.error || approveState?.error || rejectState?.error ||
-    bankState?.error || payState?.error || invState?.error || closeState?.error ||
+    bankState?.error || payState?.error || invState?.error || closeState?.error || reopenState?.error ||
     recallState?.error || unapproveState?.error || submitState?.error || dropState?.error;
 
   return (
@@ -320,6 +325,15 @@ export default function InstallmentActions({
             Upload invoice
           </button>
         )}
+        {canReopen && (
+          <button
+            type="button"
+            onClick={() => setOpen(open === "reopen" ? null : "reopen")}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Reopen
+          </button>
+        )}
         {canClose && (
           <form action={closeAction}>
             <input type="hidden" name="installment_id" value={installmentId} />
@@ -329,6 +343,31 @@ export default function InstallmentActions({
           </form>
         )}
       </div>
+
+      {open === "reopen" && (
+        <form action={reopenAction} className="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <input type="hidden" name="installment_id" value={installmentId} />
+          <p className="text-xs text-zinc-600 dark:text-zinc-300">
+            This goes back to <strong>invoice pending</strong>. The payment record is
+            untouched — the money has already gone; it is the invoice that is unfinished.
+          </p>
+          <input
+            name="reason"
+            required
+            minLength={3}
+            placeholder="Why is it being reopened?"
+            className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <div className="mt-2 flex gap-2">
+            <button disabled={reopenPending} className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60">
+              {reopenPending ? "Reopening…" : "Reopen"}
+            </button>
+            <button type="button" onClick={() => setOpen(null)} className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
 
       {info && <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{info}</p>}
       {err && <p className="mt-2 text-xs text-red-700 dark:text-red-300">{err}</p>}
