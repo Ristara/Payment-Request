@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { STATUS_LABEL, formatINR } from "@/lib/types";
+import { FilterPanel, FilterRange, FilterSelect, type ActiveChip } from "@/components/ListFilters";
 
 export type ApprovalRow = {
   id: string;
@@ -12,6 +13,8 @@ export type ApprovalRow = {
   vendorName: string;
   vendorPending: boolean;
   submitterName: string;
+  /** Every branch this request is raised against; a request may span several. */
+  branches: string[];
   approverName: string | null;
   approvedAt: string | null;
   amount: number;
@@ -21,34 +24,127 @@ export type ApprovalRow = {
   mentionedUnread: boolean;
 };
 
-/** Client list with live search over thread #, vendor, and raised-by. */
+/**
+ * Client list with search and filters.
+ *
+ * Filtering here rather than in the query is correct for THIS page only: it
+ * loads every installment for the tab, so the browser holds the whole set and
+ * a count of matches is the truth. /requests is paginated and must filter in
+ * SQL — narrowing one page there would report "3 results" out of thirty.
+ *
+ * Approvers triage by size and by who asked, which is why those two filters
+ * are here and a due-date range is not.
+ */
 export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
   const [q, setQ] = useState("");
+  const [raisedBy, setRaisedBy] = useState("");
+  const [branch, setBranch] = useState("");
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
+
+  // Built from the rows themselves, so the options can only ever be names the
+  // person is already allowed to see — no extra query, and nothing to leak.
+  const people = useMemo(
+    () => [...new Set(rows.map((r) => r.submitterName))].filter((n) => n !== "—").sort(),
+    [rows],
+  );
+  const branches = useMemo(
+    () => [...new Set(rows.flatMap((r) => r.branches))].sort(),
+    [rows],
+  );
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter(
-      (r) =>
-        r.label.toLowerCase().includes(needle) ||
-        r.requestTitle.toLowerCase().includes(needle) ||
-        r.vendorName.toLowerCase().includes(needle) ||
-        r.submitterName.toLowerCase().includes(needle),
-    );
-  }, [rows, q]);
+    const lo = min === "" ? null : Number(min);
+    const hi = max === "" ? null : Number(max);
+    return rows.filter((r) => {
+      if (
+        needle &&
+        !r.label.toLowerCase().includes(needle) &&
+        !r.requestTitle.toLowerCase().includes(needle) &&
+        !r.vendorName.toLowerCase().includes(needle) &&
+        !r.submitterName.toLowerCase().includes(needle)
+      ) {
+        return false;
+      }
+      if (raisedBy && r.submitterName !== raisedBy) return false;
+      if (branch && !r.branches.includes(branch)) return false;
+      // Number("") is 0, which would silently filter out everything free of
+      // charge — hence the explicit "" checks above rather than a falsy test.
+      if (lo !== null && Number.isFinite(lo) && r.amount < lo) return false;
+      if (hi !== null && Number.isFinite(hi) && r.amount > hi) return false;
+      return true;
+    });
+  }, [rows, q, raisedBy, branch, min, max]);
+
+  const chips: ActiveChip[] = [];
+  if (raisedBy) chips.push({ label: `Raised by: ${raisedBy}`, onClear: () => setRaisedBy("") });
+  if (branch) chips.push({ label: `Branch: ${branch}`, onClear: () => setBranch("") });
+  if (min || max) {
+    chips.push({
+      label: `Amount: ${min ? formatINR(Number(min)) : "any"} – ${max ? formatINR(Number(max)) : "any"}`,
+      onClear: () => {
+        setMin("");
+        setMax("");
+      },
+    });
+  }
+  const clearAll = () => {
+    setRaisedBy("");
+    setBranch("");
+    setMin("");
+    setMax("");
+  };
 
   return (
     <div>
       <SearchBox q={q} setQ={setQ} placeholder="Search request #, title, vendor, raised by…" />
-      {q && (
+
+      <FilterPanel chips={chips} onClearAll={clearAll}>
+        <FilterSelect
+          label="Raised by"
+          value={raisedBy}
+          onChange={setRaisedBy}
+          anyLabel="Anyone"
+          options={people.map((p) => ({ value: p, label: p }))}
+        />
+        <FilterSelect
+          label="Branch"
+          value={branch}
+          onChange={setBranch}
+          anyLabel="All branches"
+          options={branches.map((b) => ({ value: b, label: b }))}
+        />
+        <FilterRange label="Amount (₹)" min={min} max={max} onMin={setMin} onMax={setMax} />
+      </FilterPanel>
+
+      {(q || chips.length > 0) && (
         <p className="mt-2 text-xs text-zinc-500">
-          {filtered.length} match{filtered.length === 1 ? "" : "es"}
+          {filtered.length} of {rows.length} shown
         </p>
       )}
 
       {filtered.length === 0 ? (
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          {q ? `No matches for "${q}".` : "Nothing here."}
+          {/* Naming the cause matters more than the message. "Nothing here" over
+              a filtered list is how someone concludes the app is broken. */}
+          {rows.length === 0 ? (
+            "Nothing here."
+          ) : (
+            <>
+              <span className="block">Nothing matches the filters you have on.</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setQ("");
+                  clearAll();
+                }}
+                className="mt-2 text-xs font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"
+              >
+                Clear search and filters
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <>

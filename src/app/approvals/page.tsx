@@ -18,6 +18,7 @@ type Row = {
     request_number: string;
     title: string | null;
     vendor: { name: string; status: string } | null;
+    request_outlets: { outlet: { name: string } | null }[];
     comments: {
       id: string;
       created_at: string;
@@ -62,6 +63,7 @@ export default async function ApprovalsPage({
         `id, installment_number, requested_amount, submitted_at, status, approved_at,
          request:payment_requests!inner(id, request_number, title,
            vendor:vendors(name, status),
+           request_outlets(outlet:outlets(name)),
            comments(id, created_at, author_id, comment_mentions(mentioned_user_id))),
          submitter:profiles!request_installments_submitted_by_fkey(full_name),
          approver:profiles!request_installments_approver_id_fkey(full_name)`,
@@ -95,6 +97,9 @@ export default async function ApprovalsPage({
       label: `${shortRequestNumber(r.request?.request_number) || "—"} · #${r.installment_number}`,
       requestTitle: r.request?.title ?? "",
       vendorName: r.request?.vendor?.name ?? "—",
+      branches: (r.request?.request_outlets ?? [])
+        .map((o) => o.outlet?.name)
+        .filter((n): n is string => !!n),
       vendorPending: r.request?.vendor?.status !== "approved",
       submitterName: r.submitter?.full_name ?? "—",
       approverName: r.approver?.full_name ?? null,
