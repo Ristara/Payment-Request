@@ -263,6 +263,35 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
 
 // --- Report ---------------------------------------------------------------
 await c.query("rollback");
+// --- Ria's scoping is a source-level invariant, not an RLS one -------------
+//
+// Every assistant lookup goes through the USER'S client, which is the only
+// reason Ria cannot tell one person about another's payments. Swapping in the
+// service-role client would bypass RLS and let her answer anything to anyone,
+// with no error and nothing visible in the UI. It is the kind of change that
+// looks like a bug fix at 11pm.
+//
+// This lives above the grading loop deliberately. Placed below it, the result
+// was counted but never graded — a test that inflates the total and can never
+// fail, which is worse than no test at all. It was written that way first,
+// and only caught because the guard was checked against a planted regression.
+{
+  const fs = await import("node:fs");
+  const files = [
+    "src/lib/assistant/tools.ts",
+    "src/app/api/assistant/tool/route.ts",
+    "src/app/api/assistant/route.ts",
+  ];
+  const leaky = files.filter((f) =>
+    /createAdminClient|SERVICE_ROLE|SUPABASE_SECRET/.test(fs.readFileSync(f, "utf8")),
+  );
+  check(
+    "assistant never uses the service-role client",
+    "ALLOWED",
+    leaky.length === 0 ? "ALLOWED" : `BLOCKED · bypasses RLS: ${leaky.join(", ")}`,
+  );
+}
+
 await c.end();
 
 let bad = 0;
@@ -272,5 +301,6 @@ for (const [name, want, got] of results) {
   console.log(`${ok ? "PASS" : "FAIL"}  want ${want.padEnd(7)} · ${name}`);
   if (!ok) console.log(`        got  ${got}`);
 }
+
 console.log(bad ? `\n${bad} FAILED` : `\nall ${results.length} passed`);
 process.exit(bad ? 1 : 0);
