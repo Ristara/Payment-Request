@@ -1875,6 +1875,113 @@ export async function closeInstallment(
 }
 
 // ---------------------------------------------------------------------------
+// CC — looping someone in after the request was raised
+// ---------------------------------------------------------------------------
+
+/**
+ * Who may change the CC list.
+ *
+ * The submitter, and staff who can already see everything. Deliberately NOT
+ * anyone who merely happens to be CC'd: a CC is read access to a payment
+ * request, and letting a recipient pass it on means access spreads with
+ * nobody able to say who granted it.
+ */
+async function ccGateOrThrow(requestId: string) {
+  const { supabase, user } = await currentUserOrThrow();
+  const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = new Set(((data ?? []) as { role: string }[]).map((r) => r.role));
+  if (["approver", "accounts", "admin"].some((r) => roles.has(r))) return user;
+
+  const admin = createAdminClient();
+  const { data: req } = await admin
+    .from("payment_requests")
+    .select("submitter_id")
+    .eq("id", requestId)
+    .maybeSingle();
+  if ((req as { submitter_id: string } | null)?.submitter_id === user.id) return user;
+  throw new Error("Only the person who raised this, or Accounts, can change who is CC'd.");
+}
+
+export async function addWatcher(_prev: RequestState, formData: FormData): Promise<RequestState> {
+  const requestId = String(formData.get("request_id") ?? "");
+  const userId = String(formData.get("user_id") ?? "");
+  if (!requestId || !userId) return { error: "Missing request or person." };
+  try {
+  const user = await ccGateOrThrow(requestId);
+  const admin = createAdminClient();
+
+  // Inactive accounts must not be handed access they could never have been
+  // given at raise time — the picker there filters on is_active too.
+  const { data: target } = await admin
+    .from("profiles")
+    .select("full_name, is_active")
+    .eq("id", userId)
+    .maybeSingle();
+  const person = target as { full_name: string; is_active: boolean } | null;
+  if (!person || person.is_active === false) return { error: "That person is not active." };
+
+  const { data: req } = await admin
+    .from("payment_requests")
+    .select("request_number, submitter_id")
+    .eq("id", requestId)
+    .maybeSingle();
+  const thread = req as { request_number: string; submitter_id: string } | null;
+  if (!thread) return { error: "That request no longer exists." };
+  if (thread.submitter_id === userId) return { error: "They raised this — they can already see it." };
+
+  // onConflict rather than a pre-check: two people adding the same person at
+  // once would otherwise both pass the check and one would fail on the index.
+  const { error } = await admin
+    .from("request_watchers")
+    .upsert({ request_id: requestId, user_id: userId, added_by: user.id }, {
+      onConflict: "request_id,user_id",
+      ignoreDuplicates: true,
+    });
+  if (error) return { error: error.message };
+
+  const { data: me } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
+  await admin.from("notifications").insert({
+    recipient_id: userId,
+    actor_id: user.id,
+    kind: "mentioned",
+    request_id: requestId,
+    body: `You were CC'd on ${shortRequestNumber(thread.request_number)}`,
+  });
+  await sendPushToUsers([userId], {
+    title: `${(me as { full_name: string } | null)?.full_name ?? "Someone"} CC'd you`,
+    body: shortRequestNumber(thread.request_number),
+    url: `/requests/${requestId}`,
+    tag: `request-${requestId}`,
+  });
+
+  revalidatePath(`/requests/${requestId}`);
+  return { info: `${person.full_name} can now see this.` };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+export async function removeWatcher(_prev: RequestState, formData: FormData): Promise<RequestState> {
+  const requestId = String(formData.get("request_id") ?? "");
+  const userId = String(formData.get("user_id") ?? "");
+  if (!requestId || !userId) return { error: "Missing request or person." };
+  try {
+    await ccGateOrThrow(requestId);
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("request_watchers")
+      .delete()
+      .eq("request_id", requestId)
+      .eq("user_id", userId);
+    if (error) return { error: error.message };
+    revalidatePath(`/requests/${requestId}`);
+    return { info: "Removed from CC." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Discussion (thread-level) — comments, questions, mentions
 // ---------------------------------------------------------------------------
 
@@ -1913,6 +2020,16 @@ export async function addComment(
   if (mentions.length > 0) {
     await admin.from("comment_mentions").insert(
       mentions.map((mentioned_user_id) => ({ comment_id: commentId, mentioned_user_id })),
+    );
+    // Mentioning someone also CCs them, which is what typing their name
+    // plainly means. Without this they got a notification linking to a request
+    // the read policy would not let them open — no error, just a page that
+    // refused to show. Staff and the submitter are already covered by their
+    // own access, so this only ever matters for someone who raises and
+    // nothing else.
+    await admin.from("request_watchers").upsert(
+      mentions.map((uid) => ({ request_id: requestId, user_id: uid, added_by: user.id })),
+      { onConflict: "request_id,user_id", ignoreDuplicates: true },
     );
     await admin.from("notifications").insert(
       mentions.map((recipient_id) => ({

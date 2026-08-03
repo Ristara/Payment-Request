@@ -11,6 +11,7 @@ import DeleteRequest from "./delete-request";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
 import DiscussionThread from "./discussion";
+import CcPanel from "./cc-panel";
 import EditLineItems from "./edit-line-items";
 import { deleteAttachment } from "@/app/requests/actions";
 import type { CommentItem, ThreadAttachment } from "./discussion";
@@ -161,13 +162,20 @@ export default async function ThreadDetailPage({
   const isSubmitter = user!.id === req.submitter_id;
   // Being CC'd is how a second person picks a request up — they carry it
   // forward the same way the person who raised it would.
-  const { data: watchRow } = await supabase
+  // The whole list, not just my own row: the page now shows who else can see
+  // this, which was previously invisible to everyone including the submitter.
+  const { data: watcherRows } = await supabase
     .from("request_watchers")
-    .select("user_id")
-    .eq("request_id", req.id)
-    .eq("user_id", user!.id)
-    .maybeSingle();
-  const isParticipant = isSubmitter || !!watchRow;
+    .select("user_id, watcher:profiles!request_watchers_user_id_fkey(full_name)")
+    .eq("request_id", req.id);
+  const watchers = ((watcherRows ?? []) as unknown as {
+    user_id: string;
+    watcher: { full_name: string } | { full_name: string }[] | null;
+  }[]).map((w) => {
+    const p = Array.isArray(w.watcher) ? w.watcher[0] : w.watcher;
+    return { id: w.user_id, full_name: p?.full_name ?? "Unknown" };
+  });
+  const isParticipant = isSubmitter || watchers.some((w) => w.id === user!.id);
   const isApprover = roles.includes("approver");
   const isAccounts = roles.includes("accounts");
   const isAdmin = roles.includes("admin");
@@ -584,6 +592,20 @@ export default async function ThreadDetailPage({
 
           {/* Discussion */}
           <DiscussionThread requestId={req.id} comments={comments} candidates={mentionCandidates} />
+
+          <Card title="CC">
+            <CcPanel
+              requestId={req.id}
+              watchers={watchers}
+              candidates={mentionCandidates
+                .filter((c) => c.id !== req.submitter_id)
+                .map((c) => ({ id: c.id, full_name: c.full_name }))}
+              /* Not "anyone who can see it": a CC is read access, and letting a
+                 recipient pass it on means access spreads with nobody able to
+                 say who granted it. Enforced again server-side. */
+              canEdit={isSubmitter || isApprover || isAccounts || isAdmin}
+            />
+          </Card>
         </div>
 
         {/* Right column: timeline + vendor */}
