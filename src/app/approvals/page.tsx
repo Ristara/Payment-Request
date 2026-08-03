@@ -17,8 +17,10 @@ type Row = {
     id: string;
     request_number: string;
     title: string | null;
+    expense_type: string | null;
+    payment_kind: string | null;
     vendor: { name: string; status: string } | null;
-    request_outlets: { outlet: { name: string } | null }[];
+    request_outlets: { outlet: { name: string; stage: string } | null }[];
     comments: {
       id: string;
       created_at: string;
@@ -61,9 +63,9 @@ export default async function ApprovalsPage({
       .from("request_installments")
       .select(
         `id, installment_number, requested_amount, submitted_at, status, approved_at,
-         request:payment_requests!inner(id, request_number, title,
+         request:payment_requests!inner(id, request_number, title, expense_type, payment_kind,
            vendor:vendors(name, status),
-           request_outlets(outlet:outlets(name)),
+           request_outlets(outlet:outlets(name, stage)),
            comments(id, created_at, author_id, comment_mentions(mentioned_user_id))),
          submitter:profiles!request_installments_submitted_by_fkey(full_name),
          approver:profiles!request_installments_approver_id_fkey(full_name)`,
@@ -100,6 +102,18 @@ export default async function ApprovalsPage({
       branches: (r.request?.request_outlets ?? [])
         .map((o) => o.outlet?.name)
         .filter((n): n is string => !!n),
+      expenseType: r.request?.expense_type ?? null,
+      paymentKind: r.request?.payment_kind ?? null,
+      // New Store vs Existing Outlet is not a column on the request — it is
+      // the stage of the outlet it was raised against, which is what the Raise
+      // form is really choosing between.
+      stages: [
+        ...new Set(
+          (r.request?.request_outlets ?? [])
+            .map((o) => o.outlet?.stage)
+            .filter((v): v is string => !!v),
+        ),
+      ],
       vendorPending: r.request?.vendor?.status !== "approved",
       submitterName: r.submitter?.full_name ?? "—",
       approverName: r.approver?.full_name ?? null,

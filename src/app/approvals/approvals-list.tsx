@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { STATUS_LABEL, formatINR } from "@/lib/types";
-import { FilterPanel, FilterRange, FilterSelect, type ActiveChip } from "@/components/ListFilters";
+import { FilterPanel, FilterSelect, type ActiveChip } from "@/components/ListFilters";
+
+// The same words the Raise form uses. An approver filtering by "New Store"
+// should be picking the thing they watched someone choose when raising it —
+// "upcoming" is the database's word, not the company's.
+const EXPENSE_LABEL: Record<string, string> = { capex: "CapEx", opex: "OpEx" };
+const KIND_LABEL: Record<string, string> = { regular: "Regular", milestone: "Milestone" };
+const STAGE_LABEL: Record<string, string> = {
+  upcoming: "New Store",
+  operational: "Existing Outlet",
+};
 
 export type ApprovalRow = {
   id: string;
@@ -15,6 +25,10 @@ export type ApprovalRow = {
   submitterName: string;
   /** Every branch this request is raised against; a request may span several. */
   branches: string[];
+  expenseType: string | null;
+  paymentKind: string | null;
+  /** Outlet stages: "upcoming" = New Store, "operational" = Existing Outlet. */
+  stages: string[];
   approverName: string | null;
   approvedAt: string | null;
   amount: number;
@@ -39,8 +53,9 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
   const [q, setQ] = useState("");
   const [raisedBy, setRaisedBy] = useState("");
   const [branch, setBranch] = useState("");
-  const [min, setMin] = useState("");
-  const [max, setMax] = useState("");
+  const [expense, setExpense] = useState("");
+  const [stage, setStage] = useState("");
+  const [kind, setKind] = useState("");
 
   // Built from the rows themselves, so the options can only ever be names the
   // person is already allowed to see — no extra query, and nothing to leak.
@@ -55,8 +70,6 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const lo = min === "" ? null : Number(min);
-    const hi = max === "" ? null : Number(max);
     return rows.filter((r) => {
       if (
         needle &&
@@ -69,31 +82,27 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
       }
       if (raisedBy && r.submitterName !== raisedBy) return false;
       if (branch && !r.branches.includes(branch)) return false;
-      // Number("") is 0, which would silently filter out everything free of
-      // charge — hence the explicit "" checks above rather than a falsy test.
-      if (lo !== null && Number.isFinite(lo) && r.amount < lo) return false;
-      if (hi !== null && Number.isFinite(hi) && r.amount > hi) return false;
+      if (expense && r.expenseType !== expense) return false;
+      if (kind && r.paymentKind !== kind) return false;
+      // A request can span several outlets, so it matches if ANY of them is of
+      // the chosen stage — the same request really can be both.
+      if (stage && !r.stages.includes(stage)) return false;
       return true;
     });
-  }, [rows, q, raisedBy, branch, min, max]);
+  }, [rows, q, raisedBy, branch, expense, stage, kind]);
 
   const chips: ActiveChip[] = [];
   if (raisedBy) chips.push({ label: `Raised by: ${raisedBy}`, onClear: () => setRaisedBy("") });
   if (branch) chips.push({ label: `Branch: ${branch}`, onClear: () => setBranch("") });
-  if (min || max) {
-    chips.push({
-      label: `Amount: ${min ? formatINR(Number(min)) : "any"} – ${max ? formatINR(Number(max)) : "any"}`,
-      onClear: () => {
-        setMin("");
-        setMax("");
-      },
-    });
-  }
+  if (expense) chips.push({ label: EXPENSE_LABEL[expense] ?? expense, onClear: () => setExpense("") });
+  if (stage) chips.push({ label: STAGE_LABEL[stage] ?? stage, onClear: () => setStage("") });
+  if (kind) chips.push({ label: `${KIND_LABEL[kind] ?? kind} payment`, onClear: () => setKind("") });
   const clearAll = () => {
     setRaisedBy("");
     setBranch("");
-    setMin("");
-    setMax("");
+    setExpense("");
+    setStage("");
+    setKind("");
   };
 
   return (
@@ -115,7 +124,36 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
           anyLabel="All branches"
           options={branches.map((b) => ({ value: b, label: b }))}
         />
-        <FilterRange label="Amount (₹)" min={min} max={max} onMin={setMin} onMax={setMax} />
+        <FilterSelect
+          label="Expense type"
+          value={expense}
+          onChange={setExpense}
+          anyLabel="CapEx and OpEx"
+          options={[
+            { value: "capex", label: "CapEx — assets & construction" },
+            { value: "opex", label: "OpEx — rent & utilities" },
+          ]}
+        />
+        <FilterSelect
+          label="Payment for"
+          value={stage}
+          onChange={setStage}
+          anyLabel="New and existing"
+          options={[
+            { value: "upcoming", label: "New Store" },
+            { value: "operational", label: "Existing Outlet" },
+          ]}
+        />
+        <FilterSelect
+          label="Payment kind"
+          value={kind}
+          onChange={setKind}
+          anyLabel="Regular and milestone"
+          options={[
+            { value: "regular", label: "Regular — one-off / part" },
+            { value: "milestone", label: "Milestone" },
+          ]}
+        />
       </FilterPanel>
 
       {(q || chips.length > 0) && (
