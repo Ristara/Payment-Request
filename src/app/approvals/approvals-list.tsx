@@ -57,6 +57,23 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
   const [stage, setStage] = useState("");
   const [kind, setKind] = useState("");
 
+  /**
+   * OpEx is always an existing outlet and always a regular payment — the Raise
+   * form does not even ask, so there is nothing here to choose between.
+   *
+   * Switching to OpEx CLEARS both rather than merely hiding them. A filter that
+   * is invisible but still narrowing the list is the worst version of this
+   * feature: the list goes empty and the reason is off screen.
+   */
+  const capexOnly = expense !== "opex";
+  const chooseExpense = (v: string) => {
+    setExpense(v);
+    if (v === "opex") {
+      setStage("");
+      setKind("");
+    }
+  };
+
   // Built from the rows themselves, so the options can only ever be names the
   // person is already allowed to see — no extra query, and nothing to leak.
   const people = useMemo(
@@ -127,33 +144,37 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
         <FilterSelect
           label="Expense type"
           value={expense}
-          onChange={setExpense}
+          onChange={chooseExpense}
           anyLabel="CapEx and OpEx"
           options={[
             { value: "capex", label: "CapEx — assets & construction" },
             { value: "opex", label: "OpEx — rent & utilities" },
           ]}
         />
-        <FilterSelect
-          label="Payment for"
-          value={stage}
-          onChange={setStage}
-          anyLabel="New and existing"
-          options={[
-            { value: "upcoming", label: "New Store" },
-            { value: "operational", label: "Existing Outlet" },
-          ]}
-        />
-        <FilterSelect
-          label="Payment kind"
-          value={kind}
-          onChange={setKind}
-          anyLabel="Regular and milestone"
-          options={[
-            { value: "regular", label: "Regular — one-off / part" },
-            { value: "milestone", label: "Milestone" },
-          ]}
-        />
+        {capexOnly && (
+          <>
+            <FilterSelect
+              label="Payment for"
+              value={stage}
+              onChange={setStage}
+              anyLabel="New and existing"
+              options={[
+                { value: "upcoming", label: "New Store" },
+                { value: "operational", label: "Existing Outlet" },
+              ]}
+            />
+            <FilterSelect
+              label="Payment kind"
+              value={kind}
+              onChange={setKind}
+              anyLabel="Regular and milestone"
+              options={[
+                { value: "regular", label: "Regular — one-off / part" },
+                { value: "milestone", label: "Milestone" },
+              ]}
+            />
+          </>
+        )}
       </FilterPanel>
 
       {(q || chips.length > 0) && (
