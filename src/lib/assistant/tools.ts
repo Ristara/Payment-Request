@@ -117,7 +117,8 @@ async function listPendingApprovals(supabase: Supa) {
     .from("request_installments")
     .select(
       `installment_number, requested_amount, submitted_at, status,
-       request:payment_requests!inner(request_number, title, vendor:vendors(name))`,
+       request:payment_requests!inner(request_number, title, vendor:vendors(name),
+         submitter:profiles!payment_requests_submitter_id_fkey(full_name))`,
     )
     .in("status", ["pending_approval", "clarification_required"])
     .order("submitted_at", { ascending: false })
@@ -127,13 +128,17 @@ async function listPendingApprovals(supabase: Supa) {
     pending: (data ?? []).map((r) => {
       const row = r as unknown as {
         installment_number: number; requested_amount: number; submitted_at: string; status: string;
-        request: { request_number: string; title: string | null; vendor: { name: string } | null };
+        request: {
+          request_number: string; title: string | null; vendor: { name: string } | null;
+          submitter: { full_name: string } | null;
+        };
       };
       return {
         number: shortRequestNumber(row.request.request_number),
         installment: row.installment_number,
         title: row.request.title,
         vendor: row.request.vendor?.name,
+        raised_by: row.request.submitter?.full_name ?? null,
         amount: Number(row.requested_amount),
         status: row.status,
         submitted_at: row.submitted_at,
@@ -155,6 +160,7 @@ async function getRequest(supabase: Supa, numberRaw: string) {
     .select(
       `request_number, title, purpose, created_at, payment_kind,
        vendor:vendors(name, status),
+       submitter:profiles!payment_requests_submitter_id_fkey(full_name),
        line_items:request_line_items(amount, coa_account:coa_accounts(subcategory, category)),
        installments:request_installments(installment_number, status, requested_amount, payment_due_date,
          payment_record:payment_records(paid_amount, payment_date, utr_reference))`,
@@ -167,6 +173,7 @@ async function getRequest(supabase: Supa, numberRaw: string) {
   const row = data as unknown as {
     request_number: string; title: string | null; purpose: string; created_at: string; payment_kind: string | null;
     vendor: { name: string; status: string } | null;
+    submitter: { full_name: string } | null;
     line_items: { amount: number; coa_account: { subcategory: string; category: string } | null }[];
     installments: {
       installment_number: number; status: string; requested_amount: number; payment_due_date: string;
@@ -178,6 +185,9 @@ async function getRequest(supabase: Supa, numberRaw: string) {
     title: row.title,
     purpose: row.purpose,
     vendor: row.vendor?.name,
+    // Ria was asked "who raised this?" and had no way to answer: the submitter
+    // was never selected by any of these tools.
+    raised_by: row.submitter?.full_name ?? null,
     payment_kind: row.payment_kind,
     po_value: row.line_items.reduce((s, l) => s + Number(l.amount), 0),
     lines: row.line_items.map((l) => ({
@@ -256,7 +266,8 @@ async function listOverdue(supabase: Supa) {
     .from("request_installments")
     .select(
       `installment_number, requested_amount, payment_due_date, status,
-       request:payment_requests!inner(request_number, title, vendor:vendors(name))`,
+       request:payment_requests!inner(request_number, title, vendor:vendors(name),
+         submitter:profiles!payment_requests_submitter_id_fkey(full_name))`,
     )
     .lt("payment_due_date", todayIST)
     .in("status", ["pending_approval", "clarification_required", "approved", "uploaded_in_bank"])
@@ -268,13 +279,17 @@ async function listOverdue(supabase: Supa) {
     overdue: (data ?? []).map((r) => {
       const row = r as unknown as {
         installment_number: number; requested_amount: number; payment_due_date: string; status: string;
-        request: { request_number: string; title: string | null; vendor: { name: string } | null };
+        request: {
+          request_number: string; title: string | null; vendor: { name: string } | null;
+          submitter: { full_name: string } | null;
+        };
       };
       return {
         number: shortRequestNumber(row.request.request_number),
         installment: row.installment_number,
         title: row.request.title,
         vendor: row.request.vendor?.name,
+        raised_by: row.request.submitter?.full_name ?? null,
         amount: Number(row.requested_amount),
         due: row.payment_due_date,
         status: row.status,
