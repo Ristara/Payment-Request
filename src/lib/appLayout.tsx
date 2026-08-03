@@ -10,6 +10,7 @@ import {
 } from "@/components/SidebarIcons";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { hasUnrestrictedRaise } from "@/lib/access-labels";
 
 /**
  * Zoho-style shell wrapper. Any page that uses this gets the sidebar
@@ -33,14 +34,19 @@ export default async function AppLayoutShell({
   // Raising needs the requester role AND somewhere to raise for. A tab that
   // can only say no isn't worth a slot in the nav.
   const hasRaiseRole = roles.includes("requester") || isAdmin;
-  const grants = hasRaiseRole && !isAdmin
+  // Admin, approver and accounts raise for any branch, so there is nothing to
+  // count for them — and counting would wrongly hide the Raise tab from an
+  // approver who has never been granted a branch.
+  const unrestrictedRaise = hasUnrestrictedRaise(roles);
+  const grants = hasRaiseRole && !unrestrictedRaise
     ? await Promise.all([
         supabase.from("user_branch_access").select("outlet_id", { count: "exact", head: true }).eq("user_id", user!.id),
         supabase.from("user_expense_access").select("expense_type", { count: "exact", head: true }).eq("user_id", user!.id),
       ])
     : null;
   const canRaise =
-    hasRaiseRole && (isAdmin || ((grants?.[0].count ?? 0) > 0 && (grants?.[1].count ?? 0) > 0));
+    hasRaiseRole &&
+    (unrestrictedRaise || ((grants?.[0].count ?? 0) > 0 && (grants?.[1].count ?? 0) > 0));
 
   const [profile, unread, approvalBadge, accountsBadge, vendorBadge] = await Promise.all([
     user

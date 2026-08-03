@@ -216,6 +216,27 @@ check("granted CapEx: raise CapEx", "ALLOWED",
 check("granted CapEx only: raise OpEx", "BLOCKED",
   await as(GRANTED, newReq("opex"), [GRANTED, vendorApproved]));
 
+// Migration 033: approver and accounts raise anywhere without a grant. They
+// already approve and pay every branch, so requiring a grant to *ask* for what
+// they can already authorise protected nothing. These four assertions are the
+// whole of that rule — if one starts failing, the SQL and
+// UNRESTRICTED_RAISE_ROLES in src/lib/access-labels.ts have drifted apart.
+const APPROVER_NG = await makeUser("approver-nogrants", ["requester", "approver"]);
+const ACCOUNTS_NG = await makeUser("accounts-nogrants", ["requester", "accounts"]);
+check("approver, no branches granted: raise CapEx", "ALLOWED",
+  await as(APPROVER_NG, newReq("capex"), [APPROVER_NG, vendorApproved]));
+check("approver, no expense granted: raise OpEx", "ALLOWED",
+  await as(APPROVER_NG, newReq("opex"), [APPROVER_NG, vendorApproved]));
+check("accounts, no branches granted: raise OpEx", "ALLOWED",
+  await as(ACCOUNTS_NG, newReq("opex"), [ACCOUNTS_NG, vendorApproved]));
+
+// The widening is per-role, not a hole: a plain requester is unaffected.
+check("plain requester still needs a grant", "BLOCKED",
+  await as(UNGRANTED, newReq("opex"), [UNGRANTED, vendorApproved]));
+
+// An approver may now raise against any branch — but still may not attach one
+// to a request and then sign it off. That guard lives in approveInstallment.
+
 // The branch itself is checked on the join row.
 const { rows: [pr] } = await c.query(
   `insert into public.payment_requests

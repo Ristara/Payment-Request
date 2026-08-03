@@ -10,7 +10,7 @@ import { invalidateMasters } from "@/lib/cache";
 import { oversizedFile } from "@/lib/uploads";
 import { formatINR, shortRequestNumber } from "@/lib/types";
 import { getDeletionImpact, purgeRequest } from "@/lib/purge-request";
-import { getRaiseAccess, raiseDenied, type ExpenseType } from "@/lib/access";
+import { getRaiseAccess, hasUnrestrictedRaise, raiseDenied, type ExpenseType } from "@/lib/access";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -400,8 +400,8 @@ export async function createThread(
   // and the policy is the thing a crafted request runs into.
   {
     const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-    const isAdmin = ((roleRows ?? []) as { role: string }[]).some((r) => r.role === "admin");
-    const access = await getRaiseAccess(user.id, isAdmin);
+    const roleNames = ((roleRows ?? []) as { role: string }[]).map((r) => r.role);
+    const access = await getRaiseAccess(user.id, hasUnrestrictedRaise(roleNames));
     const noAccess = raiseDenied(access, outlet_ids, expense_type);
     if (noAccess) return { error: noAccess };
   }

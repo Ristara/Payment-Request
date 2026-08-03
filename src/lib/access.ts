@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export { EXPENSE_LABEL, EXPENSE_HINT } from "@/lib/access-labels";
+export { EXPENSE_LABEL, EXPENSE_HINT, hasUnrestrictedRaise } from "@/lib/access-labels";
 import { EXPENSE_LABEL } from "@/lib/access-labels";
 export type { ExpenseType } from "@/lib/access-labels";
 import type { ExpenseType } from "@/lib/access-labels";
@@ -15,18 +15,22 @@ import type { ExpenseType } from "@/lib/access-labels";
  *
  * No grants means nothing, not everything. That's the strict reading and it
  * was chosen on purpose, so a new joiner can't raise against a branch nobody
- * meant to give them. Admins are exempt, or a fresh install would have nobody
- * able to set the grants up in the first place.
+ * meant to give them. Admins, approvers and accounts are exempt — see
+ * UNRESTRICTED_RAISE_ROLES for why each of them is on that list.
  */
 export type RaiseAccess = {
   outletIds: string[];
   expenseTypes: ExpenseType[];
-  /** Admins bypass both lists. */
+  /** Admins, approvers and accounts bypass both lists. */
   unrestricted: boolean;
 };
 
-export async function getRaiseAccess(userId: string, isAdmin: boolean): Promise<RaiseAccess> {
-  if (isAdmin) return { outletIds: [], expenseTypes: ["capex", "opex"], unrestricted: true };
+export async function getRaiseAccess(
+  userId: string,
+  /** From hasUnrestrictedRaise(roles) — admin, approver or accounts. */
+  unrestricted: boolean,
+): Promise<RaiseAccess> {
+  if (unrestricted) return { outletIds: [], expenseTypes: ["capex", "opex"], unrestricted: true };
 
   const admin = createAdminClient();
   const [branches, expenses] = await Promise.all([
