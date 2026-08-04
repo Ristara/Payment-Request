@@ -12,10 +12,6 @@ type Row = {
   installments: { installment_number: number; status: string; requested_amount: number }[];
 };
 
-function monthLabel(d: Date): string {
-  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", month: "short" });
-}
-
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -31,10 +27,6 @@ export default async function DashboardPage({
   const isAdmin = roles.includes("admin");
   const isStaff = isApprover || isAccounts || isAdmin;
 
-  // Last 12 months of paid/closed spend for the chart
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
-  twelveMonthsAgo.setDate(1);
 
   // Everything on this page is independent — one parallel wave, no
   // serialized round-trips.
@@ -47,13 +39,18 @@ export default async function DashboardPage({
     isAccounts
       ? supabase.from("request_installments").select("*", { count: "exact", head: true }).in("status", ["approved", "uploaded_in_bank", "invoice_pending"])
       : Promise.resolve({ count: 0 }),
-    // Spend = paid installments (payment_record.paid_amount) by month of
-    // payment_date. For submitters (non-staff), filtered to their threads below.
+    // Every live installment with its status and the branches it is raised
+    // against. Replaces the 12-month paid-spend chart: a total tells you the
+    // past, whereas where it is stuck and whose budget it lands on is what you
+    // act on. Non-staff are narrowed to their own threads below.
     supabase
-      .from("payment_records")
-      .select("paid_amount, payment_date, installment:request_installments!inner(request_id, request:payment_requests!inner(submitter_id))")
-      .gte("payment_date", twelveMonthsAgo.toISOString().slice(0, 10))
-      .not("payment_date", "is", null),
+      .from("request_installments")
+      .select(
+        `status, requested_amount,
+         request:payment_requests!inner(submitter_id,
+           request_outlets(outlet:outlets(name, cost_centre)))`,
+      )
+      .not("status", "in", "(draft,cancelled,rejected)"),
     supabase
       .from("payment_requests")
       .select(
@@ -67,35 +64,69 @@ export default async function DashboardPage({
   ]);
 
   const { data: spend } = spendRes;
-  type SpendRow = { paid_amount: number | null; payment_date: string | null; installment: { request: { submitter_id: string } | null } | { request: { submitter_id: string } | null }[] | null };
-  const spendRaw = (spend ?? []) as unknown as SpendRow[];
-  const spendRows = spendRaw
-    .filter((r) => {
-      if (isStaff) return true;
-      const inst = Array.isArray(r.installment) ? r.installment[0] : r.installment;
-      const req = Array.isArray(inst?.request) ? inst?.request[0] : inst?.request;
-      return req?.submitter_id === user.id;
-    })
-    .map((r) => ({ payment_amount: Number(r.paid_amount ?? 0), created_at: r.payment_date ?? "" }));
+  type InstRow = {
+    status: string;
+    requested_amount: number | null;
+    request:
+      | { submitter_id: string; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
+      | { submitter_id: string; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
+      | null;
+  };
+  const one = <T,>(v: T | T[] | null | undefined): T | null =>
+    Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 
-  // Aggregate by month
-  const monthTotals = new Map<string, number>();
-  const months: { key: string; label: string; total: number }[] = [];
-  const cursor = new Date(twelveMonthsAgo);
-  for (let i = 0; i < 12; i++) {
-    const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
-    months.push({ key, label: monthLabel(cursor), total: 0 });
-    monthTotals.set(key, 0);
-    cursor.setMonth(cursor.getMonth() + 1);
+  const instRows = ((spend ?? []) as unknown as InstRow[]).filter((r) => {
+    if (isStaff) return true;
+    return one(r.request)?.submitter_id === user.id;
+  });
+
+  // ---- By status -----------------------------------------------------------
+  // Pipeline order, not alphabetical and not by size: the point is to read it
+  // left to right as work moving, and see where it has stopped.
+  const STATUS_ORDER = [
+    "pending_approval", "clarification_required", "approved",
+    "uploaded_in_bank", "invoice_pending", "payment_processed", "closed",
+  ];
+  const byStatus = STATUS_ORDER.map((key) => {
+    const rows = instRows.filter((r) => r.status === key);
+    return {
+      key,
+      label: STATUS_LABEL[key] ?? key,
+      count: rows.length,
+      total: rows.reduce((sum, r) => sum + Number(r.requested_amount ?? 0), 0),
+    };
+  }).filter((s) => s.count > 0);
+  const statusTotal = byStatus.reduce((sum, s) => sum + s.total, 0);
+  const statusMax = Math.max(...byStatus.map((s) => s.total), 1);
+
+  // ---- By cost centre ------------------------------------------------------
+  // cost_centre is unset on every outlet today, so it falls back to the outlet
+  // name — which is how these are actually referred to. Fill the codes in and
+  // this groups by them instead, with no code change.
+  //
+  // An installment raised against several branches is SPLIT evenly between
+  // them rather than counted once per branch. Counting it whole in each place
+  // would make the column add up to more than was ever requested, and a
+  // report whose total is wrong is worse than no report.
+  const centreTotals = new Map<string, { total: number; count: number }>();
+  for (const r of instRows) {
+    const amount = Number(r.requested_amount ?? 0);
+    const outlets = (one(r.request)?.request_outlets ?? [])
+      .map((o) => one(o.outlet))
+      .filter((o): o is { name: string; cost_centre: string | null } => !!o);
+    const keys = outlets.length > 0
+      ? outlets.map((o) => o.cost_centre?.trim() || o.name)
+      : ["No branch"];
+    const share = amount / keys.length;
+    for (const k of keys) {
+      const cur = centreTotals.get(k) ?? { total: 0, count: 0 };
+      centreTotals.set(k, { total: cur.total + share, count: cur.count + 1 });
+    }
   }
-  for (const r of spendRows) {
-    const d = new Date(r.created_at);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    monthTotals.set(key, (monthTotals.get(key) ?? 0) + Number(r.payment_amount));
-  }
-  months.forEach((m) => (m.total = monthTotals.get(m.key) ?? 0));
-  const grandTotal = months.reduce((s, m) => s + m.total, 0);
-  const maxMonth = Math.max(...months.map((m) => m.total), 1);
+  const byCentre = [...centreTotals.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.total - a.total);
+  const centreMax = Math.max(...byCentre.map((c) => c.total), 1);
 
   const recentRows = (recentRes.data ?? []) as unknown as Row[];
 
@@ -163,25 +194,82 @@ export default async function DashboardPage({
           />
         </section>
 
-        {/* Spend chart */}
-        <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Spend summary</h2>
-              <p className="text-xs text-zinc-500">
-                {isStaff ? "Company-wide" : "Your requests"} — last 12 months
-              </p>
+        {/* Where the work is, and whose budget it lands on */}
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">By status</h2>
+                <p className="text-xs text-zinc-500">
+                  {isStaff ? "Company-wide" : "Your requests"} — amount requested
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xl font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
+                  {formatINR(statusTotal)}
+                </p>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-500">in flight</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-2xl font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
-                {formatINR(grandTotal)}
-              </p>
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500">total</p>
-            </div>
+            {byStatus.length === 0 ? (
+              <p className="mt-6 text-sm text-zinc-500">Nothing raised yet.</p>
+            ) : (
+              <ul className="mt-5 space-y-3">
+                {byStatus.map((s) => (
+                  <li key={s.key}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="truncate text-zinc-700 dark:text-zinc-300">
+                        {s.label}
+                        <span className="ml-1.5 text-xs text-zinc-400">{s.count}</span>
+                      </span>
+                      <span className="shrink-0 font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                        {formatINR(s.total)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                      <div
+                        className="h-full rounded-full bg-indigo-500"
+                        style={{ width: `${Math.max(2, (s.total / statusMax) * 100)}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          <div className="mt-6">
-            <SpendChart months={months} max={maxMonth} />
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">By cost centre</h2>
+              <p className="text-xs text-zinc-500">
+                Highest first. Split evenly when raised against several branches.
+              </p>
+            </div>
+            {byCentre.length === 0 ? (
+              <p className="mt-6 text-sm text-zinc-500">Nothing raised yet.</p>
+            ) : (
+              <ul className="mt-5 space-y-3">
+                {byCentre.map((c) => (
+                  <li key={c.name}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="truncate text-zinc-700 dark:text-zinc-300">
+                        {c.name}
+                        <span className="ml-1.5 text-xs text-zinc-400">{c.count}</span>
+                      </span>
+                      <span className="shrink-0 font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                        {formatINR(c.total)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                      <div
+                        className="h-full rounded-full bg-emerald-500"
+                        style={{ width: `${Math.max(2, (c.total / centreMax) * 100)}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
@@ -301,65 +389,5 @@ function StatusChip({ status }: { status: string }) {
     <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${color}`}>
       {STATUS_LABEL[status] ?? status}
     </span>
-  );
-}
-
-/** Inline SVG line chart — no external chart lib. */
-function SpendChart({ months, max }: { months: { label: string; total: number }[]; max: number }) {
-  const W = 800;
-  const H = 200;
-  const PADX = 20;
-  const PADY = 20;
-  const stepX = (W - 2 * PADX) / Math.max(months.length - 1, 1);
-  const y = (v: number) => H - PADY - (v / max) * (H - 2 * PADY);
-  const points = months.map((m, i) => [PADX + i * stepX, y(m.total)] as const);
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
-  const areaPath = `${path} L ${PADX + (months.length - 1) * stepX} ${H - PADY} L ${PADX} ${H - PADY} Z`;
-
-  return (
-    <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H + 24}`} className="w-full min-w-[500px]" preserveAspectRatio="none">
-        {/* Grid lines */}
-        {[0.25, 0.5, 0.75].map((r) => (
-          <line
-            key={r}
-            x1={PADX}
-            x2={W - PADX}
-            y1={y(max * r)}
-            y2={y(max * r)}
-            stroke="currentColor"
-            className="text-zinc-200 dark:text-zinc-800"
-            strokeDasharray="2 4"
-            strokeWidth="1"
-          />
-        ))}
-        {/* Area fill */}
-        <path d={areaPath} fill="url(#spendGradient)" />
-        {/* Line */}
-        <path d={path} fill="none" stroke="#4f46e5" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-        {/* Points */}
-        {points.map((p, i) => (
-          <circle key={i} cx={p[0]} cy={p[1]} r="3.5" fill="white" stroke="#4f46e5" strokeWidth="2" />
-        ))}
-        {/* Month labels */}
-        {months.map((m, i) => (
-          <text
-            key={m.label + i}
-            x={PADX + i * stepX}
-            y={H + 16}
-            textAnchor="middle"
-            className="fill-zinc-500 text-[10px]"
-          >
-            {m.label}
-          </text>
-        ))}
-        <defs>
-          <linearGradient id="spendGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#4f46e5" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-      </svg>
-    </div>
   );
 }
