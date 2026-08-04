@@ -46,7 +46,7 @@ export default async function DashboardPage({
     supabase
       .from("request_installments")
       .select(
-        `status, requested_amount,
+        `status, requested_amount, queued_for_upload_at,
          request:payment_requests!inner(submitter_id,
            request_outlets(outlet:outlets(name, cost_centre)))`,
       )
@@ -67,6 +67,8 @@ export default async function DashboardPage({
   type InstRow = {
     status: string;
     requested_amount: number | null;
+    /** "Approved" and "To upload" are the same status; this is what separates them. */
+    queued_for_upload_at: string | null;
     request:
       | { submitter_id: string; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
       | { submitter_id: string; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
@@ -80,53 +82,78 @@ export default async function DashboardPage({
     return one(r.request)?.submitter_id === user.id;
   });
 
-  // ---- By status -----------------------------------------------------------
-  // Pipeline order, not alphabetical and not by size: the point is to read it
-  // left to right as work moving, and see where it has stopped.
-  const STATUS_ORDER = [
-    "pending_approval", "clarification_required", "approved",
-    "uploaded_in_bank", "invoice_pending", "payment_processed", "closed",
-  ];
-  const byStatus = STATUS_ORDER.map((key) => {
-    const rows = instRows.filter((r) => r.status === key);
-    return {
-      key,
-      label: STATUS_LABEL[key] ?? key,
-      count: rows.length,
-      total: rows.reduce((sum, r) => sum + Number(r.requested_amount ?? 0), 0),
-    };
-  }).filter((s) => s.count > 0);
-  const statusTotal = byStatus.reduce((sum, s) => sum + s.total, 0);
-  const statusMax = Math.max(...byStatus.map((s) => s.total), 1);
-
-  // ---- By cost centre ------------------------------------------------------
-  // cost_centre is unset on every outlet today, so it falls back to the outlet
-  // name — which is how these are actually referred to. Fill the codes in and
-  // this groups by them instead, with no code change.
+  // ---- Cost centre × status matrix -----------------------------------------
   //
-  // An installment raised against several branches is SPLIT evenly between
-  // them rather than counted once per branch. Counting it whole in each place
-  // would make the column add up to more than was ever requested, and a
-  // report whose total is wrong is worse than no report.
-  const centreTotals = new Map<string, { total: number; count: number }>();
+  // The columns are the stages of the pipeline as Accounts works it, in the
+  // order they happen. "Approved" and "To upload" share a status — what
+  // separates them is whether the installment has been queued into the next
+  // bank file — so the bucket is decided here rather than by status alone.
+  const COLUMNS = [
+    { key: "pending", label: "Pending for approval" },
+    { key: "approved", label: "Approved" },
+    { key: "to_upload", label: "To upload" },
+    { key: "in_bank", label: "In bank" },
+    { key: "paid", label: "Paid" },
+    { key: "invoice_pending", label: "Invoice pending" },
+    { key: "closed", label: "Closed" },
+  ] as const;
+  type ColKey = (typeof COLUMNS)[number]["key"];
+
+  function bucketOf(r: InstRow): ColKey | null {
+    switch (r.status) {
+      case "pending_approval":
+      case "clarification_required":
+        return "pending";
+      case "approved":
+        return r.queued_for_upload_at ? "to_upload" : "approved";
+      case "uploaded_in_bank":
+        return "in_bank";
+      case "payment_processed":
+        return "paid";
+      case "invoice_pending":
+        return "invoice_pending";
+      case "closed":
+        return "closed";
+      default:
+        return null;
+    }
+  }
+
+  const emptyRow = (): Record<ColKey, number> =>
+    Object.fromEntries(COLUMNS.map((c) => [c.key, 0])) as Record<ColKey, number>;
+
+  const matrix = new Map<string, Record<ColKey, number>>();
   for (const r of instRows) {
+    const col = bucketOf(r);
+    if (!col) continue;
     const amount = Number(r.requested_amount ?? 0);
     const outlets = (one(r.request)?.request_outlets ?? [])
       .map((o) => one(o.outlet))
       .filter((o): o is { name: string; cost_centre: string | null } => !!o);
+    // cost_centre is unset on every outlet today, so this falls back to the
+    // outlet name. Fill the codes in and it groups by them, no code change.
     const keys = outlets.length > 0
-      ? outlets.map((o) => o.cost_centre?.trim() || o.name)
+      ? [...new Set(outlets.map((o) => o.cost_centre?.trim() || o.name))]
       : ["No branch"];
+    // Split, never counted whole in each place: otherwise the Total row adds
+    // up to more than was ever requested.
     const share = amount / keys.length;
     for (const k of keys) {
-      const cur = centreTotals.get(k) ?? { total: 0, count: 0 };
-      centreTotals.set(k, { total: cur.total + share, count: cur.count + 1 });
+      const row = matrix.get(k) ?? emptyRow();
+      row[col] += share;
+      matrix.set(k, row);
     }
   }
-  const byCentre = [...centreTotals.entries()]
-    .map(([name, v]) => ({ name, ...v }))
+
+  const rowTotal = (r: Record<ColKey, number>) =>
+    COLUMNS.reduce((sum, c) => sum + r[c.key], 0);
+  const centreRows = [...matrix.entries()]
+    .map(([name, cells]) => ({ name, cells, total: rowTotal(cells) }))
     .sort((a, b) => b.total - a.total);
-  const centreMax = Math.max(...byCentre.map((c) => c.total), 1);
+  const columnTotals = Object.fromEntries(
+    COLUMNS.map((c) => [c.key, centreRows.reduce((sum, r) => sum + r.cells[c.key], 0)]),
+  ) as Record<ColKey, number>;
+  const grandTotal = centreRows.reduce((sum, r) => sum + r.total, 0);
 
   const recentRows = (recentRes.data ?? []) as unknown as Row[];
 
@@ -194,83 +221,92 @@ export default async function DashboardPage({
           />
         </section>
 
-        {/* Where the work is, and whose budget it lands on */}
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">By status</h2>
-                <p className="text-xs text-zinc-500">
-                  {isStaff ? "Company-wide" : "Your requests"} — amount requested
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xl font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
-                  {formatINR(statusTotal)}
-                </p>
-                <p className="text-[10px] uppercase tracking-wide text-zinc-500">in flight</p>
-              </div>
-            </div>
-            {byStatus.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-500">Nothing raised yet.</p>
-            ) : (
-              <ul className="mt-5 space-y-3">
-                {byStatus.map((s) => (
-                  <li key={s.key}>
-                    <div className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="truncate text-zinc-700 dark:text-zinc-300">
-                        {s.label}
-                        <span className="ml-1.5 text-xs text-zinc-400">{s.count}</span>
-                      </span>
-                      <span className="shrink-0 font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
-                        {formatINR(s.total)}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                      <div
-                        className="h-full rounded-full bg-indigo-500"
-                        style={{ width: `${Math.max(2, (s.total / statusMax) * 100)}%` }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        {/* Cost centre × status. Every stage of the pipeline, per branch. */}
+        <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">By cost centre</h2>
+              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Cost centre by status
+              </h2>
               <p className="text-xs text-zinc-500">
-                Highest first. Split evenly when raised against several branches.
+                {isStaff ? "Company-wide" : "Your requests"} — amount requested. Split evenly
+                when raised against several branches.
               </p>
             </div>
-            {byCentre.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-500">Nothing raised yet.</p>
-            ) : (
-              <ul className="mt-5 space-y-3">
-                {byCentre.map((c) => (
-                  <li key={c.name}>
-                    <div className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="truncate text-zinc-700 dark:text-zinc-300">
-                        {c.name}
-                        <span className="ml-1.5 text-xs text-zinc-400">{c.count}</span>
-                      </span>
-                      <span className="shrink-0 font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
-                        {formatINR(c.total)}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${Math.max(2, (c.total / centreMax) * 100)}%` }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <p className="text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+              {formatINR(grandTotal)}
+            </p>
           </div>
+
+          {centreRows.length === 0 ? (
+            <p className="p-6 text-center text-sm text-zinc-500">Nothing raised yet.</p>
+          ) : (
+            /* The table scrolls rather than the page: eight columns will not fit
+               a phone, and the first column is pinned so a row stays identifiable
+               once it has been scrolled sideways. */
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[46rem] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                    <th className="sticky left-0 z-10 bg-white px-5 py-3 font-medium dark:bg-zinc-900">
+                      Cost centre
+                    </th>
+                    {COLUMNS.map((c) => (
+                      <th key={c.key} className="px-3 py-3 text-right font-medium whitespace-nowrap">
+                        {c.label}
+                      </th>
+                    ))}
+                    <th className="px-5 py-3 text-right font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {centreRows.map((r) => (
+                    <tr key={r.name} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
+                      <th
+                        scope="row"
+                        className="sticky left-0 z-10 bg-white px-5 py-2.5 text-left font-medium text-zinc-900 whitespace-nowrap dark:bg-zinc-900 dark:text-zinc-100"
+                      >
+                        {r.name}
+                      </th>
+                      {COLUMNS.map((c) => (
+                        <td key={c.key} className="px-3 py-2.5 text-right tabular-nums">
+                          {/* A dash, not ₹0.00 — an empty cell should read as
+                              nothing there, and a grid of zeroes hides the
+                              figures that matter. */}
+                          {r.cells[c.key] > 0 ? (
+                            <span className="text-zinc-700 dark:text-zinc-300">{formatINR(r.cells[c.key])}</span>
+                          ) : (
+                            <span className="text-zinc-300 dark:text-zinc-700">—</span>
+                          )}
+                        </td>
+                      ))}
+                      <td className="px-5 py-2.5 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                        {formatINR(r.total)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950">
+                    <th
+                      scope="row"
+                      className="sticky left-0 z-10 bg-zinc-50 px-5 py-3 text-left font-semibold text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
+                    >
+                      Total
+                    </th>
+                    {COLUMNS.map((c) => (
+                      <td key={c.key} className="px-3 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                        {columnTotals[c.key] > 0 ? formatINR(columnTotals[c.key]) : "—"}
+                      </td>
+                    ))}
+                    <td className="px-5 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                      {formatINR(grandTotal)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </section>
 
         {/* Two-column: recent requests + quick links */}
