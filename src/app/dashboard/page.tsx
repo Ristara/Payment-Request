@@ -47,7 +47,7 @@ export default async function DashboardPage({
       .from("request_installments")
       .select(
         `status, requested_amount, queued_for_upload_at,
-         request:payment_requests!inner(submitter_id,
+         request:payment_requests!inner(submitter_id, title,
            request_outlets(outlet:outlets(name, cost_centre)))`,
       )
       .not("status", "in", "(draft,cancelled,rejected)"),
@@ -70,8 +70,8 @@ export default async function DashboardPage({
     /** "Approved" and "To upload" are the same status; this is what separates them. */
     queued_for_upload_at: string | null;
     request:
-      | { submitter_id: string; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
-      | { submitter_id: string; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
+      | { submitter_id: string; title: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
+      | { submitter_id: string; title: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
       | null;
   };
   const one = <T,>(v: T | T[] | null | undefined): T | null =>
@@ -155,6 +155,35 @@ export default async function DashboardPage({
   ) as Record<ColKey, number>;
   const grandTotal = centreRows.reduce((sum, r) => sum + r.total, 0);
 
+  // ---- By project (the request title) --------------------------------------
+  //
+  // There is no project field; the title is what people actually write the job
+  // into. So it is matched case-insensitively with runs of whitespace
+  // collapsed — "Interior work", "interior  work " and "INTERIOR WORK" are one
+  // row, not three. That is as far as free text can be rescued: two genuinely
+  // different spellings stay two projects, which is the cost of this choice.
+  //
+  // No splitting here, unlike cost centres: a request has exactly one title,
+  // so each installment lands whole in exactly one row.
+  const projectMatrix = new Map<string, { label: string; cells: Record<ColKey, number> }>();
+  for (const r of instRows) {
+    const col = bucketOf(r);
+    if (!col) continue;
+    const raw = (one(r.request)?.title ?? "").replace(/\s+/g, " ").trim();
+    const label = raw || "Untitled";
+    const key = label.toLowerCase();
+    const entry = projectMatrix.get(key) ?? { label, cells: emptyRow() };
+    entry.cells[col] += Number(r.requested_amount ?? 0);
+    projectMatrix.set(key, entry);
+  }
+  const projectRows = [...projectMatrix.values()]
+    .map((v) => ({ name: v.label, cells: v.cells, total: rowTotal(v.cells) }))
+    .sort((a, b) => b.total - a.total);
+  const projectColumnTotals = Object.fromEntries(
+    COLUMNS.map((c) => [c.key, projectRows.reduce((sum, r) => sum + r.cells[c.key], 0)]),
+  ) as Record<ColKey, number>;
+  const projectGrandTotal = projectRows.reduce((sum, r) => sum + r.total, 0);
+
   const recentRows = (recentRes.data ?? []) as unknown as Row[];
 
   const displayName = profile.data?.full_name?.split(" ")[0] ?? user.email;
@@ -221,93 +250,25 @@ export default async function DashboardPage({
           />
         </section>
 
-        {/* Cost centre × status. Every stage of the pipeline, per branch. */}
-        <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-            <div>
-              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                Cost centre by status
-              </h2>
-              <p className="text-xs text-zinc-500">
-                {isStaff ? "Company-wide" : "Your requests"} — amount requested. Split evenly
-                when raised against several branches.
-              </p>
-            </div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-              {formatINR(grandTotal)}
-            </p>
-          </div>
+        <MatrixTable
+          heading="Cost centre by status"
+          note={`${isStaff ? "Company-wide" : "Your requests"} — amount requested. Split evenly when raised against several branches.`}
+          firstColumn="Cost centre"
+          columns={COLUMNS}
+          rows={centreRows}
+          columnTotals={columnTotals}
+          grandTotal={grandTotal}
+        />
 
-          {centreRows.length === 0 ? (
-            <p className="p-6 text-center text-sm text-zinc-500">Nothing raised yet.</p>
-          ) : (
-            /* The table scrolls rather than the page: eight columns will not fit
-               a phone, and the first column is pinned so a row stays identifiable
-               once it has been scrolled sideways. */
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[46rem] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                    <th className="sticky left-0 z-10 bg-white px-5 py-3 font-medium dark:bg-zinc-900">
-                      Cost centre
-                    </th>
-                    {COLUMNS.map((c) => (
-                      <th key={c.key} className="px-3 py-3 text-right font-medium whitespace-nowrap">
-                        {c.label}
-                      </th>
-                    ))}
-                    <th className="px-5 py-3 text-right font-medium">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {centreRows.map((r) => (
-                    <tr key={r.name} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-                      <th
-                        scope="row"
-                        className="sticky left-0 z-10 bg-white px-5 py-2.5 text-left font-medium text-zinc-900 whitespace-nowrap dark:bg-zinc-900 dark:text-zinc-100"
-                      >
-                        {r.name}
-                      </th>
-                      {COLUMNS.map((c) => (
-                        <td key={c.key} className="px-3 py-2.5 text-right tabular-nums">
-                          {/* A dash, not ₹0.00 — an empty cell should read as
-                              nothing there, and a grid of zeroes hides the
-                              figures that matter. */}
-                          {r.cells[c.key] > 0 ? (
-                            <span className="text-zinc-700 dark:text-zinc-300">{formatINR(r.cells[c.key])}</span>
-                          ) : (
-                            <span className="text-zinc-300 dark:text-zinc-700">—</span>
-                          )}
-                        </td>
-                      ))}
-                      <td className="px-5 py-2.5 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                        {formatINR(r.total)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950">
-                    <th
-                      scope="row"
-                      className="sticky left-0 z-10 bg-zinc-50 px-5 py-3 text-left font-semibold text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
-                    >
-                      Total
-                    </th>
-                    {COLUMNS.map((c) => (
-                      <td key={c.key} className="px-3 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                        {columnTotals[c.key] > 0 ? formatINR(columnTotals[c.key]) : "—"}
-                      </td>
-                    ))}
-                    <td className="px-5 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                      {formatINR(grandTotal)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </section>
+        <MatrixTable
+          heading="Project by status"
+          note="Grouped by request title, matched ignoring case and spacing."
+          firstColumn="Project"
+          columns={COLUMNS}
+          rows={projectRows}
+          columnTotals={projectColumnTotals}
+          grandTotal={projectGrandTotal}
+        />
 
         {/* Two-column: recent requests + quick links */}
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -425,5 +386,112 @@ function StatusChip({ status }: { status: string }) {
     <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${color}`}>
       {STATUS_LABEL[status] ?? status}
     </span>
+  );
+}
+
+/**
+ * A cost-centre-style cross-tab: rows down, pipeline stages across, totals both
+ * ways. Shared by the branch and project reports so the two cannot drift into
+ * looking or behaving differently.
+ */
+function MatrixTable<K extends string>({
+  heading,
+  note,
+  firstColumn,
+  columns,
+  rows,
+  columnTotals,
+  grandTotal,
+}: {
+  heading: string;
+  note: string;
+  firstColumn: string;
+  columns: readonly { key: K; label: string }[];
+  rows: { name: string; cells: Record<K, number>; total: number }[];
+  columnTotals: Record<K, number>;
+  grandTotal: number;
+}) {
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{heading}</h2>
+          <p className="text-xs text-zinc-500">{note}</p>
+        </div>
+        <p className="text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+          {formatINR(grandTotal)}
+        </p>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="p-6 text-center text-sm text-zinc-500">Nothing raised yet.</p>
+      ) : (
+        /* The table scrolls, not the page: eight columns will not fit a phone,
+           and the first column is pinned so a row stays identifiable once it
+           has been scrolled sideways. */
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[46rem] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-zinc-100 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                <th className="sticky left-0 z-10 bg-white px-5 py-3 font-medium dark:bg-zinc-900">
+                  {firstColumn}
+                </th>
+                {columns.map((c) => (
+                  <th key={c.key} className="px-3 py-3 text-right font-medium whitespace-nowrap">
+                    {c.label}
+                  </th>
+                ))}
+                <th className="px-5 py-3 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 max-w-[16rem] truncate bg-white px-5 py-2.5 text-left font-medium text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+                    title={r.name}
+                  >
+                    {r.name}
+                  </th>
+                  {columns.map((c) => (
+                    <td key={c.key} className="px-3 py-2.5 text-right tabular-nums">
+                      {/* A dash, not ₹0.00 — an empty cell should read as nothing
+                          there, and a grid of zeroes hides the real figures. */}
+                      {r.cells[c.key] > 0 ? (
+                        <span className="text-zinc-700 dark:text-zinc-300">{formatINR(r.cells[c.key])}</span>
+                      ) : (
+                        <span className="text-zinc-300 dark:text-zinc-700">—</span>
+                      )}
+                    </td>
+                  ))}
+                  <td className="px-5 py-2.5 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {formatINR(r.total)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950">
+                <th
+                  scope="row"
+                  className="sticky left-0 z-10 bg-zinc-50 px-5 py-3 text-left font-semibold text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
+                >
+                  Total
+                </th>
+                {columns.map((c) => (
+                  <td key={c.key} className="px-3 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {columnTotals[c.key] > 0 ? formatINR(columnTotals[c.key]) : "—"}
+                  </td>
+                ))}
+                <td className="px-5 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {formatINR(grandTotal)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
