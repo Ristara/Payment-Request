@@ -15,9 +15,15 @@ type Row = {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ denied?: string }>;
+  searchParams: Promise<{ denied?: string; exp?: string }>;
 }) {
-  const { denied } = await searchParams;
+  const { denied, exp: expRaw } = await searchParams;
+  // CapEx and OpEx are reported separately: they are different money with
+  // different owners, and a single table mixing rent into a construction
+  // budget is not a number anyone can act on. CapEx leads because that is
+  // where the project spend lives.
+  const expense: "capex" | "opex" = expRaw === "opex" ? "opex" : "capex";
+  const EXPENSE_TITLE = { capex: "CapEx", opex: "OpEx" } as const;
   const user = await requireUser();
   const { roles } = await getCurrentUserRoles();
   const supabase = await createClient();
@@ -47,7 +53,7 @@ export default async function DashboardPage({
       .from("request_installments")
       .select(
         `status, requested_amount, queued_for_upload_at,
-         request:payment_requests!inner(submitter_id, title,
+         request:payment_requests!inner(submitter_id, title, expense_type,
            request_outlets(outlet:outlets(name, cost_centre)))`,
       )
       .not("status", "in", "(draft,cancelled,rejected)"),
@@ -70,16 +76,21 @@ export default async function DashboardPage({
     /** "Approved" and "To upload" are the same status; this is what separates them. */
     queued_for_upload_at: string | null;
     request:
-      | { submitter_id: string; title: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
-      | { submitter_id: string; title: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
+      | { submitter_id: string; title: string | null; expense_type: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
+      | { submitter_id: string; title: string | null; expense_type: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
       | null;
   };
   const one = <T,>(v: T | T[] | null | undefined): T | null =>
     Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 
   const instRows = ((spend ?? []) as unknown as InstRow[]).filter((r) => {
+    const req = one(r.request);
+    // Rows predating migration 031 were backfilled to capex, so a null here
+    // would only be a row written outside the app — treat it as capex rather
+    // than dropping it silently from both views.
+    if ((req?.expense_type ?? "capex") !== expense) return false;
     if (isStaff) return true;
-    return one(r.request)?.submitter_id === user.id;
+    return req?.submitter_id === user.id;
   });
 
   // ---- Cost centre × status matrix -----------------------------------------
@@ -250,9 +261,29 @@ export default async function DashboardPage({
           />
         </section>
 
+        {/* One at a time, not two stacked sets: four tables on one page means
+            scrolling past the half you did not want, and reading a figure off
+            the wrong one is easy when they look identical. */}
+        <nav aria-label="Expense type" className="flex gap-1">
+          {(["capex", "opex"] as const).map((k) => (
+            <Link
+              key={k}
+              href={k === "capex" ? "/dashboard" : "/dashboard?exp=opex"}
+              aria-current={expense === k ? "page" : undefined}
+              className={
+                expense === k
+                  ? "rounded-full bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white"
+                  : "rounded-full px-4 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              }
+            >
+              {EXPENSE_TITLE[k]}
+            </Link>
+          ))}
+        </nav>
+
         <MatrixTable
-          heading="Cost centre by status"
-          note={`${isStaff ? "Company-wide" : "Your requests"} — amount requested. Split evenly when raised against several branches.`}
+          heading={`${EXPENSE_TITLE[expense]} — cost centre by status`}
+          note={`${isStaff ? "Company-wide" : "Your requests"}, ${EXPENSE_TITLE[expense]} only — amount requested. Split evenly when raised against several branches.`}
           firstColumn="Cost centre"
           columns={COLUMNS}
           rows={centreRows}
@@ -261,8 +292,8 @@ export default async function DashboardPage({
         />
 
         <MatrixTable
-          heading="Project by status"
-          note="Grouped by request title, matched ignoring case and spacing."
+          heading={`${EXPENSE_TITLE[expense]} — project by status`}
+          note={`${EXPENSE_TITLE[expense]} only. Grouped by request title, matched ignoring case and spacing.`}
           firstColumn="Project"
           columns={COLUMNS}
           rows={projectRows}
