@@ -263,22 +263,32 @@ export default async function DashboardPage({
 
         {/* One at a time, not two stacked sets: four tables on one page means
             scrolling past the half you did not want, and reading a figure off
-            the wrong one is easy when they look identical. */}
-        <nav aria-label="Expense type" className="flex gap-1">
-          {(["capex", "opex"] as const).map((k) => (
-            <Link
-              key={k}
-              href={k === "capex" ? "/dashboard" : "/dashboard?exp=opex"}
-              aria-current={expense === k ? "page" : undefined}
-              className={
-                expense === k
-                  ? "rounded-full bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white"
-                  : "rounded-full px-4 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              }
-            >
-              {EXPENSE_TITLE[k]}
-            </Link>
-          ))}
+            the wrong one is easy when they look identical.
+
+            Same underlined tab strip as Approvals and Accounts, spanning the
+            width — a pill floating at the left read as a stray control rather
+            than the thing that governs both tables below it. */}
+        <nav
+          aria-label="Expense type"
+          className="-mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800"
+        >
+          {(["capex", "opex"] as const).map((k) => {
+            const active = expense === k;
+            return (
+              <Link
+                key={k}
+                href={k === "capex" ? "/dashboard" : "/dashboard?exp=opex"}
+                aria-current={active ? "page" : undefined}
+                className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
+                  active
+                    ? "border-indigo-600 font-medium text-indigo-700 dark:text-indigo-300"
+                    : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                }`}
+              >
+                {EXPENSE_TITLE[k]}
+              </Link>
+            );
+          })}
         </nav>
 
         <MatrixTable
