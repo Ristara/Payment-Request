@@ -53,7 +53,7 @@ export default async function DashboardPage({
       .from("request_installments")
       .select(
         `status, requested_amount, queued_for_upload_at,
-         request:payment_requests!inner(submitter_id, title, expense_type,
+         request:payment_requests!inner(submitter_id, expense_type,
            request_outlets(outlet:outlets(name, cost_centre)))`,
       )
       .not("status", "in", "(draft,cancelled,rejected)"),
@@ -76,8 +76,8 @@ export default async function DashboardPage({
     /** "Approved" and "To upload" are the same status; this is what separates them. */
     queued_for_upload_at: string | null;
     request:
-      | { submitter_id: string; title: string | null; expense_type: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
-      | { submitter_id: string; title: string | null; expense_type: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
+      | { submitter_id: string; expense_type: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }
+      | { submitter_id: string; expense_type: string | null; request_outlets: { outlet: { name: string; cost_centre: string | null } | null }[] }[]
       | null;
   };
   const one = <T,>(v: T | T[] | null | undefined): T | null =>
@@ -166,35 +166,6 @@ export default async function DashboardPage({
   ) as Record<ColKey, number>;
   const grandTotal = centreRows.reduce((sum, r) => sum + r.total, 0);
 
-  // ---- By project (the request title) --------------------------------------
-  //
-  // There is no project field; the title is what people actually write the job
-  // into. So it is matched case-insensitively with runs of whitespace
-  // collapsed — "Interior work", "interior  work " and "INTERIOR WORK" are one
-  // row, not three. That is as far as free text can be rescued: two genuinely
-  // different spellings stay two projects, which is the cost of this choice.
-  //
-  // No splitting here, unlike cost centres: a request has exactly one title,
-  // so each installment lands whole in exactly one row.
-  const projectMatrix = new Map<string, { label: string; cells: Record<ColKey, number> }>();
-  for (const r of instRows) {
-    const col = bucketOf(r);
-    if (!col) continue;
-    const raw = (one(r.request)?.title ?? "").replace(/\s+/g, " ").trim();
-    const label = raw || "Untitled";
-    const key = label.toLowerCase();
-    const entry = projectMatrix.get(key) ?? { label, cells: emptyRow() };
-    entry.cells[col] += Number(r.requested_amount ?? 0);
-    projectMatrix.set(key, entry);
-  }
-  const projectRows = [...projectMatrix.values()]
-    .map((v) => ({ name: v.label, cells: v.cells, total: rowTotal(v.cells) }))
-    .sort((a, b) => b.total - a.total);
-  const projectColumnTotals = Object.fromEntries(
-    COLUMNS.map((c) => [c.key, projectRows.reduce((sum, r) => sum + r.cells[c.key], 0)]),
-  ) as Record<ColKey, number>;
-  const projectGrandTotal = projectRows.reduce((sum, r) => sum + r.total, 0);
-
   const recentRows = (recentRes.data ?? []) as unknown as Row[];
 
   const displayName = profile.data?.full_name?.split(" ")[0] ?? user.email;
@@ -261,13 +232,14 @@ export default async function DashboardPage({
           />
         </section>
 
-        {/* One at a time, not two stacked sets: four tables on one page means
-            scrolling past the half you did not want, and reading a figure off
-            the wrong one is easy when they look identical.
+        {/* CapEx and OpEx are different money with different owners, and one
+            table mixing rent into a construction budget is not a figure anyone
+            can act on. Shown one at a time rather than stacked: reading a
+            number off the wrong table is easy when they look identical.
 
-            Same underlined tab strip as Approvals and Accounts, spanning the
-            width — a pill floating at the left read as a stray control rather
-            than the thing that governs both tables below it. */}
+            Same underlined strip as Approvals and Accounts, spanning the width
+            — a pill floating at the left read as a stray control rather than
+            the thing that governs the table below it. */}
         <nav
           aria-label="Expense type"
           className="-mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800"
@@ -299,16 +271,6 @@ export default async function DashboardPage({
           rows={centreRows}
           columnTotals={columnTotals}
           grandTotal={grandTotal}
-        />
-
-        <MatrixTable
-          heading={`${EXPENSE_TITLE[expense]} — project by status`}
-          note={`${EXPENSE_TITLE[expense]} only. Grouped by request title, matched ignoring case and spacing.`}
-          firstColumn="Project"
-          columns={COLUMNS}
-          rows={projectRows}
-          columnTotals={projectColumnTotals}
-          grandTotal={projectGrandTotal}
         />
 
         {/* Two-column: recent requests + quick links */}
