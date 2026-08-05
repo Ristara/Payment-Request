@@ -9,6 +9,7 @@ import { computeRollupIds } from "@/lib/coa";
 import { invalidateMasters } from "@/lib/cache";
 import { oversizedFile } from "@/lib/uploads";
 import { formatINR, shortRequestNumber } from "@/lib/types";
+import { notifyVendorOfPayment } from "@/lib/whatsapp";
 import { getDeletionImpact, purgeRequest } from "@/lib/purge-request";
 import { getRaiseAccess, hasUnrestrictedRaise, raiseDenied, type ExpenseType } from "@/lib/access";
 
@@ -1279,7 +1280,7 @@ export async function markInstallmentPaid(
 
   const { data: inst } = await admin
     .from("request_installments")
-    .select("id, request_id, status, request:payment_requests(vendor:vendors(status))")
+    .select("id, request_id, status, request:payment_requests(vendor:vendors(status, name, phone))")
     .eq("id", installmentId)
     .single();
   if (!inst) return { error: "Installment not found." };
@@ -1289,9 +1290,11 @@ export async function markInstallmentPaid(
   if (!["uploaded_in_bank", "approved"].includes(inst.status as string)) {
     return { error: `Installment is "${String(inst.status).replace(/_/g, " ")}" — can't record payment. Refresh the page.` };
   }
-  type VendorJoin = { vendor: { status: string } | null } | { vendor: { status: string } | null }[] | null;
+  type JoinedVendor = { status: string; name: string; phone: string | null };
+  type VendorJoin = { vendor: JoinedVendor | null } | { vendor: JoinedVendor | null }[] | null;
   const reqJoin = (inst as unknown as { request: VendorJoin }).request;
-  const vendorStatus = (Array.isArray(reqJoin) ? reqJoin[0]?.vendor : reqJoin?.vendor)?.status;
+  const joinedVendor = (Array.isArray(reqJoin) ? reqJoin[0]?.vendor : reqJoin?.vendor) ?? null;
+  const vendorStatus = joinedVendor?.status;
   if (vendorStatus !== "approved") {
     return { error: "Vendor is not approved. Verify the vendor before recording payment." };
   }
@@ -1353,6 +1356,44 @@ export async function markInstallmentPaid(
         uploaded_by: user.id,
       });
     }
+  }
+
+  // ---- Tell the vendor -----------------------------------------------------
+  //
+  // Deliberately after the payment is committed and its proof uploaded, and
+  // deliberately unable to change the outcome: the money has left the bank and
+  // the record of that is what matters. A vendor who is not messaged is an
+  // inconvenience; a payment that fails to save because WhatsApp was down is a
+  // real problem.
+  //
+  // The result is stored either way, so "did the vendor get the UTR?" has an
+  // answer instead of a shrug.
+  {
+    const outcome = joinedVendor
+      ? await notifyVendorOfPayment({
+          phone: joinedVendor.phone,
+          vendorName: joinedVendor.name,
+          amount: formatINR(paid_amount),
+          paymentDate: payment_date,
+          utr: utr_reference,
+        })
+      : ({ sent: false, skipped: true, reason: "Vendor not found." } as const);
+
+    await admin
+      .from("payment_records")
+      .update(
+        outcome.sent
+          ? { whatsapp_sent_at: new Date().toISOString(), whatsapp_error: null }
+          : {
+              whatsapp_sent_at: null,
+              // .skipped, not `"skipped" in outcome` — both failure shapes carry
+              // the key, so `in` narrows nothing and the compiler was right to
+              // complain. "Not attempted" and "tried and failed" read the same
+              // in this column, which is why the reason is always written.
+              whatsapp_error: outcome.skipped ? outcome.reason : outcome.error,
+            },
+      )
+      .eq("installment_id", installmentId);
   }
 
   revalidatePath(`/requests/${inst.request_id}`);
