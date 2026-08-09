@@ -235,9 +235,37 @@ export default async function VendorDetailPage({
       </section>
 
       {chequeUrl && (
-        <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cancelled cheque</h2>
-          <div className="mt-3">
+        /* Folds away once the vendor is approved.
+         *
+         * At up to 288px plus padding this pushed Transactions below the fold,
+         * and the payment history is what people come to this page for most of
+         * the time. It stays open while the vendor is PENDING, because that is
+         * the one moment it earns the space — Accounts are reading the account
+         * number and IFSC off it to check them against what was typed in.
+         *
+         * <details> rather than state: this is a server component, and the
+         * browser has done disclosure natively for years. */
+        <details
+          open={v.status === "pending"}
+          className="group mt-6 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Cancelled cheque
+            </h2>
+            <span className="flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
+              <span className="group-open:hidden">Show</span>
+              <span className="hidden group-open:inline">Hide</span>
+              <svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                className="transition-transform group-open:rotate-180"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </span>
+          </summary>
+          <div className="px-6 pb-6">
             <a
               href={chequeUrl}
               target="_blank"
@@ -249,7 +277,7 @@ export default async function VendorDetailPage({
             </a>
             <p className="mt-2 text-xs text-zinc-500">Click to open at full size.</p>
           </div>
-        </section>
+        </details>
       )}
 
       {v.status === "rejected" && v.rejection_reason && (
