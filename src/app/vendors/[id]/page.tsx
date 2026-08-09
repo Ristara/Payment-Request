@@ -235,20 +235,18 @@ export default async function VendorDetailPage({
       </section>
 
       {chequeUrl && (
-        /* Folds away once the vendor is approved.
+        /* Always collapsed. At up to 288px plus padding it pushed the
+         * Transactions list below the fold, and the payment history is what
+         * people open a vendor page for.
          *
-         * At up to 288px plus padding this pushed Transactions below the fold,
-         * and the payment history is what people come to this page for most of
-         * the time. It stays open while the vendor is PENDING, because that is
-         * the one moment it earns the space — Accounts are reading the account
-         * number and IFSC off it to check them against what was typed in.
+         * It was briefly left open for pending vendors, on the reasoning that
+         * Accounts are reading the account number off it during verification.
+         * The owner's call was that even then it should start shut — one click
+         * when you want it beats scrolling past it every other time.
          *
          * <details> rather than state: this is a server component, and the
          * browser has done disclosure natively for years. */
-        <details
-          open={v.status === "pending"}
-          className="group mt-6 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
-        >
+        <details className="group mt-6 rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
               Cancelled cheque
