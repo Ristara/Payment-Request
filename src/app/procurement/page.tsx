@@ -2,7 +2,7 @@ import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
-import { formatINR, formatISTDate } from "@/lib/types";
+import { formatISTDate } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +49,7 @@ export default async function ProcurementPage({
     .select(
       `id, request_number, title, status, priority, created_at, po_reference,
        outlet:outlets(name),
-       submitter:profiles!procurement_requests_submitter_id_fkey(full_name),
-       lines:procurement_line_items(amount)`,
+       submitter:profiles!procurement_requests_submitter_id_fkey(full_name)`,
     )
     .in("status", TAB_STATUSES[tab])
     .order("created_at", { ascending: false })
@@ -61,14 +60,12 @@ export default async function ProcurementPage({
     created_at: string; po_reference: string | null;
     outlet: { name: string } | { name: string }[] | null;
     submitter: { full_name: string } | { full_name: string }[] | null;
-    lines: { amount: number }[] | null;
   };
   const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
   const rows = ((data ?? []) as unknown as Row[]).map((r) => ({
     ...r,
     outletName: one(r.outlet)?.name ?? "—",
     submitterName: one(r.submitter)?.full_name ?? "—",
-    total: (r.lines ?? []).reduce((sum, l) => sum + Number(l.amount ?? 0), 0),
   }));
 
   const tabs = [
@@ -141,11 +138,7 @@ export default async function ProcurementPage({
                     <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                       {STATUS_LABEL[r.status] ?? r.status}
                     </span>
-                    {r.total > 0 && (
-                      <p className="mt-1 text-xs tabular-nums text-zinc-500">
-                        {formatINR(r.total)}
-                      </p>
-                    )}
+
                   </div>
                 </div>
               </Link>

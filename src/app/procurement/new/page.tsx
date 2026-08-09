@@ -22,18 +22,11 @@ export default async function NewProcurementPage() {
     getRaiseAccess(user.id, hasUnrestrictedRaise(roles)),
   ]);
   const allowed = new Set(access.outletIds);
-  const outlets = (allOutlets as { id: string; name: string }[]).filter(
+  const outlets = (allOutlets as { id: string; name: string; stage: string }[]).filter(
     (o) => access.unrestricted || allowed.has(o.id),
   );
 
   const admin = createAdminClient();
-  // Approved vendors only, the same rule the payment form uses — offering a
-  // vendor nobody has verified would just move the problem downstream.
-  const { data: vendorRows } = await admin
-    .from("vendors")
-    .select("id, name")
-    .eq("status", "approved")
-    .order("name");
   const { data: seq } = await admin.rpc("next_procurement_number");
   const reservedNumber = typeof seq === "string" ? seq : null;
 
@@ -41,18 +34,14 @@ export default async function NewProcurementPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Raise a procurement request"
-        subtitle="For something that needs buying or fixing and has no PO yet. Procurement will source it."
+        subtitle="For something that needs buying or fixing. No vendor or price needed yet — that comes once it's approved and you get a PO."
       />
       {outlets.length === 0 ? (
         <p className="mt-6 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           You haven&rsquo;t been given any branches to raise for. Ask an admin to assign yours.
         </p>
       ) : (
-        <ProcurementForm
-          outlets={outlets}
-          vendors={(vendorRows ?? []) as { id: string; name: string }[]}
-          reservedNumber={reservedNumber}
-        />
+        <ProcurementForm outlets={outlets} reservedNumber={reservedNumber} />
       )}
     </div>
   );
