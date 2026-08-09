@@ -5,6 +5,7 @@ import BottomNav from "@/components/BottomNav";
 import MobileDrawer, { type DrawerLink } from "@/components/MobileDrawer";
 import ProfileMenu from "@/components/ProfileMenu";
 import SidebarNav from "@/components/SidebarNav";
+import SidebarToggle from "@/components/SidebarToggle";
 
 export type SidebarLink = {
   href: string;
@@ -65,7 +66,7 @@ export default function AppShell({
     <AssistantProvider>
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       {/* Desktop sidebar — Zoho Expense style: light bg, wide, icon+label rows */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-slate-200 bg-white sm:flex dark:border-slate-800 dark:bg-slate-950">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-slate-200 bg-white sm:flex dark:border-slate-800 dark:bg-slate-950">
         {/* Brand */}
         <Link
           href="/dashboard"
@@ -98,8 +99,10 @@ export default function AppShell({
       </aside>
 
       {/* Top bar */}
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-56 dark:border-zinc-800 dark:bg-zinc-900">
+      <header className="app-shifted sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-56 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center gap-2 px-3 py-3 sm:gap-6 sm:px-6">
+          {/* Desktop only — on mobile the drawer already owns this job. */}
+          <SidebarToggle />
           {/* Mobile hamburger + drawer */}
           <MobileDrawer
             links={drawerLinks}
@@ -161,7 +164,7 @@ export default function AppShell({
       </header>
 
       {/* Main content — extra bottom padding on phones clears the tab bar. */}
-      <main className="sm:pl-56">
+      <main className="app-shifted sm:pl-56">
         <div className="mx-auto max-w-6xl px-4 pb-24 pt-6 sm:px-8 sm:pb-8 sm:pt-8">{children}</div>
       </main>
 

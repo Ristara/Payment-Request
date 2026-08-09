@@ -85,6 +85,15 @@ export default function RootLayout({
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        {/* Applies the saved sidebar state before first paint. In an effect it
+            would render open and then snap shut on every navigation. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{if(localStorage.getItem("pay-sidebar-collapsed")==="1")' +
+              'document.documentElement.dataset.sidebar="collapsed"}catch(e){}',
+          }}
+        />
         {children}
         <PwaInit />
       </body>

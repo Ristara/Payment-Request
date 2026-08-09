@@ -78,3 +78,22 @@ body {
 /* Deliberately NOT setting overflow-x: hidden on html/body — it would make
    the body a scroll container and break the sticky top bar. Wide tables
    already scroll inside their own overflow-x-auto wrappers. */
+
+/* Collapsible desktop sidebar.
+   ---------------------------------------------------------------------------
+   Hand-written rather than Tailwind variants because three siblings in a
+   server component have to react to one piece of state: the sidebar, and the
+   left padding on both the header and the main column. An attribute on <html>
+   reaches all three; lifting the state into React would mean making the whole
+   shell a client component in order to move some padding.
+
+   Only above the `sm` breakpoint — below it the sidebar is already hidden and
+   the mobile drawer is in charge, so collapsing is meaningless there. */
+@media (min-width: 40rem) {
+  html[data-sidebar="collapsed"] .app-sidebar {
+    display: none;
+  }
+  html[data-sidebar="collapsed"] .app-shifted {
+    padding-left: 0;
+  }
+}
