@@ -37,6 +37,20 @@ export function PlusCircleIcon() {
     </svg>
   );
 }
+/**
+ * "Buy or repair". A distinct shape matters more than usual here: in the
+ * collapsed icon rail there is no label at all, and this sat next to
+ * PlusCircleIcon for "Pay a vendor" — two identical circles with no way to
+ * tell them apart.
+ */
+export function WrenchIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+      <path d="M14.7 6.3a4 4 0 0 0 5 5l-9.6 9.6a2.1 2.1 0 0 1-3-3l9.6-9.6z" />
+      <path d="M14.7 6.3 17.8 3.2a4 4 0 0 1 3 5l-1.1 1.1" />
+    </svg>
+  );
+}
 export function CheckSquareIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>

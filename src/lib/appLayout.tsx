@@ -6,8 +6,7 @@ import {
   CheckSquareIcon,
   WalletIcon,
   VendorIcon,
-  ChartIcon,
-} from "@/components/SidebarIcons";
+  ChartIcon, WrenchIcon } from "@/components/SidebarIcons";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { hasUnrestrictedRaise } from "@/lib/access-labels";
@@ -79,8 +78,15 @@ export default async function AppLayoutShell({
   const links = [
     { href: "/dashboard", label: "Home", icon: <HomeIcon /> },
     { href: "/requests", label: "Requests", icon: <DocumentIcon /> },
-    ...(canRaise ? [{ href: "/requests/new", label: "Raise payment request", icon: <PlusCircleIcon /> }] : []),
-    ...(canRaise ? [{ href: "/procurement/new", label: "Raise procurement request", icon: <PlusCircleIcon /> }] : []),
+    // Named so they diverge at the FIRST letter. Both previously began
+    // "Raise…" and differed only in the middle, which is the part that gets
+    // truncated — two items that read as the same thing twice.
+    //
+    // They also say what they are FOR rather than what they are called.
+    // Someone holding an invoice knows which one they want without knowing the
+    // words "payment request" or "procurement".
+    ...(canRaise ? [{ href: "/requests/new", label: "Pay a vendor", icon: <PlusCircleIcon /> }] : []),
+    ...(canRaise ? [{ href: "/procurement/new", label: "Buy or repair", icon: <WrenchIcon /> }] : []),
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
     ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
     // Requesters need to look vendors up and add new ones; the pending-vendor
