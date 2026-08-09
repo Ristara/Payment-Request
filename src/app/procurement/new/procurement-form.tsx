@@ -3,6 +3,8 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProcurementRequest } from "@/app/procurement/actions";
+import CoaCascade, { type CoaAccount, type CoaSelection } from "@/components/CoaCascade";
+import { COA_LABEL, COA_PATH } from "@/lib/coa-labels";
 
 export type OutletOption = { id: string; name: string; stage: string };
 
@@ -19,15 +21,18 @@ const FIELD =
  */
 export default function ProcurementForm({
   outlets,
+  coaAccounts,
   reservedNumber,
 }: {
   outlets: OutletOption[];
+  coaAccounts: CoaAccount[];
   reservedNumber: string | null;
 }) {
   const [state, action, pending] = useActionState(createProcurementRequest, undefined);
   const router = useRouter();
   const [expense, setExpense] = useState<"capex" | "opex">("capex");
   const [storeType, setStoreType] = useState<"upcoming" | "operational" | "">("");
+  const [coa, setCoa] = useState<CoaSelection>({ coa: "", category: "", accountId: "" });
 
   // OpEx is always an existing outlet — the payment form does not even ask, so
   // neither does this. Rent and utilities do not belong to a store that has
@@ -64,6 +69,9 @@ export default function ProcurementForm({
               onClick={() => {
                 setExpense(k);
                 if (k === "opex") setStoreType("");
+                // CapEx and OpEx have different charts, so a selection made
+                // under one is meaningless under the other.
+                setCoa({ coa: "", category: "", accountId: "" });
               }}
               className={
                 expense === k
@@ -134,6 +142,20 @@ export default function ProcurementForm({
             None of your outlets are {effectiveStage === "upcoming" ? "upcoming" : "operational"}.
           </p>
         )}
+      </div>
+
+      <div>
+        <span className="mb-1 block text-sm font-medium">
+          {expense === "opex" ? `${COA_LABEL.level1} · ${COA_LABEL.level3}` : COA_PATH}{" "}
+          <span className="text-red-600">*</span>
+        </span>
+        <CoaCascade
+          accounts={coaAccounts.filter((a) => a.expense_type === expense)}
+          value={coa}
+          onChange={setCoa}
+          isOpex={expense === "opex"}
+          required
+        />
       </div>
 
       <div>

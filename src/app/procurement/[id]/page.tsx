@@ -33,14 +33,15 @@ export default async function ProcurementDetailPage({
   const { data } = await supabase
     .from("procurement_requests")
     .select(
-      `id, request_number, title, description, status, expense_type,
+      `id, request_number, title, description, status, expense_type, coa, coa_category,
        created_at, approved_at, rejection_reason,
        po_reference, po_obtained_at, submitter_id,
        outlet:outlets(name),
        submitter:profiles!procurement_requests_submitter_id_fkey(full_name),
        approver:profiles!procurement_requests_approver_id_fkey(full_name),
        procurer:profiles!procurement_requests_procured_by_fkey(full_name),
-       po_vendor:vendors!procurement_requests_po_vendor_id_fkey(name)`,
+       po_vendor:vendors!procurement_requests_po_vendor_id_fkey(name),
+       account:coa_accounts(subcategory)`,
     )
     .eq("id", id)
     .maybeSingle();
@@ -87,6 +88,20 @@ export default async function ProcurementDetailPage({
         </span>
 
       </div>
+
+      {(r.coa as string | null) && (
+        <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+          {/* The full path, so the classification is readable without knowing
+              which column maps to which label. */}
+          {[
+            r.coa as string,
+            r.expense_type === "opex" ? null : (r.coa_category as string | null),
+            one(r.account as { subcategory: string } | null)?.subcategory ?? null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
 
       <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Details</h2>

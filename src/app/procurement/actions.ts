@@ -91,6 +91,13 @@ export async function createProcurementRequest(
     }
     if (!["capex", "opex"].includes(expense_type)) return { error: "Pick CapEx or OpEx." };
 
+    const coa = String(formData.get("coa") ?? "").trim() || null;
+    const coa_category = String(formData.get("coa_category") ?? "").trim() || null;
+    const coa_account_id = String(formData.get("coa_account_id") ?? "") || null;
+    // The top level is what makes the request classifiable at all; the account
+    // beneath it can legitimately be left off when the sub category has none.
+    if (!coa) return { error: "Pick a category." };
+
     const admin = createAdminClient();
     const { data: numberRes } = await admin.rpc("next_procurement_number");
     const request_number = typeof numberRes === "string" ? numberRes : null;
@@ -109,6 +116,9 @@ export async function createProcurementRequest(
         description,
         outlet_id,
         expense_type,
+        coa,
+        coa_category,
+        coa_account_id,
       })
       .select("id")
       .single();

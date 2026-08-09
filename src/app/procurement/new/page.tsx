@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
-import { getActiveOutlets } from "@/lib/masters";
+import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
 import { getRaiseAccess, hasUnrestrictedRaise } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import ProcurementForm from "./procurement-form";
@@ -17,8 +17,9 @@ export default async function NewProcurementPage() {
 
   // The same branch rule as a payment request — offering a branch the database
   // will then refuse is worse than not offering it.
-  const [allOutlets, access] = await Promise.all([
+  const [allOutlets, coaAccounts, access] = await Promise.all([
     getActiveOutlets(),
+    getActiveCoaAccounts(),
     getRaiseAccess(user.id, hasUnrestrictedRaise(roles)),
   ]);
   const allowed = new Set(access.outletIds);
@@ -41,7 +42,11 @@ export default async function NewProcurementPage() {
           You haven&rsquo;t been given any branches to raise for. Ask an admin to assign yours.
         </p>
       ) : (
-        <ProcurementForm outlets={outlets} reservedNumber={reservedNumber} />
+        <ProcurementForm
+          outlets={outlets}
+          coaAccounts={coaAccounts as { id: string; coa: string; category: string; subcategory: string; expense_type: string }[]}
+          reservedNumber={reservedNumber}
+        />
       )}
     </div>
   );
