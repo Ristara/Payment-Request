@@ -57,7 +57,9 @@ export default async function ProcurementDetailPage({
 
   const isSubmitter = r.submitter_id === user.id;
   const canApprove = roles.includes("approver") || roles.includes("admin");
-  const canProcure = roles.includes("procurement") || roles.includes("admin");
+  // Whoever raised it sources it and records the PO — there is no separate
+  // procurement team. Re-checked server-side in recordPurchaseOrder.
+  const canProcure = isSubmitter || roles.includes("admin");
 
   const { data: vendorRows } = await supabase
     .from("vendors")

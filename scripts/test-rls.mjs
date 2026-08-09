@@ -268,7 +268,10 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
   const { rows: [o2] } = await c.query("select id from outlets where is_active offset 1 limit 1");
   const PROC_OK = await makeUser("proc-granted", ["requester"]);
   const PROC_NO = await makeUser("proc-nogrant", ["requester"]);
-  const PROC_TEAM = await makeUser("proc-team", ["procurement"]);
+  // No procurement role any more: whoever raises a request records its PO.
+  // This user stands in for "some other requester" — they must not see or
+  // touch a request that is not theirs.
+  const PROC_TEAM = await makeUser("proc-other", ["requester"]);
   await c.query("insert into user_branch_access (user_id, outlet_id) values ($1,$2)", [PROC_OK, o1.id]);
 
   const newProc = (outlet) => [`insert into public.procurement_requests
@@ -281,7 +284,7 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
     await as(PROC_OK, newProc(o2.id)[0], [PROC_OK]));
   check("procurement: no branches granted, raise at all", "BLOCKED",
     await as(PROC_NO, newProc(o1.id)[0], [PROC_NO]));
-  check("procurement: the procurement role cannot raise (not a requester)", "BLOCKED",
+  check("procurement: another requester with no branch cannot raise", "BLOCKED",
     await as(PROC_TEAM, newProc(o1.id)[0], [PROC_TEAM]));
   check("procurement: cannot raise as someone else", "BLOCKED",
     await as(PROC_OK, `insert into public.procurement_requests
@@ -297,7 +300,7 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
      values ('PRQ-T-own', $1, 't', 'd', $2) returning id`, [PROC_OK, o1.id]);
   check("procurement: submitter cannot approve their own row directly", "BLOCKED",
     await as(PROC_OK, "update public.procurement_requests set status='approved' where id=$1", [mine.id]));
-  check("procurement: the procurement role cannot self-approve a row", "BLOCKED",
+  check("procurement: another requester cannot approve someone else's row", "BLOCKED",
     await as(PROC_TEAM, "update public.procurement_requests set status='approved' where id=$1", [mine.id]));
   check("procurement: submitter still SEES their own", "ALLOWED",
     await as(PROC_OK, "select 1 from public.procurement_requests where id=$1", [mine.id]));

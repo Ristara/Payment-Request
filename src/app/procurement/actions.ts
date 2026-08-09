@@ -184,12 +184,19 @@ export async function approveProcurementRequest(
       return { error: "Its status has changed — refresh the page." };
     }
 
-    await notifyRole("procurement", {
-      actorId: user.id,
-      procurementId: id,
-      title: "Approved — needs a PO",
+    // Straight to the person who raised it: they source it and record the PO.
+    await admin.from("notifications").insert({
+      recipient_id: req.submitter_id,
+      actor_id: user.id,
+      kind: "request_approved",
+      procurement_request_id: id,
+      body: `${req.request_number} approved — go ahead and get the PO`,
+    });
+    await sendPushToUsers([req.submitter_id], {
+      title: "Approved — you can get the PO",
       body: `${req.request_number} · ${req.title}`,
       url: `/procurement/${id}`,
+      tag: `procurement-${id}`,
     });
 
     revalidatePath("/procurement");
@@ -252,15 +259,19 @@ export async function rejectProcurementRequest(
 }
 
 /**
- * Procurement records the PO they obtained. This is the handover point: from
- * here a payment request can be raised against it.
+ * Record the PO once it has been obtained. The handover point: from here a
+ * payment request can be raised against it.
+ *
+ * Done by the person who RAISED the request, not a separate procurement team —
+ * the owner's call, and it matches how the company works: whoever needs the
+ * thing goes and sources it. So the gate is ownership, not a role.
  */
 export async function recordPurchaseOrder(
   _prev: ProcurementState,
   formData: FormData,
 ): Promise<ProcurementState> {
   try {
-    const { user } = await requireAnyRole("procurement", "admin");
+    const { user, roles } = await currentUser();
     const id = String(formData.get("id") ?? "");
     const po_reference = String(formData.get("po_reference") ?? "").trim();
     const po_vendor_id = String(formData.get("po_vendor_id") ?? "") || null;
@@ -268,6 +279,16 @@ export async function recordPurchaseOrder(
     if (!po_reference) return { error: "Enter the PO number." };
 
     const admin = createAdminClient();
+    const { data: owner } = await admin
+      .from("procurement_requests")
+      .select("submitter_id")
+      .eq("id", id)
+      .maybeSingle();
+    const ownerRow = owner as { submitter_id: string } | null;
+    if (!ownerRow) return { error: "That request no longer exists." };
+    if (ownerRow.submitter_id !== user.id && !roles.has("admin")) {
+      return { error: "Only the person who raised this can record the PO." };
+    }
     const { data: updated, error } = await admin
       .from("procurement_requests")
       .update({
@@ -286,18 +307,14 @@ export async function recordPurchaseOrder(
     }
     const row = updated[0] as { submitter_id: string; request_number: string };
 
-    await admin.from("notifications").insert({
-      recipient_id: row.submitter_id,
-      actor_id: user.id,
-      kind: "mentioned",
-      procurement_request_id: id,
-      body: `${row.request_number} · PO ${po_reference} obtained`,
-    });
-    await sendPushToUsers([row.submitter_id], {
+    // The submitter is the one doing this now, so telling them is pointless.
+    // The approver sanctioned it and will want to know it landed.
+    await notifyRole("approver", {
+      actorId: user.id,
+      procurementId: id,
       title: "PO obtained",
       body: `${row.request_number} · PO ${po_reference}`,
       url: `/procurement/${id}`,
-      tag: `procurement-${id}`,
     });
 
     revalidatePath("/procurement");

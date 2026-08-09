@@ -29,7 +29,6 @@ export default async function AppLayoutShell({
 
   const isAdmin = roles.includes("admin");
   const isApprover = roles.includes("approver");
-  const isProcurement = roles.includes("procurement");
   const isAccounts = roles.includes("accounts");
   const isStaff = isApprover || isAccounts || isAdmin;
   // Raising needs the requester role AND somewhere to raise for. A tab that
@@ -65,13 +64,16 @@ export default async function AppLayoutShell({
     isAccounts || isAdmin
       ? supabase.from("vendors").select("*", { count: "exact", head: true }).eq("status", "pending")
       : Promise.resolve({ count: 0 }),
-    // Procurement's queue is "approved, still needs a PO". Approvers get the
-    // count of what is waiting on them instead — two roles, two questions.
-    isProcurement || isAdmin
-      ? supabase.from("procurement_requests").select("*", { count: "exact", head: true }).eq("status", "approved")
-      : isApprover
-        ? supabase.from("procurement_requests").select("*", { count: "exact", head: true }).eq("status", "pending_approval")
-        : Promise.resolve({ count: 0 }),
+    // Two different questions, one badge. An approver wants "what needs my
+    // decision"; everyone else wants "what of mine is approved and waiting for
+    // me to go and get the PO".
+    isApprover
+      ? supabase.from("procurement_requests").select("*", { count: "exact", head: true }).eq("status", "pending_approval")
+      : supabase
+          .from("procurement_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "approved")
+          .eq("submitter_id", user!.id),
   ]);
 
   const links = [
@@ -93,12 +95,12 @@ export default async function AppLayoutShell({
       : []),
     // Everyone who can raise one can see their own; staff and procurement see
     // all of them. RLS decides what is actually in the list.
-    ...(canRaise || isStaff || isProcurement
+    ...(canRaise || isStaff
       ? [{
           href: "/procurement",
           label: "Procurement",
           icon: <DocumentIcon />,
-          ...(isProcurement || isAdmin || isApprover ? { badge: procurementBadge.count ?? 0 } : {}),
+          badge: procurementBadge.count ?? 0,
         }]
       : []),
     ...(isStaff ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }] : []),
