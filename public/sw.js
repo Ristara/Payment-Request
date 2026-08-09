@@ -3,10 +3,12 @@
 // - Push notification handler
 // - Notification click → open the request URL
 
-// Bumped to v4 to evict a poisoned entry: the old cache holds a copy of
-// ria-capture-worklet.js from before it carried audio levels, and activate()
-// below deletes every cache whose name is not this one.
-const CACHE = "pay-app-v4";
+// v5 evicts caches poisoned by the bug fixed below: this worker used to store
+// EVERY response, including 404s, and then serve them forever. Anyone who
+// loaded the app while a deploy was mid-flight cached a 404 for the new
+// stylesheet and got an unstyled app on every visit afterwards, permanently.
+// activate() deletes every cache whose name is not this one.
+const CACHE = "pay-app-v5";
 // Precache ONLY truly static files. Never SSR HTML — install-time HTML
 // snapshots go stale, can capture a login redirect, and every install
 // would re-run the server's full query fan-out for pages nobody asked for.
@@ -79,15 +81,24 @@ self.addEventListener("fetch", (event) => {
 
   if (url.pathname.startsWith("/_next/static/") || url.pathname.match(/\.(png|jpg|svg|css|js|ico)$/)) {
     event.respondWith(
-      caches.match(req).then(
-        (cached) =>
-          cached ||
-          fetch(req).then((res) => {
+      caches.match(req).then((cached) => {
+        // A cached error is worse than no cache. This used to store whatever
+        // came back — including a 404 — and `cached ||` then served it for
+        // ever. One request landing mid-deploy left the app permanently
+        // unstyled, and no amount of reloading could fix it because the
+        // reload was answered from the cache.
+        if (cached && cached.ok) return cached;
+        return fetch(req).then((res) => {
+          // Only successful responses are worth keeping. Opaque cross-origin
+          // responses report status 0 and are excluded too: there is no way to
+          // tell a good one from a failure.
+          if (res && res.ok && res.status === 200) {
             const clone = res.clone();
             caches.open(CACHE).then((c) => c.put(req, clone)).catch(() => {});
-            return res;
-          }),
-      ),
+          }
+          return res;
+        });
+      }),
     );
   }
 });
