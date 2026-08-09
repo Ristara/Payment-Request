@@ -47,7 +47,7 @@ export default async function ProcurementPage({
   const { data } = await supabase
     .from("procurement_requests")
     .select(
-      `id, request_number, title, status, priority, created_at, po_reference,
+      `id, request_number, title, status, created_at, po_reference,
        outlet:outlets(name),
        submitter:profiles!procurement_requests_submitter_id_fkey(full_name)`,
     )
@@ -56,7 +56,7 @@ export default async function ProcurementPage({
     .limit(200);
 
   type Row = {
-    id: string; request_number: string; title: string; status: string; priority: string;
+    id: string; request_number: string; title: string; status: string;
     created_at: string; po_reference: string | null;
     outlet: { name: string } | { name: string }[] | null;
     submitter: { full_name: string } | { full_name: string }[] | null;
@@ -118,14 +118,7 @@ export default async function ProcurementPage({
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="flex items-center gap-2 font-mono text-[11px] text-zinc-500">
-                      {r.request_number}
-                      {r.priority === "urgent" && (
-                        <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-200">
-                          Urgent
-                        </span>
-                      )}
-                    </p>
+                    <p className="font-mono text-[11px] text-zinc-500">{r.request_number}</p>
                     <p className="mt-0.5 truncate text-base font-medium text-zinc-900 dark:text-zinc-100">
                       {r.title}
                     </p>

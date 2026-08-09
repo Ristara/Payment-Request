@@ -118,40 +118,30 @@ export default function ProcurementForm({
       </div>
 
       <div>
+        <label htmlFor="outlet_id" className="mb-1 block text-sm font-medium">
+          Outlet <span className="text-red-600">*</span>
+        </label>
+        <select id="outlet_id" name="outlet_id" required defaultValue="" className={FIELD}>
+          <option value="" disabled>
+            {effectiveStage ? "Choose an outlet…" : "Choose New Store / Existing Outlet first…"}
+          </option>
+          {visibleOutlets.map((o) => (
+            <option key={o.id} value={o.id}>{o.name}</option>
+          ))}
+        </select>
+        {effectiveStage && visibleOutlets.length === 0 && (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            None of your outlets are {effectiveStage === "upcoming" ? "upcoming" : "operational"}.
+          </p>
+        )}
+      </div>
+
+      <div>
         <label htmlFor="description" className="mb-1 block text-sm font-medium">
           Purpose / description <span className="text-red-600">*</span>
         </label>
         <textarea id="description" name="description" required rows={4} maxLength={2000} className={FIELD}
           placeholder="What is wrong, or what exactly is needed." />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="outlet_id" className="mb-1 block text-sm font-medium">
-            Outlet <span className="text-red-600">*</span>
-          </label>
-          <select id="outlet_id" name="outlet_id" required defaultValue="" className={FIELD}>
-            <option value="" disabled>
-              {effectiveStage ? "Choose an outlet…" : "Choose New Store / Existing Outlet first…"}
-            </option>
-            {visibleOutlets.map((o) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </select>
-          {effectiveStage && visibleOutlets.length === 0 && (
-            <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-              None of your outlets are {effectiveStage === "upcoming" ? "upcoming" : "operational"}.
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label htmlFor="priority" className="mb-1 block text-sm font-medium">Priority</label>
-          <select id="priority" name="priority" defaultValue="normal" className={FIELD}>
-            <option value="normal">Normal</option>
-            <option value="urgent">Urgent</option>
-          </select>
-        </div>
       </div>
 
       {state?.error && (

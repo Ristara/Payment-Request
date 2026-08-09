@@ -33,7 +33,7 @@ export default async function ProcurementDetailPage({
   const { data } = await supabase
     .from("procurement_requests")
     .select(
-      `id, request_number, title, description, status, priority, expense_type,
+      `id, request_number, title, description, status, expense_type,
        created_at, approved_at, rejection_reason,
        po_reference, po_obtained_at, submitter_id,
        outlet:outlets(name),
@@ -82,11 +82,6 @@ export default async function ProcurementDetailPage({
         <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
           {STATUS_LABEL[status] ?? status}
         </span>
-        {r.priority === "urgent" && (
-          <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-200">
-            Urgent
-          </span>
-        )}
         <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           {r.expense_type === "opex" ? "OpEx" : "CapEx"}
         </span>

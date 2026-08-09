@@ -86,12 +86,10 @@ export async function createProcurementRequest(
     const description = String(formData.get("description") ?? "").trim();
     const outlet_id = String(formData.get("outlet_id") ?? "");
     const expense_type = String(formData.get("expense_type") ?? "capex");
-    const priority = String(formData.get("priority") ?? "normal");
     if (!title || !description || !outlet_id) {
       return { error: "Title, what's needed, and the branch are all required." };
     }
     if (!["capex", "opex"].includes(expense_type)) return { error: "Pick CapEx or OpEx." };
-    if (!["normal", "urgent"].includes(priority)) return { error: "Pick a priority." };
 
     const admin = createAdminClient();
     const { data: numberRes } = await admin.rpc("next_procurement_number");
@@ -111,7 +109,6 @@ export async function createProcurementRequest(
         description,
         outlet_id,
         expense_type,
-        priority,
       })
       .select("id")
       .single();
