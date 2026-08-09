@@ -262,7 +262,51 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
   "update public.profiles set full_name='x' where id=$1", [NOBODY]));
 
 // --- Report ---------------------------------------------------------------
+// --- Procurement requests (migration 036) ---------------------------------
+{
+  const { rows: [o1] } = await c.query("select id from outlets where is_active limit 1");
+  const { rows: [o2] } = await c.query("select id from outlets where is_active offset 1 limit 1");
+  const PROC_OK = await makeUser("proc-granted", ["requester"]);
+  const PROC_NO = await makeUser("proc-nogrant", ["requester"]);
+  const PROC_TEAM = await makeUser("proc-team", ["procurement"]);
+  await c.query("insert into user_branch_access (user_id, outlet_id) values ($1,$2)", [PROC_OK, o1.id]);
+
+  const newProc = (outlet) => [`insert into public.procurement_requests
+      (request_number, submitter_id, title, description, outlet_id)
+     values ('PRQ-T-' || substr(md5(random()::text),1,6), $1, 't', 'd', '${outlet}')`];
+
+  check("procurement: raise for a granted branch", "ALLOWED",
+    await as(PROC_OK, newProc(o1.id)[0], [PROC_OK]));
+  check("procurement: raise for an UNgranted branch", "BLOCKED",
+    await as(PROC_OK, newProc(o2.id)[0], [PROC_OK]));
+  check("procurement: no branches granted, raise at all", "BLOCKED",
+    await as(PROC_NO, newProc(o1.id)[0], [PROC_NO]));
+  check("procurement: the procurement role cannot raise (not a requester)", "BLOCKED",
+    await as(PROC_TEAM, newProc(o1.id)[0], [PROC_TEAM]));
+  check("procurement: cannot raise as someone else", "BLOCKED",
+    await as(PROC_OK, `insert into public.procurement_requests
+      (request_number, submitter_id, title, description, outlet_id)
+      values ('PRQ-T-spoof', $1, 't', 'd', $2)`, [PROC_NO, o1.id]));
+
+  // The table has no UPDATE policy on purpose — every transition goes through
+  // a server action under the service-role client. If a policy is ever added
+  // carelessly, this is what catches it.
+  const { rows: [mine] } = await c.query(
+    `insert into public.procurement_requests
+       (request_number, submitter_id, title, description, outlet_id)
+     values ('PRQ-T-own', $1, 't', 'd', $2) returning id`, [PROC_OK, o1.id]);
+  check("procurement: submitter cannot approve their own row directly", "BLOCKED",
+    await as(PROC_OK, "update public.procurement_requests set status='approved' where id=$1", [mine.id]));
+  check("procurement: the procurement role cannot self-approve a row", "BLOCKED",
+    await as(PROC_TEAM, "update public.procurement_requests set status='approved' where id=$1", [mine.id]));
+  check("procurement: submitter still SEES their own", "ALLOWED",
+    await as(PROC_OK, "select 1 from public.procurement_requests where id=$1", [mine.id]));
+  check("procurement: an unrelated requester cannot see it", "BLOCKED",
+    await as(PROC_NO, "select 1 from public.procurement_requests where id=$1 having count(*)>0", [mine.id]));
+}
+
 await c.query("rollback");
+
 // --- Ria's scoping is a source-level invariant, not an RLS one -------------
 //
 // Every assistant lookup goes through the USER'S client, which is the only

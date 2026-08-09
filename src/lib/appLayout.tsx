@@ -29,6 +29,7 @@ export default async function AppLayoutShell({
 
   const isAdmin = roles.includes("admin");
   const isApprover = roles.includes("approver");
+  const isProcurement = roles.includes("procurement");
   const isAccounts = roles.includes("accounts");
   const isStaff = isApprover || isAccounts || isAdmin;
   // Raising needs the requester role AND somewhere to raise for. A tab that
@@ -48,7 +49,7 @@ export default async function AppLayoutShell({
     hasRaiseRole &&
     (unrestrictedRaise || ((grants?.[0].count ?? 0) > 0 && (grants?.[1].count ?? 0) > 0));
 
-  const [profile, unread, approvalBadge, accountsBadge, vendorBadge] = await Promise.all([
+  const [profile, unread, approvalBadge, accountsBadge, vendorBadge, procurementBadge] = await Promise.all([
     user
       ? supabase.from("profiles").select("full_name, email").eq("id", user.id).single()
       : Promise.resolve({ data: null }),
@@ -64,12 +65,20 @@ export default async function AppLayoutShell({
     isAccounts || isAdmin
       ? supabase.from("vendors").select("*", { count: "exact", head: true }).eq("status", "pending")
       : Promise.resolve({ count: 0 }),
+    // Procurement's queue is "approved, still needs a PO". Approvers get the
+    // count of what is waiting on them instead — two roles, two questions.
+    isProcurement || isAdmin
+      ? supabase.from("procurement_requests").select("*", { count: "exact", head: true }).eq("status", "approved")
+      : isApprover
+        ? supabase.from("procurement_requests").select("*", { count: "exact", head: true }).eq("status", "pending_approval")
+        : Promise.resolve({ count: 0 }),
   ]);
 
   const links = [
     { href: "/dashboard", label: "Home", icon: <HomeIcon /> },
     { href: "/requests", label: "Requests", icon: <DocumentIcon /> },
     ...(canRaise ? [{ href: "/requests/new", label: "Raise payment request", icon: <PlusCircleIcon /> }] : []),
+    ...(canRaise ? [{ href: "/procurement/new", label: "Raise procurement request", icon: <PlusCircleIcon /> }] : []),
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
     ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
     // Requesters need to look vendors up and add new ones; the pending-vendor
@@ -80,6 +89,16 @@ export default async function AppLayoutShell({
           label: "Vendors",
           icon: <VendorIcon />,
           ...(isAccounts || isAdmin ? { badge: vendorBadge.count ?? 0 } : {}),
+        }]
+      : []),
+    // Everyone who can raise one can see their own; staff and procurement see
+    // all of them. RLS decides what is actually in the list.
+    ...(canRaise || isStaff || isProcurement
+      ? [{
+          href: "/procurement",
+          label: "Procurement",
+          icon: <DocumentIcon />,
+          ...(isProcurement || isAdmin || isApprover ? { badge: procurementBadge.count ?? 0 } : {}),
         }]
       : []),
     ...(isStaff ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }] : []),
