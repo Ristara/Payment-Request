@@ -27,6 +27,13 @@ export default async function NewProcurementPage() {
   );
 
   const admin = createAdminClient();
+  // Approved vendors only, the same rule the payment form uses — offering a
+  // vendor nobody has verified would just move the problem downstream.
+  const { data: vendorRows } = await admin
+    .from("vendors")
+    .select("id, name")
+    .eq("status", "approved")
+    .order("name");
   const { data: seq } = await admin.rpc("next_procurement_number");
   const reservedNumber = typeof seq === "string" ? seq : null;
 
@@ -41,7 +48,11 @@ export default async function NewProcurementPage() {
           You haven&rsquo;t been given any branches to raise for. Ask an admin to assign yours.
         </p>
       ) : (
-        <ProcurementForm outlets={outlets} reservedNumber={reservedNumber} />
+        <ProcurementForm
+          outlets={outlets}
+          vendors={(vendorRows ?? []) as { id: string; name: string }[]}
+          reservedNumber={reservedNumber}
+        />
       )}
     </div>
   );

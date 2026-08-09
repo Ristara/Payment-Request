@@ -87,17 +87,52 @@ export async function createProcurementRequest(
     const outlet_id = String(formData.get("outlet_id") ?? "");
     const expense_type = String(formData.get("expense_type") ?? "capex");
     const priority = String(formData.get("priority") ?? "normal");
-    const estRaw = String(formData.get("estimated_amount") ?? "").trim();
+    const payment_kind = String(formData.get("payment_kind") ?? "regular");
+    const vendor_id = String(formData.get("vendor_id") ?? "") || null;
+    const document_type = String(formData.get("document_type") ?? "").trim() || null;
+    const document_reference = String(formData.get("document_reference") ?? "").trim() || null;
 
     if (!title || !description || !outlet_id) {
       return { error: "Title, what's needed, and the branch are all required." };
     }
     if (!["capex", "opex"].includes(expense_type)) return { error: "Pick CapEx or OpEx." };
     if (!["normal", "urgent"].includes(priority)) return { error: "Pick a priority." };
+    if (!["regular", "milestone"].includes(payment_kind)) return { error: "Pick regular or milestone." };
 
-    const estimated_amount = estRaw === "" ? null : Number(estRaw);
-    if (estimated_amount !== null && (!Number.isFinite(estimated_amount) || estimated_amount < 0)) {
-      return { error: "The rough cost doesn't look like a number." };
+    // Line items arrive as parallel arrays, the same shape the payment form
+    // posts. Rows with no description are blanks the user never filled in.
+    const descs = formData.getAll("line_description").map(String);
+    const qtys = formData.getAll("line_quantity").map(String);
+    const rates = formData.getAll("line_rate").map(String);
+    const lines = descs
+      .map((d, i) => ({
+        description: d.trim(),
+        quantity: Number(qtys[i] ?? 1),
+        rate: Number(rates[i] ?? 0),
+      }))
+      .filter((l) => l.description !== "");
+    for (const l of lines) {
+      if (!Number.isFinite(l.quantity) || l.quantity <= 0) {
+        return { error: `Quantity for "${l.description}" must be more than zero.` };
+      }
+      if (!Number.isFinite(l.rate) || l.rate < 0) {
+        return { error: `Rate for "${l.description}" doesn't look like a number.` };
+      }
+    }
+    const linesTotal = lines.reduce((sum, l) => sum + l.quantity * l.rate, 0);
+
+    const instAmounts = formData
+      .getAll("installment_amount")
+      .map((v) => Number(String(v)))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const instTotal = instAmounts.reduce((sum, n) => sum + n, 0);
+    // Checked here rather than left to be discovered later: an instalment plan
+    // that does not add up to the request is the kind of error that survives
+    // approval and only surfaces when someone tries to pay it.
+    if (instAmounts.length > 0 && lines.length > 0 && Math.abs(instTotal - linesTotal) > 0.5) {
+      return {
+        error: `The instalments add up to ${instTotal.toFixed(2)} but the items come to ${linesTotal.toFixed(2)}.`,
+      };
     }
 
     const admin = createAdminClient();
@@ -119,7 +154,10 @@ export async function createProcurementRequest(
         outlet_id,
         expense_type,
         priority,
-        estimated_amount,
+        payment_kind,
+        vendor_id,
+        document_type,
+        document_reference,
       })
       .select("id")
       .single();
@@ -130,6 +168,33 @@ export async function createProcurementRequest(
     }
 
     const id = (data as { id: string }).id;
+
+    // Children through the user's client too, so their policies do the
+    // checking rather than the service role waving them through.
+    if (lines.length > 0) {
+      const { error: lineErr } = await supabase.from("procurement_line_items").insert(
+        lines.map((l, i) => ({
+          procurement_request_id: id,
+          description: l.description,
+          quantity: l.quantity,
+          rate: l.rate,
+          amount: Number((l.quantity * l.rate).toFixed(2)),
+          sort_order: i,
+        })),
+      );
+      if (lineErr) return { error: `Saved the request but not its items: ${lineErr.message}` };
+    }
+    if (instAmounts.length > 0) {
+      const { error: instErr } = await supabase.from("procurement_installments").insert(
+        instAmounts.map((amount, i) => ({
+          procurement_request_id: id,
+          installment_number: i + 1,
+          amount,
+        })),
+      );
+      if (instErr) return { error: `Saved the request but not its instalments: ${instErr.message}` };
+    }
+
     const { data: me } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
     await notifyRole("approver", {
       actorId: user.id,
