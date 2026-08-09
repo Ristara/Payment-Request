@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { formatINR, formatISTDate, formatISTDateTime } from "@/lib/types";
 import ProcurementActions from "./procurement-actions";
@@ -62,6 +63,38 @@ export default async function ProcurementDetailPage({
   // procurement team. Re-checked server-side in recordPurchaseOrder.
   const canProcure = isSubmitter || roles.includes("admin");
 
+  // Both read through the user's client, so RLS decides. Only the signing
+  // needs the service role, and only for paths already proven visible.
+  const [{ data: attRows }, { data: ccRows }] = await Promise.all([
+    supabase
+      .from("attachments")
+      .select("id, file_name, storage_path, file_size_bytes")
+      .eq("procurement_request_id", id)
+      .order("created_at"),
+    supabase
+      .from("procurement_watchers")
+      .select("user_id, watcher:profiles!procurement_watchers_user_id_fkey(full_name)")
+      .eq("procurement_request_id", id),
+  ]);
+  const attachments = (attRows ?? []) as {
+    id: string; file_name: string; storage_path: string; file_size_bytes: number | null;
+  }[];
+  const signed = new Map<string, string>();
+  if (attachments.length > 0) {
+    const admin = createAdminClient();
+    await Promise.all(
+      attachments.map(async (a) => {
+        const { data: u } = await admin.storage
+          .from("request-attachments")
+          .createSignedUrl(a.storage_path, 3600);
+        if (u?.signedUrl) signed.set(a.storage_path, u.signedUrl);
+      }),
+    );
+  }
+  const ccNames = ((ccRows ?? []) as unknown as {
+    user_id: string; watcher: { full_name: string } | { full_name: string }[] | null;
+  }[]).map((w) => one(w.watcher)?.full_name ?? "Unknown");
+
   const { data: vendorRows } = await supabase
     .from("vendors")
     .select("id, name")
@@ -109,6 +142,42 @@ export default async function ProcurementDetailPage({
           {r.description as string}
         </p>
       </section>
+
+      {attachments.length > 0 && (
+        <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Supporting documents
+          </h2>
+          <ul className="mt-3 space-y-2">
+            {attachments.map((a) => {
+              const url = signed.get(a.storage_path);
+              return (
+                <li key={a.id} className="flex items-center justify-between gap-3 text-sm">
+                  {url ? (
+                    <a href={url} target="_blank" rel="noopener noreferrer"
+                       className="truncate text-indigo-600 hover:underline dark:text-indigo-400">
+                      {a.file_name}
+                    </a>
+                  ) : (
+                    /* Said plainly rather than rendering a dead link. */
+                    <span className="truncate text-zinc-500">{a.file_name} (couldn&rsquo;t open)</span>
+                  )}
+                  <span className="shrink-0 text-xs tabular-nums text-zinc-400">
+                    {a.file_size_bytes ? `${Math.max(1, Math.round(a.file_size_bytes / 1024))} KB` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {ccNames.length > 0 && (
+        <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
+          <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">CC</span>{" "}
+          {ccNames.join(", ")}
+        </p>
+      )}
 
       {status === "rejected" && (r.rejection_reason as string | null) && (
         <div className="mt-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm dark:border-red-900 dark:bg-red-950/40">

@@ -1,12 +1,14 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProcurementRequest } from "@/app/procurement/actions";
 import CoaCascade, { type CoaAccount, type CoaSelection } from "@/components/CoaCascade";
+import Combobox from "@/components/Combobox";
 import { COA_LABEL, COA_PATH } from "@/lib/coa-labels";
 
 export type OutletOption = { id: string; name: string; stage: string };
+export type PersonOption = { id: string; full_name: string };
 
 const FIELD =
   "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-950";
@@ -22,10 +24,12 @@ const FIELD =
 export default function ProcurementForm({
   outlets,
   coaAccounts,
+  people,
   reservedNumber,
 }: {
   outlets: OutletOption[];
   coaAccounts: CoaAccount[];
+  people: PersonOption[];
   reservedNumber: string | null;
 }) {
   const [state, action, pending] = useActionState(createProcurementRequest, undefined);
@@ -33,6 +37,9 @@ export default function ProcurementForm({
   const [expense, setExpense] = useState<"capex" | "opex">("capex");
   const [storeType, setStoreType] = useState<"upcoming" | "operational" | "">("");
   const [coa, setCoa] = useState<CoaSelection>({ coa: "", category: "", accountId: "" });
+  const [cc, setCc] = useState<PersonOption[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // OpEx is always an existing outlet — the payment form does not even ask, so
   // neither does this. Rent and utilities do not belong to a store that has
@@ -164,6 +171,78 @@ export default function ProcurementForm({
         </label>
         <textarea id="description" name="description" required rows={4} maxLength={2000} className={FIELD}
           placeholder="What is wrong, or what exactly is needed." />
+      </div>
+
+      {/* ---- Supporting documents ---------------------------------------- */}
+      <div>
+        <span className="mb-1 block text-sm font-medium">Supporting documents</span>
+        <p className="mb-2 text-xs text-zinc-500">
+          A photo of what&rsquo;s broken, a quote, anything that helps whoever approves it.
+        </p>
+        <input
+          ref={fileRef}
+          type="file"
+          name="attachments"
+          multiple
+          accept="image/*,application/pdf"
+          onChange={(e) => {
+            // Appended to a list rather than replacing it: a second trip to the
+            // picker should add to the selection, not silently discard the
+            // first batch.
+            setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
+          }}
+          className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:text-zinc-400 dark:file:bg-indigo-950 dark:file:text-indigo-300"
+        />
+        {files.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {files.map((f, i) => (
+              <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <span className="truncate">{f.name}</span>
+                <span className="shrink-0 tabular-nums text-zinc-400">
+                  {Math.max(1, Math.round(f.size / 1024))} KB
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* ---- CC ----------------------------------------------------------- */}
+      <div>
+        <span className="mb-1 block text-sm font-medium">CC (optional)</span>
+        <p className="mb-2 text-xs text-zinc-500">
+          They&rsquo;ll be notified and can open the request.
+        </p>
+        <Combobox
+          options={people
+            .filter((p) => !cc.some((c) => c.id === p.id))
+            .map((p) => ({ value: p.id, label: p.full_name }))}
+          value=""
+          onChange={(id) => {
+            const person = people.find((p) => p.id === id);
+            if (person) setCc((prev) => [...prev, person]);
+          }}
+          placeholder="Search a person to CC…"
+          ariaLabel="CC person"
+        />
+        {cc.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {cc.map((p) => (
+              <li key={p.id} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 py-1 pl-3 pr-1 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+                {p.full_name}
+                <button
+                  type="button"
+                  onClick={() => setCc((prev) => prev.filter((x) => x.id !== p.id))}
+                  aria-label={`Remove ${p.full_name} from CC`}
+                  className="flex h-4 w-4 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-300 hover:text-zinc-900 dark:hover:bg-zinc-600 dark:hover:text-white"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <input type="hidden" name="cc_user_ids" value={JSON.stringify(cc.map((p) => p.id))} />
       </div>
 
       {state?.error && (

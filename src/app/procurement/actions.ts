@@ -129,12 +129,79 @@ export async function createProcurementRequest(
     }
 
     const id = (data as { id: string }).id;
-
     const { data: me } = await admin.from("profiles").select("full_name").eq("id", user.id).single();
+    const myName = (me as { full_name: string } | null)?.full_name ?? "Someone";
+
+    // ---- Supporting documents ------------------------------------------
+    // After the row exists, deliberately. An upload that fails should cost the
+    // attachment, not the request — the request is the thing that took effort
+    // to write.
+    const files = formData.getAll("attachments").filter(
+      (f): f is File => f instanceof File && f.size > 0,
+    );
+    if (files.length > 0) {
+      const rows: Record<string, unknown>[] = [];
+      for (const file of files) {
+        const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `procurement/${id}/${Date.now()}-${safe}`;
+        const { error: upErr } = await admin.storage
+          .from("request-attachments")
+          .upload(path, await file.arrayBuffer(), {
+            contentType: file.type || "application/octet-stream",
+          });
+        if (upErr) continue;
+        rows.push({
+          procurement_request_id: id,
+          stage: "request",
+          storage_path: path,
+          file_name: file.name,
+          file_size_bytes: file.size,
+          mime_type: file.type || null,
+          uploaded_by: user.id,
+        });
+      }
+      if (rows.length > 0) await admin.from("attachments").insert(rows);
+    }
+
+    // ---- CC --------------------------------------------------------------
+    let ccUserIds: string[] = [];
+    try {
+      ccUserIds = JSON.parse(String(formData.get("cc_user_ids") ?? "[]")) as string[];
+    } catch {
+      ccUserIds = [];
+    }
+    ccUserIds = Array.from(
+      new Set(ccUserIds.filter((v) => typeof v === "string" && v && v !== user.id)),
+    );
+    if (ccUserIds.length > 0) {
+      await admin.from("procurement_watchers").insert(
+        ccUserIds.map((uid) => ({
+          procurement_request_id: id,
+          user_id: uid,
+          added_by: user.id,
+        })),
+      );
+      await admin.from("notifications").insert(
+        ccUserIds.map((recipient_id) => ({
+          recipient_id,
+          actor_id: user.id,
+          kind: "mentioned",
+          procurement_request_id: id,
+          body: `You were CC'd on ${request_number}`,
+        })),
+      );
+      await sendPushToUsers(ccUserIds, {
+        title: `${myName} CC'd you`,
+        body: `${request_number} · ${title}`,
+        url: `/procurement/${id}`,
+        tag: `procurement-${id}`,
+      });
+    }
+
     await notifyRole("approver", {
       actorId: user.id,
       procurementId: id,
-      title: `${(me as { full_name: string } | null)?.full_name ?? "Someone"} raised a procurement request`,
+      title: `${myName} raised a procurement request`,
       body: `${request_number} · ${title}`,
       url: `/procurement/${id}`,
     });

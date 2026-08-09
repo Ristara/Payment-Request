@@ -306,6 +306,20 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
     await as(PROC_OK, "select 1 from public.procurement_requests where id=$1", [mine.id]));
   check("procurement: an unrelated requester cannot see it", "BLOCKED",
     await as(PROC_NO, "select 1 from public.procurement_requests where id=$1 having count(*)>0", [mine.id]));
+
+  // CC must actually GRANT access. On the payment side this was broken for a
+  // while: the notification arrived and the page refused to load, with no
+  // error to explain it. Asserted here so it cannot happen again.
+  await c.query(
+    "insert into procurement_watchers (procurement_request_id, user_id, added_by) values ($1,$2,$3)",
+    [mine.id, PROC_TEAM, PROC_OK]);
+  check("procurement: a CC'd person CAN see it", "ALLOWED",
+    await as(PROC_TEAM, "select 1 from public.procurement_requests where id=$1", [mine.id]));
+  check("procurement: being CC'd does not let them approve it", "BLOCKED",
+    await as(PROC_TEAM, "update public.procurement_requests set status='approved' where id=$1", [mine.id]));
+  check("procurement: a CC'd person cannot CC others", "BLOCKED",
+    await as(PROC_TEAM, `insert into procurement_watchers (procurement_request_id, user_id)
+       values ($1, $2)`, [mine.id, PROC_NO]));
 }
 
 await c.query("rollback");

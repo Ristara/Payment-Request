@@ -28,6 +28,13 @@ export default async function NewProcurementPage() {
   );
 
   const admin = createAdminClient();
+  // Same list the payment form offers: every active user except yourself.
+  const { data: peopleRows } = await admin
+    .from("profiles")
+    .select("id, full_name")
+    .eq("is_active", true)
+    .neq("id", user.id)
+    .order("full_name");
   const { data: seq } = await admin.rpc("next_procurement_number");
   const reservedNumber = typeof seq === "string" ? seq : null;
 
@@ -45,6 +52,7 @@ export default async function NewProcurementPage() {
         <ProcurementForm
           outlets={outlets}
           coaAccounts={coaAccounts as { id: string; coa: string; category: string; subcategory: string; expense_type: string }[]}
+          people={(peopleRows ?? []) as { id: string; full_name: string }[]}
           reservedNumber={reservedNumber}
         />
       )}
