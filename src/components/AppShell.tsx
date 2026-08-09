@@ -51,7 +51,8 @@ export default function AppShell({
 }) {
   const drawerLinks: DrawerLink[] = links.map((l) => ({
     href: l.href,
-    label: l.label === "Requests" ? "My requests" : l.label === "Raise" ? "Raise request" : l.label === "Approve" ? "Approvals" : l.label,
+    label:
+      l.label === "Requests" ? "My requests" : l.label === "Approve" ? "Approvals" : l.label,
     icon: l.icon,
     badge: l.badge,
   }));

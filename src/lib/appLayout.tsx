@@ -69,7 +69,7 @@ export default async function AppLayoutShell({
   const links = [
     { href: "/dashboard", label: "Home", icon: <HomeIcon /> },
     { href: "/requests", label: "Requests", icon: <DocumentIcon /> },
-    ...(canRaise ? [{ href: "/requests/new", label: "Raise", icon: <PlusCircleIcon /> }] : []),
+    ...(canRaise ? [{ href: "/requests/new", label: "Raise payment request", icon: <PlusCircleIcon /> }] : []),
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
     ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
     // Requesters need to look vendors up and add new ones; the pending-vendor
