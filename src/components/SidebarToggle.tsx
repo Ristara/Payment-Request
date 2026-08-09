@@ -5,24 +5,24 @@ import { useEffect, useState } from "react";
 export const SIDEBAR_KEY = "pay-sidebar-collapsed";
 
 /**
- * Collapses the desktop sidebar.
+ * Collapses the sidebar to an icon rail.
  *
- * The state lives as a data attribute on <html> rather than in React, because
- * three separate elements have to react to it — the sidebar itself and the
- * left padding on both the header and the main column — and they are siblings
- * in a server component. An attribute plus two CSS rules moves all three;
- * lifting them into a client provider would turn the whole shell into a client
- * component to move some padding.
+ * It shrinks rather than disappears, which matters: the button that brings it
+ * back rides in the rail, so there is never a state where the only control is
+ * hidden. The first attempt hid the sidebar outright and put a small icon in
+ * the top bar, which the owner could not pick out.
  *
- * The saved value is applied by an inline script in the root layout before
- * first paint. Doing it here in an effect would render the sidebar open and
- * then yank it shut on every single navigation.
+ * The state is a data attribute on <html>, not React state — the sidebar, the
+ * nav labels, and the left padding on both the header and the main column all
+ * have to react to it, and they are spread across a server component. The
+ * saved value is applied by an inline script before first paint so the menu
+ * never renders wide and then jumps narrow.
  */
 export default function SidebarToggle() {
   const [collapsed, setCollapsed] = useState(false);
 
-  // Read what the pre-paint script already decided, so the button's label
-  // starts out telling the truth.
+  // Read what the pre-paint script already decided, so the chevron starts out
+  // pointing the right way.
   useEffect(() => {
     setCollapsed(document.documentElement.dataset.sidebar === "collapsed");
   }, []);
@@ -42,17 +42,18 @@ export default function SidebarToggle() {
     <button
       type="button"
       onClick={toggle}
-      aria-pressed={collapsed}
-      aria-label={collapsed ? "Show the menu" : "Hide the menu"}
-      title={collapsed ? "Show the menu" : "Hide the menu"}
-      className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 sm:flex dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+      aria-label={collapsed ? "Widen the menu" : "Collapse the menu"}
+      title={collapsed ? "Widen the menu" : "Collapse the menu"}
+      className="flex w-full items-center justify-center rounded-xl border-2 border-indigo-600 px-3 py-2.5 text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
     >
+      {/* Rotated rather than swapped for a second path: one element, and the
+          turn makes the direction obvious even mid-animation. */}
       <svg
         width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+        className={collapsed ? "rotate-180 transition-transform" : "transition-transform"}
       >
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M9 4v16" />
+        <path d="M15 18l-6-6 6-6" />
       </svg>
     </button>
   );

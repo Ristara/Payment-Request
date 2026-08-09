@@ -79,21 +79,47 @@ body {
    the body a scroll container and break the sticky top bar. Wide tables
    already scroll inside their own overflow-x-auto wrappers. */
 
-/* Collapsible desktop sidebar.
+/* Collapsible desktop sidebar — shrinks to an icon rail, never disappears.
    ---------------------------------------------------------------------------
-   Hand-written rather than Tailwind variants because three siblings in a
-   server component have to react to one piece of state: the sidebar, and the
-   left padding on both the header and the main column. An attribute on <html>
-   reaches all three; lifting the state into React would mean making the whole
-   shell a client component in order to move some padding.
+   Hand-written rather than Tailwind variants because several elements spread
+   across a server component have to react to one piece of state: the sidebar
+   width, the labels inside it, and the left padding on both the header and the
+   main column. An attribute on <html> reaches all of them; lifting the state
+   into React would mean making the whole shell a client component to move some
+   padding.
+
+   It shrinks rather than hides so the control that widens it again is always
+   on screen. Hiding it outright meant the reopen button had to live somewhere
+   else, and wherever that was, it was hard to find.
 
    Only above the `sm` breakpoint — below it the sidebar is already hidden and
-   the mobile drawer is in charge, so collapsing is meaningless there. */
+   the mobile drawer is in charge. */
 @media (min-width: 40rem) {
   html[data-sidebar="collapsed"] .app-sidebar {
-    display: none;
+    width: 4rem;
   }
   html[data-sidebar="collapsed"] .app-shifted {
+    padding-left: 4rem;
+  }
+  /* Labels go, icons stay. Each row centres itself so the icons form a column
+     rather than clinging to the left edge. */
+  html[data-sidebar="collapsed"] .sb-label {
+    display: none;
+  }
+  html[data-sidebar="collapsed"] .sb-item {
+    justify-content: center;
     padding-left: 0;
+    padding-right: 0;
+  }
+  /* A count still has to be visible at 4rem, so it rides on the icon instead
+     of sitting in a row that no longer has room for it. */
+  html[data-sidebar="collapsed"] .sb-item {
+    position: relative;
+  }
+  html[data-sidebar="collapsed"] .sb-badge {
+    position: absolute;
+    top: 0.125rem;
+    right: 0.5rem;
+    line-height: 1.1;
   }
 }

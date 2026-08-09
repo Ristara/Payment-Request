@@ -70,13 +70,13 @@ export default function AppShell({
         {/* Brand */}
         <Link
           href="/dashboard"
-          className="flex h-14 items-center gap-2 border-b border-slate-100 px-4 dark:border-slate-800"
+          className="sb-item flex h-14 items-center gap-2 border-b border-slate-100 px-4 dark:border-slate-800"
           title="Home"
         >
           <span className={`flex h-8 w-8 items-center justify-center rounded-md text-sm font-bold text-white ${brandBg}`}>
             R
           </span>
-          <span className="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          <span className="sb-label truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
             {variant === "admin" ? "Admin" : "Payments"}
           </span>
         </Link>
@@ -88,21 +88,26 @@ export default function AppShell({
           <div className="border-t border-slate-100 p-2 dark:border-slate-800">
             <Link
               href={switchView.href}
-              className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${switchBg}`}
+              className={`sb-item flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${switchBg}`}
               title={switchView.label}
             >
               <SwitchIcon />
-              <span className="truncate">{switchView.label}</span>
+              <span className="sb-label truncate">{switchView.label}</span>
             </Link>
           </div>
         )}
+
+        {/* Collapse control, last thing in the rail. It rides INSIDE the
+            sidebar because the sidebar shrinks rather than disappears — so the
+            way back is always on screen. */}
+        <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+          <SidebarToggle />
+        </div>
       </aside>
 
       {/* Top bar */}
       <header className="app-shifted sticky top-0 z-20 border-b border-zinc-200 bg-white sm:pl-56 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center gap-2 px-3 py-3 sm:gap-6 sm:px-6">
-          {/* Desktop only — on mobile the drawer already owns this job. */}
-          <SidebarToggle />
           {/* Mobile hamburger + drawer */}
           <MobileDrawer
             links={drawerLinks}
