@@ -1,7 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useState } from "react";
 import {
   approveProcurementRequest,
   rejectProcurementRequest,
@@ -43,13 +42,7 @@ export default function ProcurementActions({
   const [cancelState, cancel, cancelling] = useActionState(cancelProcurementRequest, undefined);
   const [delState, del, deleting] = useActionState(deleteProcurementRequest, undefined);
   const [open, setOpen] = useState<null | "reject" | "po" | "delete">(null);
-  const router = useRouter();
 
-  // Back to the list once it is gone — staying on the detail page of a deleted
-  // request means the next refresh is a 404.
-  useEffect(() => {
-    if (delState?.info) router.push("/procurement");
-  }, [delState?.info, router]);
 
   const info = approveState?.info || rejectState?.info || poState?.info || cancelState?.info || delState?.info;
   const err = approveState?.error || rejectState?.error || poState?.error || cancelState?.error || delState?.error;
