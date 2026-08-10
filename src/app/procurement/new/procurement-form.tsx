@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProcurementRequest } from "@/app/procurement/actions";
 import CoaCascade, { type CoaAccount, type CoaSelection } from "@/components/CoaCascade";
 import Combobox from "@/components/Combobox";
+import PersistentFileInput from "@/components/PersistentFileInput";
 import { COA_LABEL, COA_PATH } from "@/lib/coa-labels";
 
 export type OutletOption = { id: string; name: string; stage: string };
@@ -38,8 +39,6 @@ export default function ProcurementForm({
   const [storeType, setStoreType] = useState<"upcoming" | "operational" | "">("");
   const [coa, setCoa] = useState<CoaSelection>({ coa: "", category: "", accountId: "" });
   const [cc, setCc] = useState<PersonOption[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // OpEx is always an existing outlet — the payment form does not even ask, so
   // neither does this. Rent and utilities do not belong to a store that has
@@ -179,32 +178,7 @@ export default function ProcurementForm({
         <p className="mb-2 text-xs text-zinc-500">
           A photo of what&rsquo;s broken, a quote, anything that helps whoever approves it.
         </p>
-        <input
-          ref={fileRef}
-          type="file"
-          name="attachments"
-          multiple
-          accept="image/*,application/pdf"
-          onChange={(e) => {
-            // Appended to a list rather than replacing it: a second trip to the
-            // picker should add to the selection, not silently discard the
-            // first batch.
-            setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
-          }}
-          className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:text-zinc-400 dark:file:bg-indigo-950 dark:file:text-indigo-300"
-        />
-        {files.length > 0 && (
-          <ul className="mt-2 space-y-1">
-            {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                <span className="truncate">{f.name}</span>
-                <span className="shrink-0 tabular-nums text-zinc-400">
-                  {Math.max(1, Math.round(f.size / 1024))} KB
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <PersistentFileInput name="attachments" multiple accept="image/*,application/pdf" />
       </div>
 
       {/* ---- CC ----------------------------------------------------------- */}

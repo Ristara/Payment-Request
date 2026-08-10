@@ -442,7 +442,7 @@ export default function InstallmentActions({
             </label>
             <label className="text-xs text-zinc-500 sm:col-span-2">
               Attach corrected documents (optional)
-              <PersistentFileInput name="attachments" multiple accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
+              <PersistentFileInput name="attachments" multiple accept="image/*,application/pdf" label="Add supporting documents" className="mt-1" />
             </label>
           </div>
           <p className="mt-2 text-[11px] text-zinc-500">
@@ -637,7 +637,7 @@ export default function InstallmentActions({
             </label>
             <label className="text-xs text-zinc-500 sm:col-span-2">
               Payment proof
-              <PersistentFileInput name="proof" accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
+              <PersistentFileInput name="proof" accept="image/*,application/pdf" label="Attach the payment proof" className="mt-1" />
             </label>
           </div>
           <div className="mt-2 flex justify-end">
@@ -653,7 +653,7 @@ export default function InstallmentActions({
           <input type="hidden" name="installment_id" value={installmentId} />
           <label className="text-xs text-zinc-500">
             Tax invoice file
-            <PersistentFileInput name="invoice" required accept="image/*,application/pdf" className="mt-1 block w-full text-xs" />
+            <PersistentFileInput name="invoice" required accept="image/*,application/pdf" label="Attach the invoice" className="mt-1" />
           </label>
           <div className="mt-2 flex justify-end">
             <button disabled={invPending} className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">

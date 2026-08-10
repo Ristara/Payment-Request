@@ -187,7 +187,8 @@ export default function RaiseInstallmentPanel({
           name="attachments"
           multiple
           accept="image/*,application/pdf"
-          className="mt-1 block w-full text-xs"
+          label="Add supporting documents"
+          className="mt-1"
         />
       </div>
 

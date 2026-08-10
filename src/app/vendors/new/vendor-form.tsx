@@ -159,10 +159,13 @@ export default function VendorForm() {
         <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
           Cancelled cheque (optional but recommended)
         </label>
+        {/* The file: classes that used to be here styled the native control,
+            which is now hidden behind the label — they were doing nothing. */}
         <PersistentFileInput
           name="cancelled_cheque"
           accept="image/*,application/pdf"
-          className="mt-1 block w-full text-sm text-zinc-700 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:text-zinc-300"
+          label="Attach the cancelled cheque"
+          className="mt-1"
         />
       </div>
 
