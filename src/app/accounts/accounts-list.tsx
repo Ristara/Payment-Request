@@ -38,6 +38,15 @@ const SELECT_LABEL: Record<SelectMode, string> = {
 };
 
 const BUCKETS = [
+  // Not Accounts' work yet — what is heading their way. Rows only reach these
+  // two on the Pending approval tab, and no selection mode targets them, so
+  // they render read-only.
+  //
+  // These were missing when the tab was added: the page fetched the rows and
+  // the list matched them against nothing, so the tab showed an empty screen
+  // with the data sitting right there.
+  { key: "pending_approval", title: "Waiting on an approver" },
+  { key: "clarification_required", title: "Clarification asked" },
   { key: "approved", title: "Approved → Pick what goes in the next bank file" },
   { key: "uploaded_in_bank", title: "Uploaded in bank → Awaiting confirmation" },
   { key: "invoice_pending", title: "Paid → Invoice pending" },
