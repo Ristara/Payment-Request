@@ -186,7 +186,7 @@ export default async function ThreadDetailPage({
   const { data: tdsSectionRows } = isAccounts
     ? await supabase
         .from("tds_sections")
-        .select("id, code, name, rate, guidance")
+        .select("id, code, name, rate")
         .eq("is_active", true)
         .order("code")
     : { data: [] };
@@ -195,7 +195,6 @@ export default async function ThreadDetailPage({
     code: string;
     name: string;
     rate: number | null;
-    guidance: string | null;
   }[];
   const isAdmin = roles.includes("admin");
 

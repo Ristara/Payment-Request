@@ -7,7 +7,7 @@ export default async function TdsSectionsPage() {
   const [{ data: sections }, { data: used }] = await Promise.all([
     supabase
       .from("tds_sections")
-      .select("id, code, name, rate, is_active, statutory_ref, guidance")
+      .select("id, code, name, rate, is_active, statutory_ref")
       .order("code"),
     // How many deductions each section carries — shown on the row so an admin
     // can see what turning one off would affect, and why some can't be deleted.
