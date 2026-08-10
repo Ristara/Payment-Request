@@ -202,6 +202,24 @@ export default async function ThreadDetailPage({
   // and dividing by it is worse.
   const pct = (n: number) => (poValue > 0 ? (n / poValue) * 100 : null);
 
+  // Each instalment's share of the PO, and the running total up to and
+  // including it — so a milestone plan ("Stage 02, 30% of PO value") can be
+  // checked against what was actually raised.
+  //
+  // Counts the same instalments requestedTotal does: a cancelled or rejected
+  // one is not part of the plan any more, and letting it push the running
+  // total along would make the last one read as more of the PO than was ever
+  // asked for.
+  const cumulativeById = new Map<string, number>();
+  {
+    let running = 0;
+    for (const i of [...installments].sort((a, b) => a.installment_number - b.installment_number)) {
+      if (["cancelled", "rejected", "draft"].includes(i.status)) continue;
+      running += Number(i.requested_amount);
+      cumulativeById.set(i.id, running);
+    }
+  }
+
   const history = (historyRes.data ?? []) as unknown as {
     id: string;
     from_status: string | null;
@@ -469,6 +487,13 @@ export default async function ThreadDetailPage({
                       <p className="mt-0.5 font-mono text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                         {formatINR(inst.requested_amount)}
                       </p>
+                      {pct(Number(inst.requested_amount)) != null && cumulativeById.has(inst.id) && (
+                        <p className="mt-0.5 text-xs text-zinc-500 tabular-nums">
+                          {Math.round(pct(Number(inst.requested_amount))!)}% of PO
+                          <span className="mx-1.5 text-zinc-300 dark:text-zinc-600">·</span>
+                          {Math.round(pct(cumulativeById.get(inst.id)!)!)}% cumulative
+                        </p>
+                      )}
                       {Number(inst.tds_amount ?? 0) > 0 && (
                         <p className="mt-0.5 text-xs text-zinc-500">
                           less TDS {formatINR(Number(inst.tds_amount))} · vendor gets{" "}
