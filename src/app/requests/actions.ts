@@ -1370,7 +1370,7 @@ export async function markInstallmentPaid(
 
   const { data: inst } = await admin
     .from("request_installments")
-    .select("id, request_id, status, requested_amount, request:payment_requests(vendor:vendors(status, name, phone))")
+    .select("id, request_id, status, requested_amount, tds_amount, request:payment_requests(vendor:vendors(status, name, phone))")
     .eq("id", installmentId)
     .single();
   if (!inst) return { error: "Installment not found." };
@@ -1384,7 +1384,11 @@ export async function markInstallmentPaid(
   const priorPaid = ((priorRows0 ?? []) as { paid_amount: number | null }[])
     .reduce((sum, r) => sum + Number(r.paid_amount ?? 0), 0);
   const requested = Number(inst.requested_amount ?? 0);
-  const outstanding = requested - priorPaid;
+  // TDS never leaves the bank as a vendor payment, so it is not part of what
+  // is still to pay. Netting it off here is what stops a fully settled
+  // instalment reporting the TDS as a permanent balance.
+  const payable = requested - Number(inst.tds_amount ?? 0);
+  const outstanding = payable - priorPaid;
 
   // Status gate BEFORE writing anything — a stale form on an already-settled
   // or closed installment must not add a phantom payment.
@@ -1411,7 +1415,7 @@ export async function markInstallmentPaid(
   const paidAfter = priorPaid + paid_amount;
   // Half a rupee of slack: these are numeric(14,2) and a plan split three ways
   // should not be left permanently one paisa short of settled.
-  const fullySettled = requested <= 0 || paidAfter >= requested - 0.5;
+  const fullySettled = payable <= 0 || paidAfter >= payable - 0.5;
 
   // Move the status FIRST. transitionInstallment re-reads and guards on the
   // from-status, so if an approver pulled the approval back while this form
@@ -1446,7 +1450,7 @@ export async function markInstallmentPaid(
       revalidatePath("/accounts");
       return {
         info: `Part payment of ${formatINR(paid_amount)} recorded. ${formatINR(
-          requested - paidAfter,
+          payable - paidAfter,
         )} still to pay.`,
       };
     }

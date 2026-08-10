@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
-import { STATUS_LABEL, formatINR, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
+import { STATUS_LABEL, formatINR, amountStillToPay, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
 import { formatDateOnly, formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
 import DeleteRequest from "./delete-request";
@@ -582,7 +582,7 @@ export default async function ThreadDetailPage({
                   {inst.payments.filter((p) => p.payment_date).length > 0 && (() => {
                     const paid = inst.payments.filter((p) => p.payment_date);
                     const paidSum = paid.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0);
-                    const owing = Math.max(0, Number(inst.requested_amount) - paidSum);
+                    const owing = amountStillToPay(inst.requested_amount, inst.tds_amount, paidSum);
                     return (
                       <div className="mt-3 rounded-md bg-emerald-50 p-3 text-xs dark:bg-emerald-950/40">
                         <div className="flex items-baseline justify-between gap-2">
@@ -660,10 +660,10 @@ export default async function ThreadDetailPage({
                       requestId={req.id}
                       status={inst.status}
                       vendorStatus={req.vendor?.status ?? "approved"}
-                      amountOutstanding={Math.max(
-                        0,
-                        Number(inst.requested_amount) -
-                          inst.payments.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0),
+                      amountOutstanding={amountStillToPay(
+                        inst.requested_amount,
+                        inst.tds_amount,
+                        inst.payments.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0),
                       )}
                       vendorId={req.vendor_id}
                       isSubmitter={isParticipant}

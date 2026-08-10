@@ -3,7 +3,7 @@
  * the app. Kept small on purpose — expand as needed.
  */
 
-export { ROLE_LABEL, STATUS_LABEL, formatINR } from "./types";
+export { ROLE_LABEL, STATUS_LABEL, formatINR, amountStillToPay } from "./types";
 
 export const VENDOR_STATUS_LABEL: Record<string, string> = {
   pending: "Pending approval",

@@ -85,3 +85,25 @@ export function formatISTDateTime(iso: string | null | undefined): string {
     hour12: true,
   });
 }
+
+/**
+ * What still has to leave the bank on an instalment.
+ *
+ * TDS is withheld, not owed. On a ₹1,18,000 instalment with ₹10,000 of TDS,
+ * ₹1,08,000 reaches the vendor and the ₹10,000 goes to the government — the
+ * instalment is settled, and nothing is pending. Subtracting only the payments
+ * left the TDS sitting there as a permanent unpaid balance, which kept the
+ * instalment out of "paid" and in the Accounts queue for ever.
+ *
+ * Every caller goes through here so the detail page, the action that records a
+ * payment, and the buttons can never disagree about whether money is still
+ * owed.
+ */
+export function amountStillToPay(
+  requestedAmount: number | string | null | undefined,
+  tdsAmount: number | string | null | undefined,
+  paidSoFar: number,
+): number {
+  const net = Number(requestedAmount ?? 0) - Number(tdsAmount ?? 0);
+  return Math.max(0, net - paidSoFar);
+}
