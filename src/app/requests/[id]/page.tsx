@@ -286,6 +286,24 @@ export default async function ThreadDetailPage({
 
   const requestStageAtt = rawAttachments.filter((a) => a.stage === "request");
 
+  // Invoices and payment proofs were stored and then shown nowhere. Uploading
+  // one gave a success message and no sign of the file, so people uploaded it
+  // again — there are already two copies of the same invoice on one
+  // instalment because of it.
+  //
+  // The link is the storage path: {requestId}/installments/{id}/invoice/...
+  // There is no installment_id column on attachments, so the path is what
+  // there is to match on.
+  const attByInstallment = new Map<string, typeof rawAttachments>();
+  for (const a of rawAttachments) {
+    if (a.stage !== "invoice" && a.stage !== "payment") continue;
+    const m = /\/installments\/([0-9a-f-]{36})\//.exec(a.storage_path);
+    if (!m) continue;
+    const list = attByInstallment.get(m[1]) ?? [];
+    list.push(a);
+    attByInstallment.set(m[1], list);
+  }
+
   const comments: CommentItem[] = rawComments.map((c) => ({
     id: c.id,
     body: c.body,
@@ -604,6 +622,20 @@ export default async function ThreadDetailPage({
                       </div>
                     );
                   })()}
+
+                  {(attByInstallment.get(inst.id) ?? []).length > 0 && (
+                    <div className="mt-3">
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Invoice &amp; payment proof
+                      </p>
+                      <AttachmentsGrid
+                        items={attByInstallment.get(inst.id) ?? []}
+                        urlByPath={urlByPath}
+                        canDelete={isAccounts || isAdmin}
+                        requestId={req.id}
+                      />
+                    </div>
+                  )}
 
                   <div className="mt-3">
                     <InstallmentActions

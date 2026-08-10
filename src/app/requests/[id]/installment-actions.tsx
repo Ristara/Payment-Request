@@ -170,6 +170,14 @@ export default function InstallmentActions({
     return null;
   }
 
+  // Close the open panel once its action succeeds. Leaving it open with the
+  // chosen file still listed reads as "nothing happened" — which is why the
+  // same invoice ended up uploaded twice. Unmounting the form also clears the
+  // file input, whose whole job is otherwise to survive a reset.
+  useEffect(() => {
+    if (invState?.info || payState?.info || bankState?.info || tdsState?.info) setOpen(null);
+  }, [invState?.info, payState?.info, bankState?.info, tdsState?.info]);
+
   const info =
     editState?.info || approveState?.info || rejectState?.info ||
     bankState?.info || payState?.info || invState?.info || closeState?.info || reopenState?.info ||
