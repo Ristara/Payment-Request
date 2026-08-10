@@ -106,6 +106,15 @@ export default async function VendorDetailPage({
   const DEAD = new Set(["cancelled", "rejected"]);
   const txns = threads.map((t) => {
     const poValue = t.line_items.reduce((s, l) => s + Number(l.amount), 0);
+    // Money that has gone out but whose invoice has not come back.
+    // invoice_pending is precisely that state: recording a payment sets it
+    // when no invoice was attached, and payment_processed when one was. It is
+    // the figure that tells you what to chase a vendor for.
+    const invoiceAwaited = t.installments.reduce((s, i) => {
+      if (i.status !== "invoice_pending") return s;
+      const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
+      return s + (pr?.paid_amount ? Number(pr.paid_amount) : 0);
+    }, 0);
     const paid = t.installments.reduce((s, i) => {
       const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
       return s + (pr?.paid_amount ? Number(pr.paid_amount) : 0);
@@ -121,6 +130,7 @@ export default async function VendorDetailPage({
       isDead,
       poValue,
       paid,
+      invoiceAwaited,
       balance: isDead ? 0 : Math.max(0, Math.round((poValue - paid) * 100) / 100),
     };
   });
@@ -130,6 +140,7 @@ export default async function VendorDetailPage({
   // Sum the per-row balances so the column adds up to its own total — netting
   // raw totals would let one overpaid thread cancel another's outstanding.
   const totalBalance = Math.round(counted.reduce((s, t) => s + t.balance, 0) * 100) / 100;
+  const totalInvoiceAwaited = counted.reduce((s, t) => s + t.invoiceAwaited, 0);
 
   // Signed URL for cheque
   let chequeUrl: string | null = null;
@@ -186,7 +197,7 @@ export default async function VendorDetailPage({
       </div>
 
       {/* Money summary across the requests raised for this vendor */}
-      <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MoneyTile
           label="PO value"
           value={totalPo}
@@ -194,6 +205,15 @@ export default async function VendorDetailPage({
         />
         <MoneyTile label="Paid" value={totalPaid} tone="emerald" />
         <MoneyTile label="Yet to pay" value={totalBalance} tone="amber" />
+        {/* A subset of Paid, not another slice of the PO — money already out
+            whose invoice has not arrived. Deliberately last, so the three
+            figures that add up to the PO value stay together. */}
+        <MoneyTile
+          label="Invoice yet to receive"
+          value={totalInvoiceAwaited}
+          tone="sky"
+          hint={totalInvoiceAwaited > 0 ? "Already paid — chase the invoice" : undefined}
+        />
       </section>
       {!isStaff && txns.length > 0 && (
         <p className="mt-2 text-xs text-zinc-500">
@@ -324,6 +344,14 @@ export default async function VendorDetailPage({
                       <span className="text-zinc-500">PO <span className="text-zinc-900 dark:text-zinc-100">{formatINR(t.poValue)}</span></span>
                       <span className="text-zinc-500">Paid <span className="text-emerald-700 dark:text-emerald-400">{formatINR(t.paid)}</span></span>
                       <span className="text-zinc-500">Balance <span className="text-amber-700 dark:text-amber-400">{formatINR(t.balance)}</span></span>
+                      {/* Only when there is something to chase — on a phone an
+                          always-present zero costs a line of a small card. */}
+                      {t.invoiceAwaited > 0 && (
+                        <span className="text-zinc-500">
+                          Invoice awaited{" "}
+                          <span className="text-sky-700 dark:text-sky-400">{formatINR(t.invoiceAwaited)}</span>
+                        </span>
+                      )}
                     </div>
                   </Link>
                 </li>
@@ -341,6 +369,7 @@ export default async function VendorDetailPage({
                     <th className="px-5 py-2 text-right">PO value</th>
                     <th className="px-5 py-2 text-right">Paid</th>
                     <th className="px-5 py-2 text-right">Yet to pay</th>
+                    <th className="px-5 py-2 text-right">Invoice awaited</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -362,6 +391,16 @@ export default async function VendorDetailPage({
                       <td className={`px-5 py-2 text-right tabular-nums ${t.isDead ? "text-zinc-400 line-through" : ""}`}>{formatINR(t.poValue)}</td>
                       <td className="px-5 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatINR(t.paid)}</td>
                       <td className="px-5 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatINR(t.balance)}</td>
+                      {/* A dash rather than ₹0.00 — most rows have nothing
+                          outstanding here, and a column of zeroes buries the
+                          one that does. */}
+                      <td className="px-5 py-2 text-right tabular-nums">
+                        {t.invoiceAwaited > 0 ? (
+                          <span className="text-sky-700 dark:text-sky-400">{formatINR(t.invoiceAwaited)}</span>
+                        ) : (
+                          <span className="text-zinc-300 dark:text-zinc-700">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -371,6 +410,9 @@ export default async function VendorDetailPage({
                     <td className="px-5 py-2 text-right tabular-nums">{formatINR(totalPo)}</td>
                     <td className="px-5 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatINR(totalPaid)}</td>
                     <td className="px-5 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatINR(totalBalance)}</td>
+                    <td className="px-5 py-2 text-right tabular-nums text-sky-700 dark:text-sky-400">
+                      {totalInvoiceAwaited > 0 ? formatINR(totalInvoiceAwaited) : "—"}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
@@ -391,14 +433,16 @@ function MoneyTile({
   label: string;
   value: number;
   hint?: string;
-  tone?: "zinc" | "emerald" | "amber";
+  tone?: "zinc" | "emerald" | "amber" | "sky";
 }) {
   const color =
     tone === "emerald"
       ? "text-emerald-700 dark:text-emerald-400"
       : tone === "amber"
         ? "text-amber-700 dark:text-amber-400"
-        : "text-zinc-900 dark:text-zinc-100";
+        : tone === "sky"
+          ? "text-sky-700 dark:text-sky-400"
+          : "text-zinc-900 dark:text-zinc-100";
   return (
     <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
