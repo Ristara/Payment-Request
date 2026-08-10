@@ -577,9 +577,12 @@ export default async function ThreadDetailPage({
                                 )}
                                 {p.paying_bank_account && <p>Paid from: {p.paying_bank_account}</p>}
                               </div>
-                              {/* Accounts only. Re-checked in the action —
+                              {/* Admin only, NOT Accounts. Accounts record
+                                  payments; admin corrects them — the person who
+                                  entered a figure should not be able to rewrite
+                                  it alone. Re-checked in the action, because
                                   hiding a button is not a permission. */}
-                              {isAccounts && p.id && p.payment_date && (
+                              {isAdmin && p.id && p.payment_date && (
                                 <EditPayment
                                   paymentId={p.id}
                                   paymentDate={p.payment_date}

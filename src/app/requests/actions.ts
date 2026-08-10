@@ -1253,11 +1253,12 @@ export async function markInstallmentBankUploaded(
 }
 
 /**
- * Correct a recorded payment. Accounts only.
+ * Correct a recorded payment. ADMIN only — deliberately not Accounts.
  *
- * There was no way to fix a mistyped UTR or a wrong amount — payments could be
- * created and never touched again. On a money record that is not caution, it
- * is a wrong figure nobody can put right.
+ * Accounts record payments; admin corrects them. Letting the same role do both
+ * means the person who entered a figure can quietly rewrite it afterwards,
+ * which is the one thing a payment trail exists to prevent. Recording is a
+ * daily job; correcting one should take a second pair of hands.
  *
  * The edit is written into the installment's history with the before and after
  * values. A payment amount that can change silently is worse than one that
@@ -1268,7 +1269,7 @@ export async function editPaymentRecord(
   formData: FormData,
 ): Promise<RequestState> {
   try {
-    const { user } = await requireRole("accounts");
+    const { user } = await requireRole("admin");
     const paymentId = String(formData.get("payment_id") ?? "");
     const payment_date = String(formData.get("payment_date") ?? "");
     const paid_amount = Number(formData.get("paid_amount") ?? 0);
