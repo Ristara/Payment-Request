@@ -1417,9 +1417,6 @@ export async function markInstallmentPaid(
   // should not be left permanently one paisa short of settled.
   const fullySettled = payable <= 0 || paidAfter >= payable - 0.5;
 
-  // Move the status FIRST. transitionInstallment re-reads and guards on the
-  // from-status, so if an approver pulled the approval back while this form
-  // was open we fail here — before any money row or proof is written.
   const { count: invCount } = await admin
     .from("attachments")
     .select("id", { count: "exact", head: true })
@@ -1427,25 +1424,46 @@ export async function markInstallmentPaid(
     .eq("stage", "invoice")
     .like("storage_path", `%/installments/${installmentId}/%`);
   const nextStatus = (invCount ?? 0) > 0 ? "payment_processed" : "invoice_pending";
+
+  // The money row goes in FIRST, before the status moves.
+  //
+  // It used to be the other way round, and on 10 Aug that cost a real record:
+  // a schema migration landed about a minute ahead of the code that matched
+  // it, one write failed inside that window, and the instalment was left
+  // reading "Invoice pending" with no payment behind it. ₹5,09,600 had left
+  // the bank and the app could not say so.
+  //
+  // The old order existed to catch an approval being pulled while the form was
+  // open. That is still caught — transitionInstallment guards on the
+  // from-status — and if it refuses, the row written just above is deleted
+  // again, so a failure leaves nothing behind whichever step it happens in.
+  const { data: recRow, error: recErr } = await supabase
+    .from("payment_records")
+    .insert({
+      installment_id: installmentId,
+      request_id: inst.request_id,
+      payment_date,
+      paid_amount,
+      utr_reference,
+      paying_bank_account,
+      recorded_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (recErr) {
+    return recErr.message.includes("payment_records_installment_utr_uniq")
+      ? { error: "That UTR is already recorded against this installment." }
+      : { error: `Payment not saved: ${recErr.message}` };
+  }
+  const undoPayment = async () => {
+    if (recRow?.id) await admin.from("payment_records").delete().eq("id", recRow.id);
+  };
+
   try {
     // A part payment does NOT move the instalment on. Marking a ₹50,00,000
     // instalment "paid" because ₹1,000 went out drops it out of the Accounts
     // queue and off every to-pay figure, with the balance still owed.
     if (!fullySettled) {
-      const { error: partErr } = await supabase.from("payment_records").insert({
-        installment_id: installmentId,
-        request_id: inst.request_id,
-        payment_date,
-        paid_amount,
-        utr_reference,
-        paying_bank_account,
-        recorded_by: user.id,
-      });
-      if (partErr) {
-        return partErr.message.includes("payment_records_installment_utr_uniq")
-          ? { error: "That UTR is already recorded against this installment." }
-          : { error: partErr.message };
-      }
       revalidatePath(`/requests/${inst.request_id}`);
       revalidatePath("/accounts");
       return {
@@ -1481,24 +1499,9 @@ export async function markInstallmentPaid(
       );
     }
   } catch (e) {
+    // The status would not move, so the payment must not stand either.
+    await undoPayment();
     return { error: (e as Error).message };
-  }
-
-  // insert, not upsert. Upserting on installment_id is what would have
-  // overwritten an earlier part payment and lost a real UTR.
-  const { error: recErr } = await supabase.from("payment_records").insert({
-    installment_id: installmentId,
-    request_id: inst.request_id,
-    payment_date,
-    paid_amount,
-    utr_reference,
-    paying_bank_account,
-    recorded_by: user.id,
-  });
-  if (recErr) {
-    return recErr.message.includes("payment_records_installment_utr_uniq")
-      ? { error: "That UTR is already recorded against this installment." }
-      : { error: `Status moved but the payment details didn't save: ${recErr.message}` };
   }
 
   if (proof instanceof File && proof.size > 0) {
