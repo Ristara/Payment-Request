@@ -155,101 +155,107 @@ export default function UsersForm({
             )}
           </div>
         </div>
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px] text-sm">
-          <thead className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-            <tr>
-              <th className="px-5 py-3">Name</th>
-              <th className="px-5 py-3">Email</th>
-              <th className="px-5 py-3">Roles</th>
-              <th className="px-5 py-3">Assign role</th>
-              <th className="px-5 py-3">Can raise for</th>
-              <th className="px-5 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-5 py-8 text-center text-sm text-zinc-500">
-                  {users.length === 0
-                    ? "No users yet."
-                    : `No users matching "${query}".`}
-                </td>
-              </tr>
-            ) : (
-              filtered.map((u) => {
-                const held = new Set(u.user_roles.map((r) => r.role));
-                return (
-                  <tr
-                    key={u.id}
-                    className={`border-b border-zinc-100 last:border-b-0 dark:border-zinc-800 ${
-                      u.is_active ? "" : "bg-zinc-50/70 dark:bg-zinc-950/40"
-                    }`}
-                  >
-                    <td className="px-5 py-3 font-medium text-zinc-900 dark:text-zinc-100">
-                      {u.full_name}
-                    </td>
-                    <td className="px-5 py-3 text-zinc-500">{u.email}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {u.user_roles.length === 0 ? (
-                          <span className="text-xs text-zinc-500">none yet</span>
-                        ) : (
-                          u.user_roles.map((r) => (
-                            <form key={r.role} action={removeRole} className="inline-block">
-                              <input type="hidden" name="user_id" value={u.id} />
-                              <input type="hidden" name="role" value={r.role} />
-                              <button
-                                type="submit"
-                                className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
-                                title="Click to remove"
-                              >
-                                {ROLE_LABEL[r.role] ?? r.role} ×
-                              </button>
-                            </form>
-                          ))
+        {/* Cards, not a table.
+            Six columns fighting for width meant the role chips, a stack of
+            "+ Approver / + Accounts / + Admin" buttons, the access summary and
+            the status all wrapped into each other. A card gives each user one
+            block with a clear reading order — who they are, what they can do,
+            where they can do it — and stops being a horizontal-scroll problem
+            on a phone. */}
+        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {filtered.length === 0 ? (
+            <li className="px-5 py-8 text-center text-sm text-zinc-500">
+              {query === "" ? "No users yet." : `No users matching "${query}".`}
+            </li>
+          ) : (
+            filtered.map((u) => {
+              const held = new Set(u.user_roles.map((r) => r.role));
+              const addable = u.is_active ? ROLES.filter((r) => !held.has(r)) : [];
+              return (
+                <li
+                  key={u.id}
+                  className={u.is_active ? "px-5 py-4" : "bg-zinc-50/70 px-5 py-4 dark:bg-zinc-950/40"}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
+                        <span className="truncate">{u.full_name}</span>
+                        {u.id === currentUserId && (
+                          <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800">
+                            you
+                          </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {(u.is_active ? ROLES.filter((r) => !held.has(r)) : []).map((r) => (
-                          <form key={r} action={assignRole} className="inline-block">
-                            <input type="hidden" name="user_id" value={u.id} />
-                            <input type="hidden" name="role" value={r} />
-                            <button
-                              type="submit"
-                              className="rounded-md border border-zinc-300 px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                            >
-                              + {ROLE_LABEL[r] ?? r}
-                            </button>
-                          </form>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <AccessCell
-                        userId={u.id}
-                        outlets={outlets}
-                        branchIds={branchByUser[u.id] ?? []}
-                        expenseTypes={expenseByUser[u.id] ?? []}
-                        isAdmin={held.has("admin")}
-                      />
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <AccountCell
-                        user={u}
-                        open={openByUser[u.id] ?? []}
-                        isSelf={u.id === currentUserId}
-                      />
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-          </div>
+                        {!u.is_active && (
+                          <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                            Inactive
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-zinc-500">{u.email}</p>
+                    </div>
+                    <AccountCell
+                      user={u}
+                      open={openByUser[u.id] ?? []}
+                      isSelf={u.id === currentUserId}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    {u.user_roles.length === 0 ? (
+                      <span className="text-xs text-zinc-400">No roles yet</span>
+                    ) : (
+                      u.user_roles.map((r) => (
+                        <form key={r.role} action={removeRole} className="inline-block">
+                          <input type="hidden" name="user_id" value={u.id} />
+                          <input type="hidden" name="role" value={r.role} />
+                          <button
+                            type="submit"
+                            title={`Remove ${ROLE_LABEL[r.role] ?? r.role}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-indigo-50 py-1 pl-2.5 pr-2 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
+                          >
+                            {ROLE_LABEL[r.role] ?? r.role}
+                            <span className="text-indigo-400">×</span>
+                          </button>
+                        </form>
+                      ))
+                    )}
+
+                    {/* One control instead of a button per role. Four stacked
+                        buttons were the single biggest source of clutter, and
+                        they grew every time a role was added. */}
+                    {addable.length > 0 && (
+                      <form action={assignRole} className="inline-block">
+                        <input type="hidden" name="user_id" value={u.id} />
+                        <select
+                          name="role"
+                          defaultValue=""
+                          aria-label={`Add a role for ${u.full_name}`}
+                          onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                          className="rounded-full border border-dashed border-zinc-300 bg-transparent py-1 pl-2.5 pr-6 text-[11px] text-zinc-600 hover:border-indigo-400 hover:text-indigo-700 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:text-zinc-300"
+                        >
+                          <option value="" disabled>+ Add role</option>
+                          {addable.map((r) => (
+                            <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>
+                          ))}
+                        </select>
+                      </form>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <AccessCell
+                      userId={u.id}
+                      outlets={outlets}
+                      branchIds={branchByUser[u.id] ?? []}
+                      expenseTypes={expenseByUser[u.id] ?? []}
+                      isAdmin={held.has("admin")}
+                    />
+                  </div>
+                </li>
+              );
+            })
+          )}
+        </ul>
       </section>
     </div>
   );
