@@ -104,8 +104,16 @@ export default async function DashboardPage({
     { key: "approved", label: "Approved" },
     { key: "to_upload", label: "To upload" },
     { key: "in_bank", label: "In bank" },
-    { key: "paid", label: "Paid" },
-    { key: "invoice_pending", label: "Invoice pending" },
+    // Both of these mean the money has LEFT THE BANK. What separates them is
+    // only whether the vendor's invoice has arrived: recording a payment sets
+    // payment_processed when an invoice is already attached and
+    // invoice_pending when it is not.
+    //
+    // Labelled "Paid" and "Invoice pending", a row reading "— / ₹4,00,000"
+    // said nothing had been paid at that branch when ₹4,00,000 already had.
+    // Both now carry the word, matching how the Accounts page reads.
+    { key: "invoice_pending", label: "Paid · invoice due" },
+    { key: "paid", label: "Paid · to close" },
     { key: "closed", label: "Closed" },
   ] as const;
   type ColKey = (typeof COLUMNS)[number]["key"];
