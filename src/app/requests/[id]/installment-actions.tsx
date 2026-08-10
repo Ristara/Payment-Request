@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Combobox from "@/components/Combobox";
 import PersistentFileInput from "@/components/PersistentFileInput";
 import { useActionState, useEffect, useState } from "react";
 import {
@@ -119,6 +120,16 @@ export default function InstallmentActions({
     tdsSectionId ?? (legacySection ? "__legacy__" : ""),
   );
   const chosenRate = tdsSections.find((s) => s.id === sectionId)?.rate ?? null;
+  // Searchable by code or by what it covers — "194C", "rent" and "brokerage"
+  // all have to find the right row, because people reach for whichever of the
+  // three they happen to know.
+  const sectionOptions = [
+    ...tdsSections.map((sec) => ({
+      value: sec.id,
+      label: `${sec.code} — ${sec.name}${sec.rate === null ? "" : ` · ${sec.rate}%`}`,
+    })),
+    ...(legacySection ? [{ value: "__legacy__", label: legacySection }] : []),
+  ];
 
   const [tdsState, tdsAction, tdsPending] = useActionState(setInstallmentTds, undefined);
   const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
@@ -595,29 +606,27 @@ export default function InstallmentActions({
           {/* Section first, then amount: choosing the section is what fills
               the amount in, so reading left to right matches doing it. */}
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <label className="text-xs text-zinc-500">
+            {/* A combobox, not a select: typing "rent" or "194C" beats
+                scrolling, and the list only grows from here. The legacy entry
+                is in the options too — whatever was typed before this list
+                existed, or a section an admin has since turned off — so
+                saving an amount can't quietly erase it. */}
+            <div className="text-xs text-zinc-500">
               Section (optional)
-              <select
-                name="tds_section_id"
-                value={sectionId}
-                onChange={(e) => chooseSection(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                <option value="">No section</option>
-                {tdsSections.map((sec) => (
-                  <option key={sec.id} value={sec.id}>
-                    {sec.code} — {sec.name}
-                    {sec.rate === null ? "" : ` (${sec.rate}%)`}
-                  </option>
-                ))}
-                {/* Whatever was typed before the list existed, or a section an
-                    admin has since turned off. Keeping it selectable means
-                    saving an amount can't quietly erase it. */}
-                {legacySection && (
-                  <option value="__legacy__">{legacySection}</option>
-                )}
-              </select>
-            </label>
+              <div className="mt-1">
+                <Combobox
+                  size="sm"
+                  name="tds_section_id"
+                  ariaLabel="TDS section"
+                  placeholder="Search a section…"
+                  emptyLabel="No section matches"
+                  options={sectionOptions}
+                  value={sectionId}
+                  onChange={chooseSection}
+                  onClear={() => chooseSection("")}
+                />
+              </div>
+            </div>
 
             <label className="text-xs text-zinc-500">
               TDS amount (₹)
