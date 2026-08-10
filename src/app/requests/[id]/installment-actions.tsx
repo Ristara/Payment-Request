@@ -119,19 +119,32 @@ export default function InstallmentActions({
     tdsSectionId ?? (legacySection ? "__legacy__" : ""),
   );
   const chosenRate = tdsSections.find((s) => s.id === sectionId)?.rate ?? null;
-  // Only pre-fills an empty box. TDS is often worked out on the value before
-  // GST, so a figure Accounts already typed is the more considered one.
-  function chooseSection(id: string) {
-    setSectionId(id);
-    const rate = tdsSections.find((s) => s.id === id)?.rate;
-    if (rate != null && !(Number(tdsInput) > 0)) {
-      setTdsInput(((requestedAmount * rate) / 100).toFixed(2));
-    }
-  }
 
   const [tdsState, tdsAction, tdsPending] = useActionState(setInstallmentTds, undefined);
   const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
   const [tdsInput, setTdsInput] = useState(tdsAmount ? String(tdsAmount) : "");
+
+  /** What the chosen section's rate works out to on the approved amount. */
+  const calculated =
+    chosenRate == null ? null : Math.round(requestedAmount * chosenRate) / 100;
+
+  // Picking a section fills the amount in straight away, overwriting whatever
+  // was there. The box stays editable — TDS is often worked out on the value
+  // before GST, and the invoice may already state a figure — so the rate is a
+  // starting point, not a verdict.
+  function chooseSection(id: string) {
+    setSectionId(id);
+    const rate = tdsSections.find((s) => s.id === id)?.rate;
+    if (rate != null) setTdsInput((Math.round(requestedAmount * rate) / 100).toFixed(2));
+    else if (id === "") setTdsInput("");
+  }
+
+  // A typed figure that no longer matches the rate. Worth saying out loud:
+  // silently keeping it looks identical to the rate having been applied.
+  const isCustomAmount =
+    calculated != null &&
+    tdsInput.trim() !== "" &&
+    Math.abs(Number(tdsInput) - calculated) > 0.005;
   const [revisedAmt, setRevisedAmt] = useState(String(requestedAmount));
   const [paidAmt, setPaidAmt] = useState(String(netPayable));
   // Saving TDS re-renders this component with a new net, but useState keeps
@@ -579,21 +592,9 @@ export default function InstallmentActions({
             Withheld from this payment. The {formatINR(requestedAmount)}{" "}
             approved doesn&apos;t change — the vendor is paid the difference.
           </p>
+          {/* Section first, then amount: choosing the section is what fills
+              the amount in, so reading left to right matches doing it. */}
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <label className="text-xs text-zinc-500">
-              TDS amount (₹)
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max={requestedAmount}
-                name="tds_amount"
-                value={tdsInput}
-                onChange={(e) => setTdsInput(e.target.value)}
-                placeholder="0.00"
-                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
-              />
-            </label>
             <label className="text-xs text-zinc-500">
               Section (optional)
               <select
@@ -617,6 +618,46 @@ export default function InstallmentActions({
                 )}
               </select>
             </label>
+
+            <label className="text-xs text-zinc-500">
+              TDS amount (₹)
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max={requestedAmount}
+                name="tds_amount"
+                value={tdsInput}
+                onChange={(e) => setTdsInput(e.target.value)}
+                placeholder="0.00"
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
+              />
+              {isCustomAmount ? (
+                <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                  Your own figure, not the {chosenRate}% —{" "}
+                  <button
+                    type="button"
+                    onClick={() => setTdsInput(calculated!.toFixed(2))}
+                    className="underline hover:no-underline"
+                  >
+                    use {formatINR(calculated!)}
+                  </button>
+                </span>
+              ) : (
+                calculated != null && (
+                  <span className="mt-1 block text-zinc-400">
+                    Worked out at {chosenRate}% — type over it if the invoice says
+                    otherwise.
+                  </span>
+                )
+              )}
+              {sectionId !== "" && sectionId !== "__legacy__" && chosenRate == null && (
+                <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                  No rate set for this section — enter the amount yourself.
+                </span>
+              )}
+            </label>
+
             <div className="text-xs text-zinc-500 sm:self-end sm:pb-1.5">
               Vendor gets{" "}
               <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
@@ -624,8 +665,7 @@ export default function InstallmentActions({
               </span>
               {chosenRate != null && (
                 <span className="mt-0.5 block text-zinc-400">
-                  {chosenRate}% of {formatINR(requestedAmount)} ={" "}
-                  {formatINR((requestedAmount * chosenRate) / 100)}
+                  {chosenRate}% of {formatINR(requestedAmount)}
                 </span>
               )}
             </div>
