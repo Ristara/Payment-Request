@@ -20,6 +20,16 @@ const c = new pg.Client({
   ssl: { rejectUnauthorized: false },
 });
 await c.connect();
+// Belt and braces. Everything below runs inside one transaction that is rolled
+// back, so nothing should ever persist — but a block accidentally placed AFTER
+// the rollback commits for real, and six test users once ended up in the live
+// user list that way. This sweeps any survivors from a previous run before
+// starting, and runs again at the end.
+async function sweepTestUsers() {
+  await c.query("delete from auth.users where email like 'rlstest%'");
+}
+await sweepTestUsers();
+
 await c.query("begin");
 
 const results = [];
@@ -323,6 +333,9 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
 }
 
 await c.query("rollback");
+// Nothing should be left, but if a future edit strays past the rollback this
+// is what stops it reaching the user list.
+await sweepTestUsers();
 
 // --- Ria's scoping is a source-level invariant, not an RLS one -------------
 //
