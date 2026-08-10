@@ -55,6 +55,7 @@ type InstallmentRow = {
   requested_amount: number;
   tds_amount: number | null;
   tds_section: string | null;
+  tds_section_id: string | null;
   queued_for_upload_at: string | null;
   payment_due_date: string;
   date_of_work_completion: string | null;
@@ -113,7 +114,7 @@ export default async function ThreadDetailPage({
     supabase
       .from("request_installments")
       .select(
-        `id, installment_number, requested_amount, tds_amount, tds_section, queued_for_upload_at, payment_due_date, date_of_work_completion,
+        `id, installment_number, requested_amount, tds_amount, tds_section, tds_section_id, queued_for_upload_at, payment_due_date, date_of_work_completion,
          tentative_invoice_date, purpose, status, submitted_by, submitted_at, approver_id,
          approved_at, rejection_reason, return_reason, cancelled_at, cancellation_reason,
          approver:profiles!request_installments_approver_id_fkey(full_name),
@@ -180,6 +181,21 @@ export default async function ThreadDetailPage({
   const isParticipant = isSubmitter || watchers.some((w) => w.id === user!.id);
   const isApprover = roles.includes("approver");
   const isAccounts = roles.includes("accounts");
+
+  // Only Accounts can deduct TDS, so only Accounts needs the list.
+  const { data: tdsSectionRows } = isAccounts
+    ? await supabase
+        .from("tds_sections")
+        .select("id, code, name, rate")
+        .eq("is_active", true)
+        .order("code")
+    : { data: [] };
+  const tdsSections = (tdsSectionRows ?? []) as {
+    id: string;
+    code: string;
+    name: string;
+    rate: number | null;
+  }[];
   const isAdmin = roles.includes("admin");
 
   const lineItems = (lineRes.data ?? []) as unknown as LineItemRow[];
@@ -526,7 +542,8 @@ export default async function ThreadDetailPage({
                       )}
                       {Number(inst.tds_amount ?? 0) > 0 && (
                         <p className="mt-0.5 text-xs text-zinc-500">
-                          less TDS {formatINR(Number(inst.tds_amount))} · vendor gets{" "}
+                          less TDS {formatINR(Number(inst.tds_amount))}
+                          {inst.tds_section ? ` (${inst.tds_section})` : ""} · vendor gets{" "}
                           <span className="font-medium text-zinc-700 dark:text-zinc-300">
                             {formatINR(Number(inst.requested_amount) - Number(inst.tds_amount))}
                           </span>
@@ -656,6 +673,8 @@ export default async function ThreadDetailPage({
                       requestedAmount={Number(inst.requested_amount)}
                       tdsAmount={Number(inst.tds_amount ?? 0)}
                       tdsSection={inst.tds_section}
+                      tdsSectionId={inst.tds_section_id}
+                      tdsSections={tdsSections}
                       queuedForUpload={!!inst.queued_for_upload_at}
                       paymentDueDate={inst.payment_due_date}
                       dateOfWorkCompletion={inst.date_of_work_completion}

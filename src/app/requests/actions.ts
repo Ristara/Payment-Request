@@ -2589,12 +2589,35 @@ export async function setInstallmentTds(
     return { error: "TDS can only be set before the payment goes to the bank." };
   }
 
+  // The section is chosen from the admin list, but its code and description
+  // are copied onto the installment as well as linked. Renaming 194J next year,
+  // or turning it off, must not rewrite what was deducted this year.
+  const sectionId = String(formData.get("tds_section_id") ?? "").trim();
+  let sectionLabel: string | null = null;
+  let sectionRef: string | null = null;
+  if (sectionId === "__legacy__") {
+    // Free text from before the list existed; kept as-is rather than dropped.
+    sectionLabel = String(formData.get("tds_section_text") ?? "").trim() || null;
+  } else if (sectionId) {
+    const { data: sec } = await admin
+      .from("tds_sections")
+      .select("id, code, name, is_active")
+      .eq("id", sectionId)
+      .maybeSingle();
+    const found = sec as { id: string; code: string; name: string; is_active: boolean } | null;
+    if (!found) return { error: "That TDS section no longer exists. Refresh the page." };
+    if (!found.is_active) return { error: `${found.code} has been turned off — pick another.` };
+    sectionRef = found.id;
+    sectionLabel = `${found.code} — ${found.name}`;
+  }
+
   const { error } = await admin
     .from("request_installments")
     .update({
       tds_amount: tds,
       tds_percent: tds > 0 && requested > 0 ? Math.round((tds / requested) * 10000) / 100 : null,
-      tds_section: String(formData.get("tds_section") ?? "").trim() || null,
+      tds_section: sectionLabel,
+      tds_section_id: sectionRef,
     })
     .eq("id", installmentId)
     .eq("status", "approved");

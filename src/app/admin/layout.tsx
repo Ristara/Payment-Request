@@ -34,6 +34,7 @@ export default async function AdminLayout({
     { href: "/admin/users", label: "Users", icon: <UsersIcon /> },
     { href: "/admin/outlets", label: "Outlets", icon: <OutletsIcon /> },
     { href: "/admin/coa", label: "Accounts", icon: <CoaIcon /> },
+    { href: "/admin/tds", label: "TDS sections", icon: <TdsIcon /> },
   ];
 
   const p = (profile as { data: { full_name?: string; email?: string } | null }).data;
@@ -91,6 +92,16 @@ function CategoriesIcon() {
     </svg>
   );
 }
+function TdsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+      <path d="M9 7h6" />
+      <path d="M12 7v10" />
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+    </svg>
+  );
+}
+
 function CoaIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>

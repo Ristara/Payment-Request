@@ -26,6 +26,13 @@ import { formatINR } from "@/lib/types";
  * thread detail page. Only renders the buttons the current user can act on
  * given their role + the installment's current status.
  */
+export type TdsSectionOption = {
+  id: string;
+  code: string;
+  name: string;
+  rate: number | null;
+};
+
 export default function InstallmentActions({
   installmentId,
   requestId,
@@ -40,6 +47,8 @@ export default function InstallmentActions({
   requestedAmount,
   tdsAmount = 0,
   tdsSection = null,
+  tdsSectionId = null,
+  tdsSections = [],
   queuedForUpload = false,
   paymentDueDate,
   dateOfWorkCompletion,
@@ -63,6 +72,9 @@ export default function InstallmentActions({
   /** Withheld by Accounts — the vendor is paid the difference. */
   tdsAmount?: number;
   tdsSection?: string | null;
+  tdsSectionId?: string | null;
+  /** The admin-managed list; only the active ones reach here. */
+  tdsSections?: TdsSectionOption[];
   /** Already picked by Accounts for the next bank file. */
   queuedForUpload?: boolean;
   paymentDueDate: string;
@@ -99,6 +111,24 @@ export default function InstallmentActions({
   // Pre-fill with what should actually have left the bank, so the common
   // case is a confirmation rather than a re-calculation.
   const netPayable = Math.max(requestedAmount - tdsAmount, 0);
+  // Anything on the installment that isn't a live section — free text from
+  // before this list existed, or one an admin turned off.
+  const legacySection =
+    tdsSection && !tdsSections.some((s) => s.id === tdsSectionId) ? tdsSection : null;
+  const [sectionId, setSectionId] = useState(
+    tdsSectionId ?? (legacySection ? "__legacy__" : ""),
+  );
+  const chosenRate = tdsSections.find((s) => s.id === sectionId)?.rate ?? null;
+  // Only pre-fills an empty box. TDS is often worked out on the value before
+  // GST, so a figure Accounts already typed is the more considered one.
+  function chooseSection(id: string) {
+    setSectionId(id);
+    const rate = tdsSections.find((s) => s.id === id)?.rate;
+    if (rate != null && !(Number(tdsInput) > 0)) {
+      setTdsInput(((requestedAmount * rate) / 100).toFixed(2));
+    }
+  }
+
   const [tdsState, tdsAction, tdsPending] = useActionState(setInstallmentTds, undefined);
   const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
   const [tdsInput, setTdsInput] = useState(tdsAmount ? String(tdsAmount) : "");
@@ -542,6 +572,9 @@ export default function InstallmentActions({
       {open === "tds" && (
         <form action={tdsAction} className="mt-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <input type="hidden" name="installment_id" value={installmentId} />
+          {sectionId === "__legacy__" && (
+            <input type="hidden" name="tds_section_text" value={legacySection ?? ""} />
+          )}
           <p className="text-xs text-zinc-500">
             Withheld from this payment. The {formatINR(requestedAmount)}{" "}
             approved doesn&apos;t change — the vendor is paid the difference.
@@ -563,18 +596,38 @@ export default function InstallmentActions({
             </label>
             <label className="text-xs text-zinc-500">
               Section (optional)
-              <input
-                name="tds_section"
-                defaultValue={tdsSection ?? ""}
-                placeholder="194C"
+              <select
+                name="tds_section_id"
+                value={sectionId}
+                onChange={(e) => chooseSection(e.target.value)}
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-              />
+              >
+                <option value="">No section</option>
+                {tdsSections.map((sec) => (
+                  <option key={sec.id} value={sec.id}>
+                    {sec.code} — {sec.name}
+                    {sec.rate === null ? "" : ` (${sec.rate}%)`}
+                  </option>
+                ))}
+                {/* Whatever was typed before the list existed, or a section an
+                    admin has since turned off. Keeping it selectable means
+                    saving an amount can't quietly erase it. */}
+                {legacySection && (
+                  <option value="__legacy__">{legacySection}</option>
+                )}
+              </select>
             </label>
             <div className="text-xs text-zinc-500 sm:self-end sm:pb-1.5">
               Vendor gets{" "}
               <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                 {formatINR(Math.max(requestedAmount - (Number(tdsInput) || 0), 0))}
               </span>
+              {chosenRate != null && (
+                <span className="mt-0.5 block text-zinc-400">
+                  {chosenRate}% of {formatINR(requestedAmount)} ={" "}
+                  {formatINR((requestedAmount * chosenRate) / 100)}
+                </span>
+              )}
             </div>
           </div>
           <div className="mt-2 flex items-center gap-2">

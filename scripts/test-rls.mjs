@@ -332,6 +332,46 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
        values ($1, $2)`, [mine.id, PROC_NO]));
 }
 
+// --- TDS sections (admin-managed master) -----------------------------------
+// The dropdown Accounts picks from. Everyone signed in reads it; only an admin
+// may change it. Accounts is the interesting case: they are the ones USING the
+// list, and the obvious mistake is letting the consumer of a master table edit
+// it.
+{
+  const ADMIN = await makeUser("tdsadmin", ["admin"]);
+  const secId = randomUUID();
+  await c.query(
+    "insert into public.tds_sections (id, code, name, rate) values ($1,'194ZZ','RLS Test section', 5)",
+    [secId],
+  );
+
+  check("tds: accounts can read the list", "ALLOWED",
+    await as(ACCOUNTS, "select 1 from public.tds_sections where id=$1", [secId]));
+  check("tds: a plain requester can read the list", "ALLOWED",
+    await as(REQUESTER, "select 1 from public.tds_sections where id=$1", [secId]));
+
+  check("tds: accounts cannot add a section", "BLOCKED",
+    await as(ACCOUNTS, "insert into public.tds_sections (code, name) values ('194YY','nope')"));
+  check("tds: accounts cannot change the rate", "BLOCKED",
+    await as(ACCOUNTS, "update public.tds_sections set rate=99 where id=$1", [secId]));
+  check("tds: accounts cannot delete a section", "BLOCKED",
+    await as(ACCOUNTS, "delete from public.tds_sections where id=$1", [secId]));
+  check("tds: a plain requester cannot add one", "BLOCKED",
+    await as(REQUESTER, "insert into public.tds_sections (code, name) values ('194XX','nope')"));
+
+  check("tds: an admin can add a section", "ALLOWED",
+    await as(ADMIN, "insert into public.tds_sections (code, name, rate) values ('194WW','ok', 2)"));
+  check("tds: an admin can turn one off", "ALLOWED",
+    await as(ADMIN, "update public.tds_sections set is_active=false where id=$1", [secId]));
+
+  // Two rows claiming to be 194C is how a picker starts lying about which one
+  // was chosen.
+  check("tds: duplicate section codes are refused", "BLOCKED",
+    await as(ADMIN, "insert into public.tds_sections (code, name) values ('194ZZ','duplicate')"));
+  check("tds: a rate above 100% is refused", "BLOCKED",
+    await as(ADMIN, "insert into public.tds_sections (code, name, rate) values ('194VV','bad', 150)"));
+}
+
 await c.query("rollback");
 // Nothing should be left, but if a future edit strays past the rollback this
 // is what stops it reaching the user list.

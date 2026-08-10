@@ -588,3 +588,126 @@ export async function setExpenseAccess(
     info: types.length ? `Can raise ${types.join(" and ")}.` : "No expense types — they can't raise.",
   };
 }
+
+// ---------------------------------------------------------------------------
+// TDS sections
+// ---------------------------------------------------------------------------
+
+/** Shared parsing for create and update. */
+function readTdsSection(formData: FormData) {
+  const code = String(formData.get("code") ?? "").trim().toUpperCase();
+  const name = String(formData.get("name") ?? "").trim();
+  const rateRaw = String(formData.get("rate") ?? "").trim();
+  // Blank is a real answer: a section with no rate is still choosable, and the
+  // amount is typed by hand either way. It is not the same as zero.
+  const rate = rateRaw === "" ? null : Number(rateRaw);
+  if (!code) return { error: "Section code is required." as const };
+  if (!name) return { error: "Description is required." as const };
+  if (rate !== null && (!Number.isFinite(rate) || rate < 0 || rate > 100)) {
+    return { error: "Rate must be between 0 and 100." as const };
+  }
+  return { code, name, rate };
+}
+
+export async function createTdsSection(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+  const parsed = readTdsSection(formData);
+  if ("error" in parsed) return { error: parsed.error };
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("tds_sections").insert(parsed);
+  if (error) {
+    return {
+      error: error.code === "23505" ? `${parsed.code} is already in the list.` : error.message,
+    };
+  }
+  invalidateMasters();
+  revalidatePath("/admin/tds");
+  return { info: `${parsed.code} added.` };
+}
+
+export async function updateTdsSection(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing section." };
+  const parsed = readTdsSection(formData);
+  if ("error" in parsed) return { error: parsed.error };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("tds_sections")
+    .update({ ...parsed, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    return {
+      error: error.code === "23505" ? `${parsed.code} is already in the list.` : error.message,
+    };
+  }
+  invalidateMasters();
+  revalidatePath("/admin/tds");
+  return { info: `${parsed.code} saved.` };
+}
+
+export async function setTdsSectionActive(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+  const id = String(formData.get("id") ?? "");
+  const active = String(formData.get("is_active") ?? "") === "true";
+  if (!id) return { error: "Missing section." };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("tds_sections")
+    .update({ is_active: active, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  invalidateMasters();
+  revalidatePath("/admin/tds");
+  return { info: active ? "Back in the list." : "Hidden from Accounts." };
+}
+
+/**
+ * Deletes a section, but only one nobody has used.
+ *
+ * A section attached to a deduction is part of a tax record. The foreign key
+ * would null itself out quietly and the installment would keep a section name
+ * pointing at nothing. Turning it off is the right move there, so that is what
+ * the error says.
+ */
+export async function deleteTdsSection(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing section." };
+
+  const admin = createAdminClient();
+  const { count } = await admin
+    .from("request_installments")
+    .select("id", { count: "exact", head: true })
+    .eq("tds_section_id", id);
+  if ((count ?? 0) > 0) {
+    return {
+      error: `Used on ${count} deduction${count === 1 ? "" : "s"} — turn it off instead so the record stays intact.`,
+    };
+  }
+
+  const { error } = await admin.from("tds_sections").delete().eq("id", id);
+  if (error) return { error: error.message };
+  invalidateMasters();
+  revalidatePath("/admin/tds");
+  return { info: "Removed." };
+}
