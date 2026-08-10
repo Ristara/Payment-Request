@@ -198,6 +198,9 @@ export default async function ThreadDetailPage({
   // question) vs what's left to REQUEST (gates the raise-installment panel).
   const balanceRemaining = Math.max(0, Math.round((poValue - requestedTotal) * 100) / 100);
   const yetToPay = Math.max(0, Math.round((poValue - paidTotal) * 100) / 100);
+  // Null rather than 0 when there is no PO value: "0% of nothing" is noise,
+  // and dividing by it is worse.
+  const pct = (n: number) => (poValue > 0 ? (n / poValue) * 100 : null);
 
   const history = (historyRes.data ?? []) as unknown as {
     id: string;
@@ -346,10 +349,21 @@ export default async function ThreadDetailPage({
           )}
         </div>
         <div className="sm:text-right">
-          <div className="grid grid-cols-3 gap-3 sm:flex sm:flex-col sm:items-end">
+          {/* 2x2 on a phone. Four chips in a three-column grid leaves the last
+              one stranded on its own row. */}
+          <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-col sm:items-end">
             <MoneyChip label="PO value" value={poValue} />
-            <MoneyChip label="Paid" value={paidTotal} tone="emerald" />
-            <MoneyChip label="Yet to pay" value={yetToPay} tone={yetToPay > 0 ? "amber" : "zinc"} />
+            {/* Raised is the question the other two do not answer: how much of
+                the PO has even been asked for yet. On a milestone job that is
+                usually the number people actually want. */}
+            <MoneyChip label="Raised" value={requestedTotal} percent={pct(requestedTotal)} />
+            <MoneyChip label="Paid" value={paidTotal} tone="emerald" percent={pct(paidTotal)} />
+            <MoneyChip
+              label="Yet to pay"
+              value={yetToPay}
+              tone={yetToPay > 0 ? "amber" : "zinc"}
+              percent={pct(yetToPay)}
+            />
           </div>
           {isAdmin && (
             <div className="mt-3">
@@ -702,7 +716,18 @@ function Row({ label, value, mono = false }: { label: string; value: string; mon
   );
 }
 
-function MoneyChip({ label, value, tone = "zinc" }: { label: string; value: number; tone?: "emerald" | "amber" | "zinc" }) {
+function MoneyChip({
+  label,
+  value,
+  tone = "zinc",
+  percent,
+}: {
+  label: string;
+  value: number;
+  tone?: "emerald" | "amber" | "zinc";
+  /** Share of the PO value, 0-100. Omitted where a percentage is meaningless. */
+  percent?: number | null;
+}) {
   const bg =
     tone === "emerald"
       ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
@@ -713,6 +738,11 @@ function MoneyChip({ label, value, tone = "zinc" }: { label: string; value: numb
     <div className={`rounded-lg px-3 py-2 text-right ${bg}`}>
       <p className="text-[10px] font-medium uppercase tracking-wide opacity-70">{label}</p>
       <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">{formatINR(value)}</p>
+      {percent != null && (
+        /* Rounded to whole numbers: a decimal place on a share invites people
+           to reconcile it against the rupees, which it will not survive. */
+        <p className="text-[10px] tabular-nums opacity-70">{Math.round(percent)}% of PO</p>
+      )}
     </div>
   );
 }
