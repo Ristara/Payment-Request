@@ -1252,6 +1252,95 @@ export async function markInstallmentBankUploaded(
   return { info: "Marked as uploaded in bank." };
 }
 
+/**
+ * Correct a recorded payment. Accounts only.
+ *
+ * There was no way to fix a mistyped UTR or a wrong amount — payments could be
+ * created and never touched again. On a money record that is not caution, it
+ * is a wrong figure nobody can put right.
+ *
+ * The edit is written into the installment's history with the before and after
+ * values. A payment amount that can change silently is worse than one that
+ * cannot change at all.
+ */
+export async function editPaymentRecord(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  try {
+    const { user } = await requireRole("accounts");
+    const paymentId = String(formData.get("payment_id") ?? "");
+    const payment_date = String(formData.get("payment_date") ?? "");
+    const paid_amount = Number(formData.get("paid_amount") ?? 0);
+    const utr_reference = String(formData.get("utr_reference") ?? "").trim();
+    const paying_bank_account =
+      String(formData.get("paying_bank_account") ?? "").trim() || null;
+
+    if (!paymentId) return { error: "Missing payment." };
+    if (!payment_date || !utr_reference) return { error: "Payment date and UTR are both required." };
+    if (!Number.isFinite(paid_amount) || paid_amount <= 0) {
+      return { error: "Enter a valid amount." };
+    }
+
+    const admin = createAdminClient();
+    const { data: before } = await admin
+      .from("payment_records")
+      .select("installment_id, request_id, paid_amount, utr_reference, payment_date")
+      .eq("id", paymentId)
+      .maybeSingle();
+    const prev = before as
+      | { installment_id: string; request_id: string; paid_amount: number; utr_reference: string; payment_date: string }
+      | null;
+    if (!prev) return { error: "That payment no longer exists." };
+
+    // A closed installment's payment record is part of a finished trail.
+    // Reopen it first if it genuinely needs correcting.
+    const { data: instRow } = await admin
+      .from("request_installments")
+      .select("status")
+      .eq("id", prev.installment_id)
+      .maybeSingle();
+    if ((instRow as { status: string } | null)?.status === "closed") {
+      return { error: "This installment is closed. Reopen it before correcting the payment." };
+    }
+
+    const { error } = await admin
+      .from("payment_records")
+      .update({ payment_date, paid_amount, utr_reference, paying_bank_account })
+      .eq("id", paymentId);
+    if (error) {
+      return error.message.includes("payment_records_installment_utr_uniq")
+        ? { error: "Another payment on this installment already has that UTR." }
+        : { error: error.message };
+    }
+
+    const changes: string[] = [];
+    if (Number(prev.paid_amount) !== paid_amount) {
+      changes.push(`amount ${formatINR(prev.paid_amount)} → ${formatINR(paid_amount)}`);
+    }
+    if (prev.utr_reference !== utr_reference) {
+      changes.push(`UTR ${prev.utr_reference} → ${utr_reference}`);
+    }
+    if (prev.payment_date !== payment_date) {
+      changes.push(`date ${prev.payment_date} → ${payment_date}`);
+    }
+    await admin.from("status_history").insert({
+      request_id: prev.request_id,
+      installment_id: prev.installment_id,
+      from_status: (instRow as { status: string } | null)?.status ?? null,
+      to_status: (instRow as { status: string } | null)?.status ?? "",
+      actor_id: user.id,
+      comment: `Payment corrected: ${changes.length ? changes.join(" · ") : "details updated"}`,
+    });
+
+    revalidatePath(`/requests/${prev.request_id}`);
+    revalidatePath("/accounts");
+    return { info: "Payment updated." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export async function markInstallmentPaid(
   _prev: RequestState,
   formData: FormData,

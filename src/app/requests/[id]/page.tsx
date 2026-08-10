@@ -11,6 +11,7 @@ import DeleteRequest from "./delete-request";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
 import DiscussionThread from "./discussion";
+import EditPayment from "./edit-payment";
 import CcPanel from "./cc-panel";
 import EditLineItems from "./edit-line-items";
 import { deleteAttachment } from "@/app/requests/actions";
@@ -74,6 +75,7 @@ type InstallmentRow = {
 };
 
 type PaymentRecord = {
+  id: string;
   bank_upload_date: string | null;
   bank_batch_ref: string | null;
   payment_date: string | null;
@@ -116,7 +118,7 @@ export default async function ThreadDetailPage({
          approved_at, rejection_reason, return_reason, cancelled_at, cancellation_reason,
          approver:profiles!request_installments_approver_id_fkey(full_name),
          submitter:profiles!request_installments_submitted_by_fkey(full_name),
-         payment_record:payment_records(bank_upload_date, bank_batch_ref, payment_date, paid_amount, utr_reference, payment_mode, paying_bank_account)`,
+         payment_record:payment_records(id, bank_upload_date, bank_batch_ref, payment_date, paid_amount, utr_reference, payment_mode, paying_bank_account)`,
       )
       .eq("request_id", id)
       .order("installment_number"),
@@ -575,6 +577,17 @@ export default async function ThreadDetailPage({
                                 )}
                                 {p.paying_bank_account && <p>Paid from: {p.paying_bank_account}</p>}
                               </div>
+                              {/* Accounts only. Re-checked in the action —
+                                  hiding a button is not a permission. */}
+                              {isAccounts && p.id && p.payment_date && (
+                                <EditPayment
+                                  paymentId={p.id}
+                                  paymentDate={p.payment_date}
+                                  paidAmount={Number(p.paid_amount ?? 0)}
+                                  utr={p.utr_reference ?? ""}
+                                  payingBank={p.paying_bank_account ?? null}
+                                />
+                              )}
                             </li>
                           ))}
                         </ul>
