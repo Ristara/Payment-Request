@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { requireUser } from "@/lib/auth";
+import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import RequestFilters from "./request-filters";
 import { getActiveOutlets } from "@/lib/masters";
@@ -51,6 +51,8 @@ export default async function MyRequestsPage({
   }>;
 }) {
   const user = await requireUser();
+  const { roles } = await getCurrentUserRoles();
+  const canRaise = roles.includes("requester") || roles.includes("admin");
   const {
     page: pageRaw, view: viewRaw,
     branch: branchRaw, exp: expRaw, stage: stageRaw, kind: kindRaw,
@@ -159,7 +161,13 @@ export default async function MyRequestsPage({
 
   return (
     <div>
-      <PageHeader title="My requests" subtitle="Payment threads you have raised." />
+      {/* Not only what you raised: the query above is "mine OR CC'd to me", so
+          someone who cannot raise at all still has a list here — which is
+          exactly what the old subtitle made look like a bug. */}
+      <PageHeader
+        title="My requests"
+        subtitle="Payment requests you raised, and ones you were CC'd on."
+      />
 
       {/* Status filter tabs */}
       <div className="mt-6 -mx-4 flex items-center gap-1 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800">
@@ -191,8 +199,15 @@ export default async function MyRequestsPage({
         </div>
       ) : summaryRows.length === 0 && view === "all" && !pageRaw ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          No requests yet.{" "}
-          <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
+          {canRaise ? (
+            <>
+              No requests yet.{" "}
+              <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
+            </>
+          ) : (
+            /* No point offering a link to a form this person cannot open. */
+            "Nothing raised by you, and nothing CC'd to you yet."
+          )}
         </div>
       ) : (
         <RequestsList rows={summaryRows} />
