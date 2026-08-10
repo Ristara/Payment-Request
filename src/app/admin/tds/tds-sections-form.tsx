@@ -40,7 +40,7 @@ export default function TdsSectionsForm({
     <div className="space-y-6">
       <form
         action={createAction}
-        className="grid grid-cols-1 gap-3 rounded-2xl border border-zinc-200 bg-white p-6 sm:grid-cols-[7rem_1fr_7rem_auto] dark:border-zinc-800 dark:bg-zinc-900"
+        className="grid grid-cols-1 gap-3 rounded-2xl border border-zinc-200 bg-white p-6 sm:grid-cols-[12rem_1fr_6rem_auto] dark:border-zinc-800 dark:bg-zinc-900"
       >
         <div>
           <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">Section</label>
@@ -126,7 +126,7 @@ export default function TdsSectionsForm({
                 <form
                   action={editAction}
                   onSubmit={() => setEditingId(null)}
-                  className="grid grid-cols-1 gap-3 sm:grid-cols-[7rem_1fr_7rem_auto]"
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-[12rem_1fr_6rem_auto]"
                 >
                   <input type="hidden" name="id" value={s.id} />
                   <input name="code" defaultValue={s.code} required className={FIELD} />
@@ -171,7 +171,7 @@ export default function TdsSectionsForm({
                   <span className="rounded-md bg-zinc-100 px-2 py-0.5 font-mono text-sm font-semibold text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100">
                     {s.code}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-200">
+                  <span className="min-w-0 flex-1 text-sm text-zinc-700 dark:text-zinc-200">
                     {s.name}
                   </span>
                   <span className="tabular-nums text-sm text-zinc-500">

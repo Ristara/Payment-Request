@@ -120,13 +120,16 @@ export default function InstallmentActions({
     tdsSectionId ?? (legacySection ? "__legacy__" : ""),
   );
   const chosenRate = tdsSections.find((s) => s.id === sectionId)?.rate ?? null;
-  // Searchable by code or by what it covers — "194C", "rent" and "brokerage"
-  // all have to find the right row, because people reach for whichever of the
-  // three they happen to know.
+  // The label is short because it is what sits in the closed input, and that
+  // box is a third of a row wide — the full description overflowed it. The
+  // description moves to `hint`, which shows as a second line in the open list
+  // and is still matched when searching, so "rent" and "brokerage" find their
+  // row even though neither word is in the label any more.
   const sectionOptions = [
     ...tdsSections.map((sec) => ({
       value: sec.id,
-      label: `${sec.code} — ${sec.name}${sec.rate === null ? "" : ` · ${sec.rate}%`}`,
+      label: `${sec.code}${sec.rate === null ? "" : ` · ${sec.rate}%`}`,
+      hint: sec.name,
     })),
     ...(legacySection ? [{ value: "__legacy__", label: legacySection }] : []),
   ];
@@ -605,7 +608,7 @@ export default function InstallmentActions({
           </p>
           {/* Section first, then amount: choosing the section is what fills
               the amount in, so reading left to right matches doing it. */}
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1.3fr_1fr_1fr]">
             {/* A combobox, not a select: typing "rent" or "194C" beats
                 scrolling, and the list only grows from here. The legacy entry
                 is in the options too — whatever was typed before this list
