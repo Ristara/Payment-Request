@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
+import RequestFilters from "./request-filters";
+import { getActiveOutlets } from "@/lib/masters";
 import RequestsList, { type RequestsRow } from "./requests-list";
 import { shortRequestNumber } from "@/lib/types";
 
@@ -43,10 +45,22 @@ const VIEW_FILTERS: Record<string, { label: string; statuses: string[] | null }>
 export default async function MyRequestsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; view?: string }>;
+  searchParams: Promise<{
+    page?: string; view?: string;
+    branch?: string; exp?: string; stage?: string; kind?: string;
+  }>;
 }) {
   const user = await requireUser();
-  const { page: pageRaw, view: viewRaw } = await searchParams;
+  const {
+    page: pageRaw, view: viewRaw,
+    branch: branchRaw, exp: expRaw, stage: stageRaw, kind: kindRaw,
+  } = await searchParams;
+  // Whitelisted rather than passed straight through: these reach a query, and
+  // a value nobody offered should narrow nothing rather than error the page.
+  const branch = branchRaw || "";
+  const exp = expRaw === "capex" || expRaw === "opex" ? expRaw : "";
+  const stage = stageRaw === "upcoming" || stageRaw === "operational" ? stageRaw : "";
+  const kind = kindRaw === "regular" || kindRaw === "milestone" ? kindRaw : "";
   const view = VIEW_FILTERS[viewRaw ?? ""] ? (viewRaw as string) : "all";
   const page = Math.max(0, Number(pageRaw) || 0);
   const supabase = await createClient();
@@ -69,19 +83,30 @@ export default async function MyRequestsPage({
        vendor:vendors(name),
        line_items:request_line_items(amount),
        installments:request_installments(installment_number, status, requested_amount, payment_due_date),
-       comments(id, created_at, author_id, comment_mentions(mentioned_user_id))`,
+       comments(id, created_at, author_id, comment_mentions(mentioned_user_id))${
+         branchRaw || stageRaw ? ", request_outlets!inner(outlet_id, outlet:outlets!inner(stage))" : ""
+       }`,
       { count: "exact" },
     )
     .or(ownershipFilter)
     .order("created_at", { ascending: false });
+
+  // Filtered in SQL, not in the browser. This list is paginated, so narrowing
+  // the page in front of you would report a count for the page rather than the
+  // result set — "3 results" when there are thirty.
+  if (exp) threadQuery = threadQuery.eq("expense_type", exp);
+  if (kind) threadQuery = threadQuery.eq("payment_kind", kind);
+  if (branch) threadQuery = threadQuery.eq("request_outlets.outlet_id", branch);
+  if (stage) threadQuery = threadQuery.eq("request_outlets.outlet.stage", stage);
   threadQuery =
     view === "all"
       ? threadQuery.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
       : threadQuery.limit(200);
 
-  const [{ data, count }, readsRes] = await Promise.all([
+  const [{ data, count }, readsRes, outlets] = await Promise.all([
     threadQuery,
     supabase.from("request_reads").select("request_id, last_read_at").eq("user_id", user.id),
+    getActiveOutlets(),
   ]);
   const rows = (data ?? []) as unknown as ThreadRow[];
   const totalPages = view === "all" ? Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE)) : 1;
@@ -156,7 +181,15 @@ export default async function MyRequestsPage({
         })}
       </div>
 
-      {summaryRows.length === 0 && view === "all" && !pageRaw ? (
+      <RequestFilters branches={(outlets as { id: string; name: string }[]).map((o) => ({ id: o.id, name: o.name }))} />
+
+      {summaryRows.length === 0 && (branch || exp || stage || kind) ? (
+        /* Named rather than a bare "no requests": an empty filtered list is
+           otherwise indistinguishable from having raised nothing. */
+        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+          Nothing matches the filters you have on.
+        </div>
+      ) : summaryRows.length === 0 && view === "all" && !pageRaw ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
           No requests yet.{" "}
           <Link href="/requests/new" className="text-indigo-600 underline">Raise your first</Link>.
