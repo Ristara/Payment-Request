@@ -6,7 +6,6 @@ import {
   rejectProcurementRequest,
   recordPurchaseOrder,
   cancelProcurementRequest,
-  deleteProcurementRequest,
 } from "@/app/procurement/actions";
 
 export type VendorOption = { id: string; name: string };
@@ -40,12 +39,11 @@ export default function ProcurementActions({
   const [rejectState, reject, rejecting] = useActionState(rejectProcurementRequest, undefined);
   const [poState, recordPo, recordingPo] = useActionState(recordPurchaseOrder, undefined);
   const [cancelState, cancel, cancelling] = useActionState(cancelProcurementRequest, undefined);
-  const [delState, del, deleting] = useActionState(deleteProcurementRequest, undefined);
-  const [open, setOpen] = useState<null | "reject" | "po" | "delete">(null);
+  const [open, setOpen] = useState<null | "reject" | "po">(null);
 
 
-  const info = approveState?.info || rejectState?.info || poState?.info || cancelState?.info || delState?.info;
-  const err = approveState?.error || rejectState?.error || poState?.error || cancelState?.error || delState?.error;
+  const info = approveState?.info || rejectState?.info || poState?.info || cancelState?.info;
+  const err = approveState?.error || rejectState?.error || poState?.error || cancelState?.error;
 
   const pending = status === "pending_approval";
   const approved = status === "approved";
@@ -56,10 +54,9 @@ export default function ProcurementActions({
   const showApprove = canApprove && pending && !isSubmitter;
   const showPo = canProcure && approved;
   const showCancel = isSubmitter && pending;
-  // Only a dead request, and only the person whose list it clutters.
-  const showDelete = isSubmitter && ["rejected", "cancelled"].includes(status);
-
-  if (!showApprove && !showPo && !showCancel && !showDelete) {
+  // Deleting lives on the LIST, not here: finishing an action re-renders the
+  // route you are on, and here that route is the request being deleted.
+  if (!showApprove && !showPo && !showCancel) {
     return info || err ? <Messages info={info} err={err} /> : null;
   }
 
@@ -97,16 +94,6 @@ export default function ProcurementActions({
           </button>
         )}
 
-        {showDelete && (
-          <button
-            type="button"
-            onClick={() => setOpen(open === "delete" ? null : "delete")}
-            className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
-          >
-            Delete
-          </button>
-        )}
-
         {showCancel && (
           <form action={cancel}>
             <input type="hidden" name="id" value={id} />
@@ -139,23 +126,6 @@ export default function ProcurementActions({
             </button>
           </div>
         </form>
-      )}
-
-      {open === "delete" && (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
-          <p className="text-xs text-red-900 dark:text-red-100">
-            This removes the request and anything attached to it, for good.
-          </p>
-          <form action={del} className="mt-2 flex gap-2">
-            <input type="hidden" name="id" value={id} />
-            <button disabled={deleting} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60">
-              {deleting ? "Deleting…" : "Yes, delete it"}
-            </button>
-            <button type="button" onClick={() => setOpen(null)} className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500">
-              Keep it
-            </button>
-          </form>
-        </div>
       )}
 
       {open === "po" && (

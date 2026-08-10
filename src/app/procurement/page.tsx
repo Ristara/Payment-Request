@@ -3,6 +3,7 @@ import PageHeader from "@/components/PageHeader";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { formatISTDate } from "@/lib/types";
+import DeleteProcurement from "./delete-procurement";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,8 @@ export default async function ProcurementPage({
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  const userId = user.id;
   const { roles } = await getCurrentUserRoles();
   const { tab: tabRaw } = await searchParams;
   const tab = TAB_STATUSES[tabRaw ?? ""] ? (tabRaw as string) : "open";
@@ -49,14 +51,14 @@ export default async function ProcurementPage({
     .select(
       `id, request_number, title, status, created_at, po_reference,
        outlet:outlets(name),
-       submitter:profiles!procurement_requests_submitter_id_fkey(full_name)`,
+       submitter:profiles!procurement_requests_submitter_id_fkey(full_name), submitter_id`,
     )
     .in("status", TAB_STATUSES[tab])
     .order("created_at", { ascending: false })
     .limit(200);
 
   type Row = {
-    id: string; request_number: string; title: string; status: string;
+    id: string; request_number: string; title: string; status: string; submitter_id: string;
     created_at: string; po_reference: string | null;
     outlet: { name: string } | { name: string }[] | null;
     submitter: { full_name: string } | { full_name: string }[] | null;
@@ -111,7 +113,12 @@ export default async function ProcurementPage({
       ) : (
         <ul className="mt-4 space-y-3">
           {rows.map((r) => (
-            <li key={r.id}>
+            <li key={r.id} className="relative">
+              {r.submitter_id === userId && ["rejected", "cancelled"].includes(r.status) && (
+                <div className="absolute bottom-3 right-4 z-10">
+                  <DeleteProcurement id={r.id} number={r.request_number} />
+                </div>
+              )}
               <Link
                 href={`/procurement/${r.id}`}
                 className="block rounded-xl border border-zinc-200 bg-white p-4 hover:border-indigo-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-700"

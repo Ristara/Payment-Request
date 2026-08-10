@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
@@ -450,7 +449,6 @@ export async function deleteProcurementRequest(
   _prev: ProcurementState,
   formData: FormData,
 ): Promise<ProcurementState> {
-  let deleted = false;
   try {
     const { user, roles } = await currentUser();
     const id = String(formData.get("id") ?? "");
@@ -491,19 +489,14 @@ export async function deleteProcurementRequest(
     const { error } = await admin.from("procurement_requests").delete().eq("id", id);
     if (error) return { error: error.message };
 
+    // No redirect. This is called from the LIST, so the page the action
+    // returns to is still valid — revalidating simply drops the row out of it.
+    // Deleting from the detail page 404s no matter how the navigation is
+    // arranged, because Next re-renders the route you are on and that route is
+    // the thing you just deleted.
     revalidatePath("/procurement");
-    deleted = true;
+    return { info: `${req.request_number} deleted.` };
   } catch (e) {
     return { error: (e as Error).message };
   }
-
-  // Outside the try, deliberately. redirect() works by THROWING a special
-  // error that Next catches to perform the navigation — inside the block above
-  // the catch would swallow it and report "NEXT_REDIRECT" as a failure.
-  //
-  // It has to happen server-side at all because revalidatePath re-renders this
-  // very page, and the row it needs is gone: notFound() fires and the user
-  // sees a bare 404 before any browser-side navigation can run.
-  if (deleted) redirect("/procurement");
-  return undefined;
 }
