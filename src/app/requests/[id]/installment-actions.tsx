@@ -114,14 +114,19 @@ export default function InstallmentActions({
 
   // Approve is allowed from clarification_required too — reading the
   // discussion and hitting Approve is what resolves it.
+  // A pending vendor no longer blocks approval. Approving is a decision about
+  // whether the spend is justified; whether the vendor has been verified is a
+  // question about whether it can be PAID, and that is checked at every step
+  // downstream — queueing to a bank file, marking uploaded, and recording the
+  // payment all still refuse an unapproved vendor. Blocking here just stalled
+  // the decision while somebody chased paperwork.
   const canApprove =
     (isApprover || isAdmin) &&
-    ["pending_approval", "clarification_required"].includes(status) &&
-    vendorStatus === "approved";
+    ["pending_approval", "clarification_required"].includes(status);
   const canReject = (isApprover || isAdmin) && (status === "pending_approval" || status === "clarification_required");
-  // Approve is deliberately withheld until the vendor is verified — say so,
-  // rather than leaving an approver staring at a lone Reject button.
-  const approveBlockedByVendor =
+  // Not a block any more — a warning, so an approver knows this will sit in
+  // Accounts' queue rather than being paid.
+  const vendorNotReady =
     (isApprover || isAdmin) &&
     ["pending_approval", "clarification_required"].includes(status) &&
     vendorStatus !== "approved";
@@ -168,11 +173,11 @@ export default function InstallmentActions({
 
   return (
     <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
-      {approveBlockedByVendor && (
+      {vendorNotReady && (
         <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          Approve is unavailable because this vendor is{" "}
-          {vendorStatus === "rejected" ? "rejected" : "still awaiting verification"} — Accounts must
-          verify it (bank details + mobile) first.{" "}
+          You can approve this, but it can&rsquo;t be paid yet — the vendor is{" "}
+          {vendorStatus === "rejected" ? "rejected" : "still awaiting verification"}. Accounts
+          can&rsquo;t put it in a bank file until they&rsquo;ve verified it (bank details + mobile).{" "}
           <Link href={`/vendors/${vendorId}`} className="font-medium underline">
             Open vendor
           </Link>

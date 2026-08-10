@@ -238,7 +238,7 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                   </div>
                   {r.vendorPending && (
                     <p className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-                      vendor pending — can&rsquo;t approve yet
+                      vendor pending — can&rsquo;t be paid yet
                     </p>
                   )}
                 </Link>
@@ -285,10 +285,10 @@ export default function ApprovalsList({ rows }: { rows: ApprovalRow[] }) {
                         )}
                         {r.vendorPending && (
                           <span
-                            title="Accounts must verify this vendor before the payment can be approved"
+                            title="You can approve this, but Accounts can't pay it until the vendor is verified"
                             className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200"
                           >
-                            vendor pending — can&rsquo;t approve yet
+                            vendor pending — can&rsquo;t be paid yet
                           </span>
                         )}
                       </td>
