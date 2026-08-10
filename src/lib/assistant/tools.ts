@@ -196,11 +196,14 @@ async function getRequest(supabase: Supa, numberRaw: string) {
       category: l.coa_account?.category,
     })),
     installments: row.installments.map((i) => {
-      const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
+      const prs = Array.isArray(i.payment_record) ? i.payment_record : i.payment_record ? [i.payment_record] : [];
+      const pr = prs[0] ?? null;
+      const paidSum = prs.reduce((n, x) => n + Number(x.paid_amount ?? 0), 0);
       return {
         n: i.installment_number, status: i.status, amount: Number(i.requested_amount),
         due: i.payment_due_date,
-        paid: pr?.paid_amount ? Number(pr.paid_amount) : null,
+        // The SUM, so Ria never reports a part payment as the whole of it.
+        paid: paidSum > 0 ? paidSum : null,
         paid_on: pr?.payment_date ?? null,
         utr: pr?.utr_reference ?? null,
       };
@@ -239,7 +242,9 @@ async function vendorPayments(supabase: Supa, vendorName: string) {
       installments: { payment_record: { paid_amount: number | null; payment_date: string | null }[] | { paid_amount: number | null; payment_date: string | null } | null }[];
     }[]) {
       for (const i of t.installments) {
-        const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
+        const prs = Array.isArray(i.payment_record) ? i.payment_record : i.payment_record ? [i.payment_record] : [];
+      const pr = prs[0] ?? null;
+      const paidSum = prs.reduce((n, x) => n + Number(x.paid_amount ?? 0), 0);
         if (pr?.paid_amount) {
           paidTotal += Number(pr.paid_amount);
           payments.push({

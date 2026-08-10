@@ -1280,7 +1280,7 @@ export async function markInstallmentPaid(
 
   const { data: inst } = await admin
     .from("request_installments")
-    .select("id, request_id, status, request:payment_requests(vendor:vendors(status, name, phone))")
+    .select("id, request_id, status, requested_amount, request:payment_requests(vendor:vendors(status, name, phone))")
     .eq("id", installmentId)
     .single();
   if (!inst) return { error: "Installment not found." };
@@ -1299,6 +1299,21 @@ export async function markInstallmentPaid(
     return { error: "Vendor is not approved. Verify the vendor before recording payment." };
   }
 
+  // What has already been paid against this instalment. An instalment can be
+  // settled in parts — ₹1,000 now, the balance next week — so this decides
+  // whether the payment being recorded finishes it or not.
+  const { data: priorRows } = await admin
+    .from("payment_records")
+    .select("paid_amount")
+    .eq("installment_id", installmentId);
+  const priorPaid = ((priorRows ?? []) as { paid_amount: number | null }[])
+    .reduce((sum, r) => sum + Number(r.paid_amount ?? 0), 0);
+  const requested = Number(inst.requested_amount ?? 0);
+  const paidAfter = priorPaid + paid_amount;
+  // Half a rupee of slack: these are numeric(14,2) and a plan split three ways
+  // should not be left permanently one paisa short of settled.
+  const fullySettled = requested <= 0 || paidAfter >= requested - 0.5;
+
   // Move the status FIRST. transitionInstallment re-reads and guards on the
   // from-status, so if an approver pulled the approval back while this form
   // was open we fail here — before any money row or proof is written.
@@ -1310,6 +1325,33 @@ export async function markInstallmentPaid(
     .like("storage_path", `%/installments/${installmentId}/%`);
   const nextStatus = (invCount ?? 0) > 0 ? "payment_processed" : "invoice_pending";
   try {
+    // A part payment does NOT move the instalment on. Marking a ₹50,00,000
+    // instalment "paid" because ₹1,000 went out drops it out of the Accounts
+    // queue and off every to-pay figure, with the balance still owed.
+    if (!fullySettled) {
+      const { error: partErr } = await supabase.from("payment_records").insert({
+        installment_id: installmentId,
+        request_id: inst.request_id,
+        payment_date,
+        paid_amount,
+        utr_reference,
+        paying_bank_account,
+        recorded_by: user.id,
+      });
+      if (partErr) {
+        return partErr.message.includes("payment_records_installment_utr_uniq")
+          ? { error: "That UTR is already recorded against this installment." }
+          : { error: partErr.message };
+      }
+      revalidatePath(`/requests/${inst.request_id}`);
+      revalidatePath("/accounts");
+      return {
+        info: `Part payment of ${formatINR(paid_amount)} recorded. ${formatINR(
+          requested - paidAfter,
+        )} still to pay.`,
+      };
+    }
+
     // This line is carried by three things at once: the installment's own
     // history, the submitter's in-app notification, and the push that reaches
     // their phone. "Payment processed" told them something had happened
@@ -1325,18 +1367,22 @@ export async function markInstallmentPaid(
     return { error: (e as Error).message };
   }
 
-  const { error: recErr } = await supabase
-    .from("payment_records")
-    .upsert({
-      installment_id: installmentId,
-      request_id: inst.request_id,
-      payment_date,
-      paid_amount,
-      utr_reference,
-      paying_bank_account,
-      recorded_by: user.id,
-    }, { onConflict: "installment_id" });
-  if (recErr) return { error: `Status moved but the payment details didn't save: ${recErr.message}` };
+  // insert, not upsert. Upserting on installment_id is what would have
+  // overwritten an earlier part payment and lost a real UTR.
+  const { error: recErr } = await supabase.from("payment_records").insert({
+    installment_id: installmentId,
+    request_id: inst.request_id,
+    payment_date,
+    paid_amount,
+    utr_reference,
+    paying_bank_account,
+    recorded_by: user.id,
+  });
+  if (recErr) {
+    return recErr.message.includes("payment_records_installment_utr_uniq")
+      ? { error: "That UTR is already recorded against this installment." }
+      : { error: `Status moved but the payment details didn't save: ${recErr.message}` };
+  }
 
   if (proof instanceof File && proof.size > 0) {
     const safe = proof.name.replace(/[^a-zA-Z0-9._-]/g, "_");

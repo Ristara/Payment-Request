@@ -24,8 +24,10 @@ export async function getPreviousPaidForThread(
   let totalPaid = 0;
   let installmentCount = 0;
   for (const r of rows) {
-    const rec = Array.isArray(r.payment_records) ? r.payment_records[0] : r.payment_records;
-    const amt = rec?.paid_amount ? Number(rec.paid_amount) : 0;
+    // Sum every payment on the instalment, not just the first — this figure
+    // is what the raise form offers as the remaining balance.
+    const recs = Array.isArray(r.payment_records) ? r.payment_records : r.payment_records ? [r.payment_records] : [];
+    const amt = recs.reduce((n, x) => n + Number(x?.paid_amount ?? 0), 0);
     if (amt > 0) {
       totalPaid += amt;
       installmentCount += 1;

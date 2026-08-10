@@ -112,12 +112,13 @@ export default async function VendorDetailPage({
     // the figure that tells you what to chase a vendor for.
     const invoiceAwaited = t.installments.reduce((s, i) => {
       if (i.status !== "invoice_pending") return s;
-      const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
-      return s + (pr?.paid_amount ? Number(pr.paid_amount) : 0);
+      const rows = Array.isArray(i.payment_record) ? i.payment_record : i.payment_record ? [i.payment_record] : [];
+      return s + rows.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0);
     }, 0);
     const paid = t.installments.reduce((s, i) => {
-      const pr = Array.isArray(i.payment_record) ? i.payment_record[0] : i.payment_record;
-      return s + (pr?.paid_amount ? Number(pr.paid_amount) : 0);
+      // Sum: an instalment paid in parts has a row per payment.
+      const rows = Array.isArray(i.payment_record) ? i.payment_record : i.payment_record ? [i.payment_record] : [];
+      return s + rows.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0);
     }, 0);
     const live = t.installments.filter((i) => !DEAD.has(i.status));
     const isDead = t.installments.length > 0 && live.length === 0;

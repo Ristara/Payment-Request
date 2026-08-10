@@ -183,12 +183,22 @@ export default async function ThreadDetailPage({
   const lineItems = (lineRes.data ?? []) as unknown as LineItemRow[];
   const installments = ((instRes.data ?? []) as unknown as InstallmentRow[]).map((i) => ({
     ...i,
+    // Every payment against this instalment, newest first. There can be more
+    // than one: an instalment settled in parts has a row per payment.
+    payments: (Array.isArray(i.payment_record)
+      ? i.payment_record
+      : i.payment_record
+        ? [i.payment_record]
+        : []
+    ).sort((a, b) => String(b.payment_date ?? "").localeCompare(String(a.payment_date ?? ""))),
     payment_record: Array.isArray(i.payment_record) ? (i.payment_record[0] ?? null) : i.payment_record,
   }));
 
   const poValue = lineItems.reduce((s, l) => s + Number(l.amount), 0);
+  // SUM, not the first row. Taking one record would under-report an
+  // instalment that was settled in parts.
   const paidTotal = installments.reduce(
-    (s, i) => s + (i.payment_record?.paid_amount ? Number(i.payment_record.paid_amount) : 0),
+    (s, i) => s + i.payments.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0),
     0,
   );
   const requestedTotal = installments
@@ -529,28 +539,55 @@ export default async function ThreadDetailPage({
                       Returned: {inst.return_reason}
                     </p>
                   )}
-                  {inst.payment_record && (inst.payment_record.payment_date || inst.payment_record.bank_upload_date) && (
-                    <div className="mt-3 rounded-md bg-emerald-50 p-3 text-xs dark:bg-emerald-950/40">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                        Payment
-                      </p>
-                      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-emerald-900 dark:text-emerald-100">
-                        {inst.payment_record.payment_date && <p>Paid on {inst.payment_record.payment_date}</p>}
-                        {inst.payment_record.paid_amount != null && (
-                          <p className="font-mono tabular-nums">{formatINR(inst.payment_record.paid_amount)}</p>
-                        )}
-                        {inst.payment_record.utr_reference && (
-                          <p className="col-span-2 font-mono">UTR: {inst.payment_record.utr_reference}</p>
-                        )}
-                        {inst.payment_record.payment_mode && (
-                          <p>Mode: {PAYMENT_MODE_LABEL[inst.payment_record.payment_mode] ?? inst.payment_record.payment_mode}</p>
-                        )}
-                        {inst.payment_record.paying_bank_account && (
-                          <p>Paid from: {inst.payment_record.paying_bank_account}</p>
+                  {/* Every payment, not just one. An instalment settled in
+                      parts has a row each, and showing only the first hid a
+                      real UTR for money that had already gone. */}
+                  {inst.payments.filter((p) => p.payment_date).length > 0 && (() => {
+                    const paid = inst.payments.filter((p) => p.payment_date);
+                    const paidSum = paid.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0);
+                    const owing = Math.max(0, Number(inst.requested_amount) - paidSum);
+                    return (
+                      <div className="mt-3 rounded-md bg-emerald-50 p-3 text-xs dark:bg-emerald-950/40">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                            {paid.length === 1 ? "Payment" : `Payments (${paid.length})`}
+                          </p>
+                          {paid.length > 1 && (
+                            <p className="font-mono text-xs font-semibold tabular-nums text-emerald-900 dark:text-emerald-100">
+                              {formatINR(paidSum)}
+                            </p>
+                          )}
+                        </div>
+                        <ul className="mt-1 space-y-2">
+                          {paid.map((p, n) => (
+                            <li
+                              key={`${p.utr_reference ?? n}`}
+                              className={n > 0 ? "border-t border-emerald-100 pt-2 dark:border-emerald-900" : ""}
+                            >
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-emerald-900 dark:text-emerald-100">
+                                <p>Paid on {p.payment_date}</p>
+                                {p.paid_amount != null && (
+                                  <p className="font-mono tabular-nums">{formatINR(p.paid_amount)}</p>
+                                )}
+                                {p.utr_reference && <p className="col-span-2 font-mono">UTR: {p.utr_reference}</p>}
+                                {p.payment_mode && (
+                                  <p>Mode: {PAYMENT_MODE_LABEL[p.payment_mode] ?? p.payment_mode}</p>
+                                )}
+                                {p.paying_bank_account && <p>Paid from: {p.paying_bank_account}</p>}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                        {owing > 0.5 && (
+                          /* Stated plainly. A part-paid instalment that looks
+                             settled is how a balance gets forgotten. */
+                          <p className="mt-2 rounded bg-amber-100 px-2 py-1 font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+                            {formatINR(owing)} still to pay on this installment.
+                          </p>
                         )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   <div className="mt-3">
                     <InstallmentActions
@@ -558,6 +595,11 @@ export default async function ThreadDetailPage({
                       requestId={req.id}
                       status={inst.status}
                       vendorStatus={req.vendor?.status ?? "approved"}
+                      amountOutstanding={Math.max(
+                        0,
+                        Number(inst.requested_amount) -
+                          inst.payments.reduce((n, p) => n + Number(p.paid_amount ?? 0), 0),
+                      )}
                       vendorId={req.vendor_id}
                       isSubmitter={isParticipant}
                       isApprover={isApprover}

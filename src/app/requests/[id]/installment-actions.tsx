@@ -31,6 +31,7 @@ export default function InstallmentActions({
   requestId,
   status,
   vendorStatus,
+  amountOutstanding,
   vendorId,
   isSubmitter,
   isApprover,
@@ -51,6 +52,8 @@ export default function InstallmentActions({
   requestId: string;
   status: string;
   vendorStatus: string;
+  /** Requested amount minus everything paid so far. */
+  amountOutstanding: number;
   vendorId: string;
   isSubmitter: boolean;
   isApprover: boolean;
@@ -141,7 +144,12 @@ export default function InstallmentActions({
   // The same queue the Accounts list drives, reachable from the request
   // itself — that's where you are when you've just checked the invoice.
   const canQueue = isAccounts && status === "approved";
-  const canMarkPaid = isAccounts && (status === "uploaded_in_bank" || status === "approved");
+  // Also available while a balance remains, whatever the status. Instalments
+  // part-paid before this existed were moved straight to invoice_pending, so
+  // without this there is no way to record the rest of the money.
+  const partPaid = amountOutstanding > 0.5 && ["invoice_pending", "payment_processed"].includes(status);
+  const canMarkPaid =
+    isAccounts && (status === "uploaded_in_bank" || status === "approved" || partPaid);
   const canUploadInvoice = status === "invoice_pending" || status === "payment_processed" || (isSubmitter && ["approved", "uploaded_in_bank"].includes(status));
   const canClose = isAccounts && ["invoice_pending", "payment_processed"].includes(status);
   // Closing was one-way. Accounts can now pull one back when it was closed
