@@ -432,3 +432,66 @@ export async function cancelProcurementRequest(
     return { error: (e as Error).message };
   }
 }
+
+/**
+ * Delete a procurement request that went nowhere.
+ *
+ * Only rejected or withdrawn ones, and only by the person who raised it. A
+ * request that was approved, sourced or turned into a PO is part of the record
+ * of what the company decided; a refused or abandoned one is just clutter in
+ * the person's own list.
+ *
+ * Storage first. The attachment ROWS cascade with the request, but the files
+ * they point at do not — delete the row first and the objects are orphaned in
+ * the bucket with nothing left to find them by.
+ */
+export async function deleteProcurementRequest(
+  _prev: ProcurementState,
+  formData: FormData,
+): Promise<ProcurementState> {
+  try {
+    const { user, roles } = await currentUser();
+    const id = String(formData.get("id") ?? "");
+    if (!id) return { error: "Missing request." };
+
+    const admin = createAdminClient();
+    const { data: row } = await admin
+      .from("procurement_requests")
+      .select("submitter_id, status, request_number")
+      .eq("id", id)
+      .maybeSingle();
+    const req = row as
+      | { submitter_id: string; status: string; request_number: string }
+      | null;
+    if (!req) return { error: "That request no longer exists." };
+    if (req.submitter_id !== user.id && !roles.has("admin")) {
+      return { error: "Only the person who raised this can delete it." };
+    }
+    if (!["rejected", "cancelled"].includes(req.status)) {
+      return { error: "Only rejected or withdrawn requests can be deleted." };
+    }
+
+    const { data: atts } = await admin
+      .from("attachments")
+      .select("storage_path")
+      .eq("procurement_request_id", id);
+    const paths = ((atts ?? []) as { storage_path: string }[])
+      .map((a) => a.storage_path)
+      .filter(Boolean);
+    if (paths.length > 0) {
+      const { error: rmErr } = await admin.storage.from("request-attachments").remove(paths);
+      // Stop rather than press on: a request that still exists beats files
+      // nothing will ever point to again.
+      if (rmErr) return { error: `Couldn't remove the attached files: ${rmErr.message}` };
+    }
+
+    // Watchers, attachments and notifications all cascade from here.
+    const { error } = await admin.from("procurement_requests").delete().eq("id", id);
+    if (error) return { error: error.message };
+
+    revalidatePath("/procurement");
+    return { info: `${req.request_number} deleted.` };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
