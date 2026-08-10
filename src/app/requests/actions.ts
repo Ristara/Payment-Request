@@ -1285,9 +1285,27 @@ export async function markInstallmentPaid(
     .single();
   if (!inst) return { error: "Installment not found." };
 
-  // Status gate BEFORE writing anything — a stale form on an already-paid or
-  // closed installment must not overwrite the real payment record.
-  if (!["uploaded_in_bank", "approved"].includes(inst.status as string)) {
+  // What has already been paid. Needed before the status gate, because a
+  // part-paid installment is allowed through it.
+  const { data: priorRows0 } = await admin
+    .from("payment_records")
+    .select("paid_amount")
+    .eq("installment_id", installmentId);
+  const priorPaid = ((priorRows0 ?? []) as { paid_amount: number | null }[])
+    .reduce((sum, r) => sum + Number(r.paid_amount ?? 0), 0);
+  const requested = Number(inst.requested_amount ?? 0);
+  const outstanding = requested - priorPaid;
+
+  // Status gate BEFORE writing anything — a stale form on an already-settled
+  // or closed installment must not add a phantom payment.
+  //
+  // invoice_pending and payment_processed are allowed through ONLY while money
+  // is still owed. That is the case this exists for: an installment part-paid
+  // before multiple payments were supported was moved straight on, and the
+  // balance still has to be recordable.
+  const settlingABalance =
+    outstanding > 0.5 && ["invoice_pending", "payment_processed"].includes(inst.status as string);
+  if (!["uploaded_in_bank", "approved"].includes(inst.status as string) && !settlingABalance) {
     return { error: `Installment is "${String(inst.status).replace(/_/g, " ")}" — can't record payment. Refresh the page.` };
   }
   type JoinedVendor = { status: string; name: string; phone: string | null };
@@ -1299,16 +1317,7 @@ export async function markInstallmentPaid(
     return { error: "Vendor is not approved. Verify the vendor before recording payment." };
   }
 
-  // What has already been paid against this instalment. An instalment can be
-  // settled in parts — ₹1,000 now, the balance next week — so this decides
-  // whether the payment being recorded finishes it or not.
-  const { data: priorRows } = await admin
-    .from("payment_records")
-    .select("paid_amount")
-    .eq("installment_id", installmentId);
-  const priorPaid = ((priorRows ?? []) as { paid_amount: number | null }[])
-    .reduce((sum, r) => sum + Number(r.paid_amount ?? 0), 0);
-  const requested = Number(inst.requested_amount ?? 0);
+  // Does this payment finish the instalment off?
   const paidAfter = priorPaid + paid_amount;
   // Half a rupee of slack: these are numeric(14,2) and a plan split three ways
   // should not be left permanently one paisa short of settled.
@@ -1358,11 +1367,25 @@ export async function markInstallmentPaid(
     // without saying what — the amount and the UTR are what they actually
     // need, and the UTR is the first thing they'll be asked for when the
     // vendor rings to ask whether the money has left.
-    await transitionInstallment(
-      installmentId,
-      nextStatus,
-      `Paid ${formatINR(paid_amount)} · UTR ${utr_reference}`,
-    );
+    if (inst.status === nextStatus) {
+      // Already in the target state — a balance being settled on an
+      // installment the old behaviour had already moved on. The transition
+      // table has no self-edge, and does not need one; just note it.
+      await admin.from("status_history").insert({
+        request_id: inst.request_id,
+        installment_id: installmentId,
+        from_status: inst.status,
+        to_status: nextStatus,
+        actor_id: user.id,
+        comment: `Paid ${formatINR(paid_amount)} · UTR ${utr_reference}`,
+      });
+    } else {
+      await transitionInstallment(
+        installmentId,
+        nextStatus,
+        `Paid ${formatINR(paid_amount)} · UTR ${utr_reference}`,
+      );
+    }
   } catch (e) {
     return { error: (e as Error).message };
   }
