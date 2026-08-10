@@ -31,6 +31,8 @@ export type TdsSectionOption = {
   code: string;
   name: string;
   rate: number | null;
+  /** Set by an admin — the thresholds and traps for this section. */
+  guidance: string | null;
 };
 
 export default function InstallmentActions({
@@ -118,7 +120,8 @@ export default function InstallmentActions({
   const [sectionId, setSectionId] = useState(
     tdsSectionId ?? (legacySection ? "__legacy__" : ""),
   );
-  const chosenRate = tdsSections.find((s) => s.id === sectionId)?.rate ?? null;
+  const chosen = tdsSections.find((s) => s.id === sectionId) ?? null;
+  const chosenRate = chosen?.rate ?? null;
 
   const [tdsState, tdsAction, tdsPending] = useActionState(setInstallmentTds, undefined);
   const [queueState, queueAction, queuePending] = useActionState(queueForBankUpload, undefined);
@@ -670,6 +673,12 @@ export default function InstallmentActions({
               )}
             </div>
           </div>
+
+          {chosen?.guidance && (
+            <p className="mt-2 rounded-md bg-zinc-50 px-2.5 py-2 text-xs leading-relaxed text-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300">
+              {chosen.guidance}
+            </p>
+          )}
           <div className="mt-2 flex items-center gap-2">
             <button
               type="submit"

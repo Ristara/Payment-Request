@@ -14,6 +14,10 @@ export type TdsSection = {
   name: string;
   rate: number | null;
   is_active: boolean;
+  /** The Income-tax Act 2025 citation a TDS return actually needs. */
+  statutory_ref: string | null;
+  /** Shown to Accounts under the dropdown when this section is chosen. */
+  guidance: string | null;
 };
 
 const FIELD =
@@ -76,9 +80,30 @@ export default function TdsSectionsForm({
             {createPending ? "Adding…" : "Add section"}
           </button>
         </div>
+        <div className="sm:col-span-4">
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            Statutory reference (optional)
+          </label>
+          <input
+            name="statutory_ref"
+            placeholder="s.393(1) Table Sl. No. 6(iii)"
+            className={FIELD}
+          />
+        </div>
+        <div className="sm:col-span-4">
+          <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            Note for Accounts (optional)
+          </label>
+          <textarea
+            name="guidance"
+            rows={2}
+            placeholder="When to use this section, the threshold, anything easy to get wrong."
+            className={FIELD}
+          />
+        </div>
         <p className="text-xs text-zinc-500 sm:col-span-4">
-          The rate is optional and only pre-fills the amount for Accounts — they
-          can always type a different figure, which matters when TDS is worked
+          The rate fills the TDS amount in for Accounts the moment they pick the
+          section. They can still type over it, which matters when TDS is worked
           out on the value before GST.
         </p>
         {createState?.error && (
@@ -129,6 +154,23 @@ export default function TdsSectionsForm({
                     placeholder="—"
                     className={`${FIELD} tabular-nums`}
                   />
+                  <div className="sm:col-span-4">
+                    <input
+                      name="statutory_ref"
+                      defaultValue={s.statutory_ref ?? ""}
+                      placeholder="Statutory reference"
+                      className={FIELD}
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <textarea
+                      name="guidance"
+                      rows={2}
+                      defaultValue={s.guidance ?? ""}
+                      placeholder="Note for Accounts"
+                      className={FIELD}
+                    />
+                  </div>
                   <div className="flex items-end gap-2">
                     <button
                       type="submit"
@@ -194,6 +236,16 @@ export default function TdsSectionsForm({
                         Delete
                       </button>
                     </form>
+                  )}
+                  {(s.statutory_ref || s.guidance) && (
+                    <div className="w-full space-y-0.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                      {s.statutory_ref && (
+                        <p className="font-mono text-xs text-zinc-400">{s.statutory_ref}</p>
+                      )}
+                      {s.guidance && (
+                        <p className="text-xs text-zinc-500">{s.guidance}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

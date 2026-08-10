@@ -606,7 +606,9 @@ function readTdsSection(formData: FormData) {
   if (rate !== null && (!Number.isFinite(rate) || rate < 0 || rate > 100)) {
     return { error: "Rate must be between 0 and 100." as const };
   }
-  return { code, name, rate };
+  const statutory_ref = String(formData.get("statutory_ref") ?? "").trim() || null;
+  const guidance = String(formData.get("guidance") ?? "").trim() || null;
+  return { code, name, rate, statutory_ref, guidance };
 }
 
 export async function createTdsSection(
