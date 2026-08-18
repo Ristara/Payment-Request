@@ -372,6 +372,40 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
     await as(ADMIN, "insert into public.tds_sections (code, name, rate) values ('194VV','bad', 150)"));
 }
 
+// --- Vendor deletion --------------------------------------------------------
+// Admins can delete a vendor, but only through the server action, which gates
+// on the role in TypeScript and then uses the service-role client. There is no
+// permissive DELETE policy, so nobody — admin included — can reach around the
+// action and delete straight from the client.
+{
+  const VADMIN = await makeUser("vendoradmin", ["admin"]);
+
+  check("vendor delete: accounts cannot delete directly", "BLOCKED",
+    await as(ACCOUNTS, "delete from public.vendors where id=$1", [vendorApproved]));
+  check("vendor delete: a requester cannot delete directly", "BLOCKED",
+    await as(REQUESTER, "delete from public.vendors where id=$1", [vendorApproved]));
+  // The interesting one: the person who IS allowed to do this still cannot do
+  // it from the client, because the guards live in the action.
+  check("vendor delete: not even an admin can delete directly", "BLOCKED",
+    await as(VADMIN, "delete from public.vendors where id=$1", [vendorApproved]));
+
+  // And the last line of defence, which holds no matter who is asking: a
+  // vendor carrying payment history cannot be deleted at all. This is the
+  // constraint the action turns into a readable sentence.
+  const t = await makeThread("approved");
+  let restricted = "ALLOWED";
+  await c.query("savepoint fkchk");
+  try {
+    await c.query("delete from public.vendors where id=$1", [vendorApproved]);
+    await c.query("rollback to savepoint fkchk");
+  } catch {
+    await c.query("rollback to savepoint fkchk");
+    restricted = "BLOCKED";
+  }
+  check("vendor delete: a vendor with payment requests is refused (FK RESTRICT)", "BLOCKED", restricted);
+  void t;
+}
+
 await c.query("rollback");
 // Nothing should be left, but if a future edit strays past the rollback this
 // is what stops it reaching the user list.

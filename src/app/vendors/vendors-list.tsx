@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { VENDOR_STATUS_LABEL } from "@/lib/routing";
+import DeleteVendor from "./delete-vendor";
 
 export type VendorListItem = {
   id: string;
@@ -18,7 +19,15 @@ export type VendorListItem = {
  * small (tens to low hundreds), so filtering in the browser is instant
  * and needs no Search button or server round-trip.
  */
-export default function VendorsList({ vendors }: { vendors: VendorListItem[] }) {
+export default function VendorsList({
+  vendors,
+  isAdmin = false,
+}: {
+  vendors: VendorListItem[];
+  /** Delete is admin-only, and re-checked in the action — a hidden button is
+      not a permission. */
+  isAdmin?: boolean;
+}) {
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
@@ -98,6 +107,13 @@ export default function VendorsList({ vendors }: { vendors: VendorListItem[] }) 
                     Submitted by {v.submitter_name ?? "—"}
                   </p>
                 </Link>
+                {/* Outside the Link on purpose — nested inside it, tapping
+                    Delete would open the vendor instead. */}
+                {isAdmin && (
+                  <div className="mt-2 flex justify-end px-1">
+                    <DeleteVendor id={v.id} name={v.name} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -113,6 +129,7 @@ export default function VendorsList({ vendors }: { vendors: VendorListItem[] }) 
                     <th className="px-5 py-3">PAN</th>
                     <th className="px-5 py-3">Submitted by</th>
                     <th className="px-5 py-3">Status</th>
+                    {isAdmin && <th className="px-5 py-3"></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -132,6 +149,11 @@ export default function VendorsList({ vendors }: { vendors: VendorListItem[] }) 
                       <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{v.pan}</td>
                       <td className="px-5 py-3 text-zinc-600 dark:text-zinc-400">{v.submitter_name ?? "—"}</td>
                       <td className="px-5 py-3"><VendorStatusPill status={v.status} /></td>
+                      {isAdmin && (
+                        <td className="px-5 py-3 text-right">
+                          <DeleteVendor id={v.id} name={v.name} />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

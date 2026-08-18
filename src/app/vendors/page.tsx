@@ -22,6 +22,7 @@ export default async function VendorsPage({
   await requireUser();
   const { roles } = await getCurrentUserRoles();
   const canApproveVendors = roles.includes("accounts") || roles.includes("admin");
+  const isAdmin = roles.includes("admin");
 
   const supabase = await createClient();
   const { status = "all" } = await searchParams;
@@ -94,7 +95,7 @@ export default async function VendorsPage({
         })}
       </div>
 
-      <VendorsList vendors={vendors} />
+      <VendorsList vendors={vendors} isAdmin={isAdmin} />
     </div>
   );
 }

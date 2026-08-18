@@ -712,3 +712,96 @@ export async function deleteTdsSection(
   revalidatePath("/admin/tds");
   return { info: "Removed." };
 }
+
+// ---------------------------------------------------------------------------
+// Vendors
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a vendor outright — admin only.
+ *
+ * For clearing out junk: duplicates, typos, test rows, someone added twice.
+ * NOT a way to retire a vendor you have actually paid. A vendor carrying
+ * payment requests is refused, because deleting it would mean deleting the
+ * payments too; the FK is ON DELETE RESTRICT so the database would refuse
+ * anyway, and this turns that into a sentence rather than a constraint error.
+ *
+ * Procurement requests are refused for a different reason: that FK is
+ * ON DELETE SET NULL, so the delete would quietly succeed and leave a
+ * procurement request whose PO vendor had silently become blank.
+ */
+export async function deleteVendor(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing vendor." };
+
+  const admin = createAdminClient();
+  const { data: row } = await admin
+    .from("vendors")
+    .select("name, cancelled_cheque_path")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { error: "Vendor not found — it may already be deleted." };
+  const vendor = row as { name: string; cancelled_cheque_path: string | null };
+
+  const [{ count: reqCount }, { count: procCount }] = await Promise.all([
+    admin.from("payment_requests").select("id", { count: "exact", head: true }).eq("vendor_id", id),
+    admin
+      .from("procurement_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("po_vendor_id", id),
+  ]);
+  if ((reqCount ?? 0) > 0) {
+    return {
+      error: `${vendor.name} is on ${reqCount} payment request${
+        reqCount === 1 ? "" : "s"
+      } — deleting it would take that payment history with it. Reject the vendor instead.`,
+    };
+  }
+  if ((procCount ?? 0) > 0) {
+    return {
+      error: `${vendor.name} is the PO vendor on ${procCount} procurement request${
+        procCount === 1 ? "" : "s"
+      }. Change those first, or they'd be left with no vendor.`,
+    };
+  }
+
+  // Read the file paths BEFORE the delete: the attachment rows cascade away
+  // with the vendor, and once they are gone nothing points at the files.
+  const { data: atts } = await admin
+    .from("attachments")
+    .select("storage_path")
+    .eq("vendor_id", id);
+  const paths = [
+    ...((atts ?? []) as { storage_path: string }[]).map((a) => a.storage_path),
+    ...(vendor.cancelled_cheque_path ? [vendor.cancelled_cheque_path] : []),
+  ].filter(Boolean);
+
+  // Row first, files second. The other way round, a delete that then failed
+  // would leave the vendor in place with its documents already destroyed.
+  const { error } = await admin.from("vendors").delete().eq("id", id);
+  if (error) {
+    return error.code === "23503"
+      ? { error: `${vendor.name} is still referenced somewhere, so it can't be deleted.` }
+      : { error: error.message };
+  }
+
+  const unique = [...new Set(paths)];
+  let orphaned = false;
+  if (unique.length > 0) {
+    const { error: rmErr } = await admin.storage.from("vendor-docs").remove(unique);
+    orphaned = !!rmErr;
+  }
+
+  invalidateMasters();
+  revalidatePath("/vendors");
+  return {
+    info: orphaned
+      ? `${vendor.name} deleted, but its files couldn't be removed from storage.`
+      : `${vendor.name} deleted.`,
+  };
+}
