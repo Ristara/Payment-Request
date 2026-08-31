@@ -140,7 +140,17 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
   const CHIP =
     "inline-flex items-center gap-1 rounded-full bg-indigo-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200";
 
-  function DropZone({ zone }: { zone: Zone }) {
+  // Render helpers, CALLED rather than mounted as <DropZone /> / <FilterValues />.
+  //
+  // Declared inside PivotReport, they get a new function identity on every
+  // render. React compares component types by identity, so as a JSX element
+  // each keystroke in the search box unmounted the whole panel and mounted a
+  // fresh one — a brand-new <input> that could not hold focus. Typing worked
+  // for exactly one character at a time.
+  //
+  // Calling them inlines the elements they return, so there is no component
+  // boundary to remount. They use no hooks, which is what makes that safe.
+  function dropZone(zone: Zone) {
     const fields = zones[zone];
     return (
       <div
@@ -246,7 +256,7 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
    * Ticking edits a draft and nothing moves until Apply. Deliberately no
    * auto-apply: the point of holding the change is that you can pick five
    * outlets without the table rebuilding four times on the way. */
-  function FilterValues() {
+  function filterValues() {
     if (!openFilter || !zones.filters.includes(openFilter)) return null;
     const field = openFilter;
     const vals = valuesOf[field] ?? [];
@@ -364,12 +374,12 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
           field palette. Every field is one + away, and a list of chips that
           only existed to be dragged out of was a box earning no space. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <DropZone zone="rows" />
-        <DropZone zone="cols" />
-        <DropZone zone="filters" />
+        {dropZone("rows")}
+        {dropZone("cols")}
+        {dropZone("filters")}
       </div>
 
-      <FilterValues />
+      {filterValues()}
 
       {/* The table */}
       <section className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
