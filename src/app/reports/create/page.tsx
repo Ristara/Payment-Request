@@ -142,37 +142,12 @@ export default async function SpendReportPage({
         </p>
       </div>
 
-      <form className="mt-6 flex flex-wrap items-end gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div>
-          <label className="block text-xs text-zinc-500">From</label>
-          <input
-            name="from"
-            type="date"
-            defaultValue={from}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-zinc-500">To</label>
-          <input
-            name="to"
-            type="date"
-            defaultValue={to}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          />
-        </div>
-        <button className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">
-          Apply
-        </button>
-        <p className="w-full text-xs text-zinc-500 sm:w-auto sm:self-center">
-          The date range is fetched from the server. Everything below it rearranges instantly.
-        </p>
-      </form>
 
       <PivotReport
         rows={rows}
         from={from}
         to={to}
+        savedId={savedReport?.id ?? null}
         savedName={savedReport?.name ?? null}
         initial={savedReport?.config as never}
       />

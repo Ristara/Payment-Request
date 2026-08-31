@@ -59,6 +59,7 @@ export default function PivotReport({
   from,
   to,
   savedName = null,
+  savedId = null,
   initial,
 }: {
   rows: PivotRow[];
@@ -66,6 +67,8 @@ export default function PivotReport({
   from?: string;
   to?: string;
   savedName?: string | null;
+  /** Kept on the date form so applying a range doesn't lose the favourite. */
+  savedId?: string | null;
   initial?: {
     rows?: FieldKey[];
     cols?: FieldKey[];
@@ -391,7 +394,39 @@ export default function PivotReport({
 
   return (
     <div className="mt-6">
-      <SaveBar config={{ ...zones, excluded, from, to }} savedName={savedName} />
+      {/* Date range and Save in one row. The range is the only thing that
+          goes back to the server, so the two controls that reload or persist
+          the report sit together, above everything that is instant. */}
+      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <form className="flex flex-wrap items-end gap-3">
+          {/* Without this, applying a date range drops ?saved and the page
+              forgets which favourite you had open. */}
+          {savedId && <input type="hidden" name="saved" value={savedId} />}
+          <div>
+            <label className="block text-xs text-zinc-500">From</label>
+            <input
+              name="from"
+              type="date"
+              defaultValue={from}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500">To</label>
+            <input
+              name="to"
+              type="date"
+              defaultValue={to}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+          <button className="rounded-md border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
+            Apply
+          </button>
+        </form>
+
+        <SaveBar config={{ ...zones, excluded, from, to }} savedName={savedName} />
+      </div>
 
       {/* The three zones, full width and below the date range — no separate
           field palette. Every field is one + away, and a list of chips that
@@ -510,7 +545,7 @@ function SaveBar({
   // has been pressed.
   if (!naming) {
     return (
-      <div className="mb-3 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => setNaming(true)}
@@ -528,7 +563,7 @@ function SaveBar({
   return (
     <form
       action={action}
-      className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+      className="flex flex-wrap items-center gap-2"
     >
       {/* The whole arrangement travels as one JSON field: it is one thing
           conceptually, and a form per zone would let half a layout save. */}
