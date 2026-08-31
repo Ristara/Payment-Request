@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { setUserPassword } from "@/app/admin/actions";
 
 /**
@@ -18,29 +18,35 @@ export default function SetPassword({
   userId,
   name,
   isSelf,
+  open,
+  onOpen,
+  onClose,
 }: {
   userId: string;
   name: string;
   isSelf: boolean;
+  /** Owned by the parent so only one panel on the page is ever open. */
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(setUserPassword, undefined);
-  const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (state?.info) {
-      setOpen(false);
+      onClose();
       // Don't leave the typed password sitting in the DOM once it has landed.
       formRef.current?.reset();
     }
-  }, [state?.info]);
+  }, [state?.info, onClose]);
 
   if (!open) {
     return (
       <div className="mt-3">
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={onOpen}
           className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
         >
           Set password
@@ -95,7 +101,7 @@ export default function SetPassword({
             type="button"
             onClick={() => {
               formRef.current?.reset();
-              setOpen(false);
+              onClose();
             }}
             className="text-xs font-medium text-zinc-500 hover:underline"
           >

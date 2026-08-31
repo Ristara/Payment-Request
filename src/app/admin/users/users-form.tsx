@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useCallback, useMemo, useState } from "react";
 import { assignRole, createUser, deactivateUser, reactivateUser, removeRole } from "@/app/admin/actions";
 import { ROLE_LABEL, formatINR } from "@/lib/types";
 import AccessCell, { type Outlet } from "./access-cell";
@@ -43,6 +43,13 @@ export default function UsersForm({
   moduleByUser: Record<string, RaiseModule[]>;
 }) {
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
+  // Which single panel is open, across the whole list. Each used to keep its
+  // own flag, so opening a second left the first expanded and the page turned
+  // into a wall of checkboxes.
+  const [panel, setPanel] = useState<{ userId: string; kind: "access" | "password" } | null>(null);
+  // Stable identity: SetPassword closes itself from an effect, and a fresh
+  // arrow each render would re-run that effect on every render.
+  const closePanel = useCallback(() => setPanel(null), []);
   // Kept in state so a failed submit doesn't wipe what was typed.
   const [fullName, setFullName] = useState("");
   const [emailLocal, setEmailLocal] = useState("");
@@ -247,6 +254,10 @@ export default function UsersForm({
 
                   <div className="mt-3">
                     <AccessCell
+                      open={panel?.userId === u.id && panel.kind === "access"}
+                      onOpen={() => setPanel({ userId: u.id, kind: "access" })}
+                      onClose={closePanel}
+                      name={u.full_name}
                       userId={u.id}
                       outlets={outlets}
                       branchIds={branchByUser[u.id] ?? []}
@@ -257,6 +268,9 @@ export default function UsersForm({
                   </div>
 
                   <SetPassword
+                    open={panel?.userId === u.id && panel.kind === "password"}
+                    onOpen={() => setPanel({ userId: u.id, kind: "password" })}
+                    onClose={closePanel}
                     userId={u.id}
                     name={u.full_name}
                     isSelf={u.id === currentUserId}
