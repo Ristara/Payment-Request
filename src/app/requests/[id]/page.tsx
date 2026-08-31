@@ -7,6 +7,7 @@ import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { STATUS_LABEL, formatINR, amountStillToPay, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
 import { formatDateOnly, formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
+import EditRequestDetails from "./edit-request-details";
 import DeleteRequest from "./delete-request";
 import RaiseInstallmentPanel from "./raise-installment";
 import MarkRead from "./mark-read";
@@ -33,11 +34,12 @@ type ThreadRow = {
   document_type: "po" | "invoice" | "no_invoice" | "invoice_pending" | null;
   document_reference: string | null;
   payment_kind: "regular" | "milestone" | null;
+  expense_type: "capex" | "opex";
   purpose: string;
   created_at: string;
   submitter: { full_name: string; email: string } | null;
   vendor: { name: string; gstin: string | null; status: string; bank_account_number: string | null; bank_ifsc: string | null } | null;
-  outlets: { outlet: { name: string; code: string } | null }[];
+  outlets: { outlet_id: string; outlet: { name: string; code: string } | null }[];
 };
 
 type LineItemRow = {
@@ -99,15 +101,15 @@ export default async function ThreadDetailPage({
 
   // One parallel wave — every query filters by the route id alone, so the
   // main thread row doesn't need to resolve first.
-  const [threadRes, instRes, historyRes, attRes, commentRes, mentionCandRes, coaRes, lineRes] = await Promise.all([
+  const [threadRes, instRes, historyRes, attRes, commentRes, mentionCandRes, coaRes, lineRes, outletRes, editableRes] = await Promise.all([
     supabase
       .from("payment_requests")
       .select(
         `id, request_number, title, submitter_id, vendor_id,
-         document_type, document_reference, payment_kind, purpose, created_at,
+         document_type, document_reference, payment_kind, expense_type, purpose, created_at,
          submitter:profiles!payment_requests_submitter_id_fkey(full_name, email),
          vendor:vendors(name, gstin, status, bank_account_number, bank_ifsc),
-         outlets:request_outlets(outlet:outlets(name, code))`,
+         outlets:request_outlets(outlet_id, outlet:outlets(name, code))`,
       )
       .eq("id", id)
       .maybeSingle(),
@@ -146,7 +148,7 @@ export default async function ThreadDetailPage({
     supabase.from("profiles").select("id, full_name, email").eq("is_active", true).order("full_name"),
     supabase
       .from("coa_accounts")
-      .select("id, subcategory, category, coa")
+      .select("id, subcategory, category, coa, expense_type")
       .eq("is_active", true)
       .order("coa"),
     supabase
@@ -157,6 +159,10 @@ export default async function ThreadDetailPage({
       )
       .eq("request_id", id)
       .order("sort_order"),
+    supabase.from("outlets").select("id, name, stage").eq("is_active", true).order("name"),
+    // The same gate RLS uses, asked once so the button can be shown or not
+    // for the same reason the write would succeed or fail.
+    supabase.rpc("thread_is_editable", { p_request_id: id }),
   ]);
 
   if (!threadRes.data) notFound();
@@ -410,6 +416,26 @@ export default async function ThreadDetailPage({
                 </span>
               ))}
             </div>
+          )}
+
+          {editableRes.data === true && (
+            <EditRequestDetails
+              requestId={req.id}
+              title={req.title ?? ""}
+              expenseType={req.expense_type}
+              paymentKind={req.payment_kind ?? "regular"}
+              outletId={req.outlets[0]?.outlet_id ?? null}
+              outlets={(outletRes.data ?? []) as { id: string; name: string; stage: string }[]}
+              coaAccounts={
+                (coaRes.data ?? []) as {
+                  id: string;
+                  subcategory: string;
+                  category: string;
+                  coa: string;
+                  expense_type: string;
+                }[]
+              }
+            />
           )}
         </div>
         <div className="sm:text-right">

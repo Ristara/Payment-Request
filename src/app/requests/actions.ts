@@ -2636,3 +2636,158 @@ export async function setInstallmentTds(
     info: tds > 0 ? `TDS set — vendor gets ${formatExactAmount(requested - tds)}.` : "TDS cleared.",
   };
 }
+
+/**
+ * Edit the top of a request after it has been raised — title, expense type,
+ * what the payment is for, payment kind, and the outlet.
+ *
+ * Until now only the account category could be changed, so a request raised
+ * as CapEx when it should have been OpEx, or against the wrong outlet, had to
+ * be withdrawn and re-raised under a new number.
+ *
+ * WHO AND WHEN is not a new rule: thread_is_editable() already decides it, and
+ * is the same gate RLS applies to this table. Approver, accounts and admin any
+ * time; the person who raised it only while nothing has been approved yet.
+ * Checked here for a sentence rather than a silent no-op, and enforced again
+ * by RLS on the write.
+ */
+export async function updateRequestDetails(
+  _prev: RequestState,
+  formData: FormData,
+): Promise<RequestState> {
+  const requestId = String(formData.get("request_id") ?? "");
+  if (!requestId) return { error: "Missing request." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: editable } = await supabase.rpc("thread_is_editable", {
+    p_request_id: requestId,
+  });
+  if (editable !== true) {
+    return { error: "This request has been approved — its details can't be changed now." };
+  }
+
+  const title = String(formData.get("title") ?? "").trim();
+  const expenseType = String(formData.get("expense_type") ?? "");
+  const paymentKind = String(formData.get("payment_kind") ?? "");
+  const outletId = String(formData.get("outlet_id") ?? "");
+  const coaAccountId = String(formData.get("coa_account_id") ?? "").trim();
+
+  if (!title) return { error: "Title can't be empty." };
+  if (title.length > 140) return { error: "Title is too long." };
+  if (!["capex", "opex"].includes(expenseType)) return { error: "Pick CapEx or OpEx." };
+  if (!["regular", "milestone"].includes(paymentKind)) {
+    return { error: "Pick a payment kind — Regular or Milestone." };
+  }
+  if (!outletId) return { error: "Pick an outlet." };
+
+  const admin = createAdminClient();
+  const { data: before } = await admin
+    .from("payment_requests")
+    .select("expense_type, payment_kind, title")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (!before) return { error: "Request not found." };
+  const wasExpense = (before as { expense_type: string }).expense_type;
+
+  // OpEx is always an existing outlet — the raise form does not even offer the
+  // choice, so an edit must not be a way round it.
+  const { data: outletRow } = await admin
+    .from("outlets")
+    .select("id, name, stage, is_active")
+    .eq("id", outletId)
+    .maybeSingle();
+  const outlet = outletRow as { name: string; stage: string; is_active: boolean } | null;
+  if (!outlet) return { error: "That outlet no longer exists." };
+  if (!outlet.is_active) return { error: `${outlet.name} is inactive — pick another outlet.` };
+  if (expenseType === "opex" && outlet.stage !== "operational") {
+    return { error: `OpEx has to sit on an operational outlet. ${outlet.name} is an upcoming store.` };
+  }
+
+  // Switching CapEx <-> OpEx invalidates the account: the two have separate
+  // charts, so whatever was chosen under the old one is meaningless under the
+  // new one. The form makes you pick again; this refuses to save if it didn't.
+  const expenseChanged = expenseType !== wasExpense;
+  if (expenseChanged) {
+    if (!coaAccountId) {
+      return { error: `Choose an account from the ${expenseType === "opex" ? "OpEx" : "CapEx"} chart — the old one belongs to the other chart.` };
+    }
+    const { data: target } = await admin
+      .from("coa_accounts")
+      .select("id, subcategory, category, coa, expense_type, is_active")
+      .eq("id", coaAccountId)
+      .maybeSingle();
+    const acct = target as
+      | { id: string; subcategory: string; category: string; coa: string; expense_type: string; is_active: boolean }
+      | null;
+    if (!acct) return { error: "That account doesn't exist." };
+    if (!acct.is_active) return { error: "That account is inactive. Pick an active one." };
+    if (acct.expense_type !== expenseType) {
+      return { error: "That account belongs to the other chart. Pick one from this chart." };
+    }
+    const { data: siblings } = await admin
+      .from("coa_accounts")
+      .select("id, subcategory, category, coa")
+      .eq("coa", acct.coa)
+      .eq("is_active", true);
+    const rollups = computeRollupIds(
+      (siblings ?? []) as { id: string; subcategory: string; category: string; coa: string }[],
+    );
+    if (rollups.has(acct.id)) {
+      return {
+        error: `"${acct.subcategory}" is a group, not a spendable subcategory. Pick one of its children.`,
+      };
+    }
+  }
+
+  // The write goes through the user's own client, so RLS re-applies
+  // thread_is_editable. If the check above raced an approval, this refuses.
+  const { error: upErr } = await supabase
+    .from("payment_requests")
+    .update({
+      title,
+      expense_type: expenseType,
+      payment_kind: paymentKind,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", requestId);
+  if (upErr) return { error: upErr.message };
+
+  if (expenseChanged) {
+    const { error: lineErr } = await supabase
+      .from("request_line_items")
+      .update({ coa_account_id: coaAccountId })
+      .eq("request_id", requestId);
+    if (lineErr) return { error: `Details saved but the account didn't: ${lineErr.message}` };
+    await admin.from("coa_override_log").insert({
+      request_id: requestId,
+      actor_id: user.id,
+      reason: `Expense type changed ${wasExpense} → ${expenseType}; account re-picked`,
+    });
+  }
+
+  // Moved in place rather than deleted and re-inserted. These are two separate
+  // round trips, not one transaction, so a delete that succeeded followed by an
+  // insert that failed would leave the request with NO outlet at all — worse
+  // than the wrong one, and invisible until someone opened it.
+  const { data: swapped, error: swapErr } = await supabase
+    .from("request_outlets")
+    .update({ outlet_id: outletId })
+    .eq("request_id", requestId)
+    .select("outlet_id");
+  if (swapErr) return { error: `Couldn't change the outlet: ${swapErr.message}` };
+  if ((swapped ?? []).length === 0) {
+    // Nothing to move — an older request raised without one.
+    const { error: insErr } = await supabase
+      .from("request_outlets")
+      .insert({ request_id: requestId, outlet_id: outletId });
+    if (insErr) return { error: `Couldn't set the outlet: ${insErr.message}` };
+  }
+
+  revalidatePath(`/requests/${requestId}`);
+  revalidatePath("/requests");
+  revalidatePath("/approvals");
+  return { info: "Request details updated." };
+}

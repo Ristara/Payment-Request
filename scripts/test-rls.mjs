@@ -406,6 +406,65 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
   void t;
 }
 
+// --- Editing a request's details after it is raised -------------------------
+// Title, expense type, payment kind and outlet became editable. The rule is
+// not new — thread_is_editable() already governed this table — so these pin
+// down that the new form obeys it rather than inventing a second rule.
+{
+  const pre = await makeThread("pending_approval");
+  const post = await makeThread("approved");
+  // makeThread does not attach an outlet, and without one the delete matches
+  // nothing — which reads as BLOCKED whether or not permission exists, and
+  // makes the "cannot" assertion below pass for the wrong reason.
+  for (const t of [pre, post]) {
+    await c.query(
+      `insert into request_outlets (request_id, outlet_id)
+       select $1, id from outlets where is_active limit 1`, [t.rid]);
+  }
+
+  check("edit details: submitter can retitle before approval", "ALLOWED",
+    await as(REQUESTER, "update public.payment_requests set title='Retitled' where id=$1", [pre.rid]));
+  check("edit details: submitter can switch CapEx/OpEx before approval", "ALLOWED",
+    await as(REQUESTER, "update public.payment_requests set expense_type='opex' where id=$1", [pre.rid]));
+  check("edit details: submitter can change payment kind before approval", "ALLOWED",
+    await as(REQUESTER, "update public.payment_requests set payment_kind='milestone' where id=$1", [pre.rid]));
+  // The outlet swap is a delete+insert, so BOTH halves have to be permitted —
+  // if only the insert were, the request would end up with two outlets rather
+  // than a changed one.
+  check("edit details: submitter can drop the old outlet before approval", "ALLOWED",
+    await as(REQUESTER, "delete from public.request_outlets where request_id=$1", [pre.rid]));
+  check("edit details: submitter can move it to another outlet before approval", "ALLOWED",
+    await as(REQUESTER,
+      `update request_outlets set outlet_id =
+         (select id from outlets where is_active order by id offset 1 limit 1)
+        where request_id=$1`, [pre.rid]));
+  check("edit details: submitter cannot move the outlet once approved", "BLOCKED",
+    await as(REQUESTER,
+      `update request_outlets set outlet_id =
+         (select id from outlets where is_active order by id offset 1 limit 1)
+        where request_id=$1`, [post.rid]));
+  check("edit details: submitter can re-point the account before approval", "ALLOWED",
+    await as(REQUESTER,
+      `update public.request_line_items set coa_account_id =
+         (select id from coa_accounts where is_active limit 1) where request_id=$1`, [pre.rid]));
+
+  check("edit details: submitter cannot retitle once approved", "BLOCKED",
+    await as(REQUESTER, "update public.payment_requests set title='Nope' where id=$1", [post.rid]));
+  check("edit details: submitter cannot switch CapEx/OpEx once approved", "BLOCKED",
+    await as(REQUESTER, "update public.payment_requests set expense_type='opex' where id=$1", [post.rid]));
+  check("edit details: submitter cannot swap the outlet once approved", "BLOCKED",
+    await as(REQUESTER, "delete from public.request_outlets where request_id=$1", [post.rid]));
+
+  // Accounts and approvers can still correct a miscoded request after it has
+  // been approved — that is the existing rule, not something this added.
+  check("edit details: accounts can still fix an approved request", "ALLOWED",
+    await as(ACCOUNTS, "update public.payment_requests set title='Corrected' where id=$1", [post.rid]));
+
+  // Someone with no connection to the request never gets in, at any stage.
+  check("edit details: an outsider cannot retitle a pending request", "BLOCKED",
+    await as(NOBODY, "update public.payment_requests set title='Nope' where id=$1", [pre.rid]));
+}
+
 await c.query("rollback");
 // Nothing should be left, but if a future edit strays past the rollback this
 // is what stops it reaching the user list.
