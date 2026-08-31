@@ -1,0 +1,11 @@
+-- A fifth document type: a proforma invoice, quotation or estimate.
+--
+-- These are what a vendor sends BEFORE the work, and they are what an advance
+-- gets paid against. Until now the only honest option was "Invoice Yet to
+-- Receive", which threw away the fact that a priced document exists and has a
+-- number worth recording.
+--
+-- Like "Invoice Yet to Receive", a real invoice is still owed, so this carries
+-- the same tentative-invoice-date requirement and shows up in the same chase.
+-- Unlike it, it has a reference number, so the document number field stays on.
+alter type document_type add value if not exists 'pi_quote';

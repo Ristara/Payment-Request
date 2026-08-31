@@ -288,7 +288,7 @@ export async function createThread(
   const title = String(formData.get("title") ?? "").trim().slice(0, 200);
   const outlet_ids = formData.getAll("outlet_ids").map((s) => String(s)).filter(Boolean);
   const document_type = String(formData.get("document_type") ?? "") as
-    | "po" | "invoice" | "no_invoice" | "invoice_pending" | "";
+    | "po" | "invoice" | "no_invoice" | "invoice_pending" | "pi_quote" | "";
   const document_reference = String(formData.get("document_reference") ?? "").trim() || null;
   const payment_kind = String(formData.get("payment_kind") ?? "") as "regular" | "milestone" | "";
   const expenseRaw = String(formData.get("expense_type") ?? "capex");
@@ -342,10 +342,23 @@ export async function createThread(
     }
   }
   if (!document_type) return { error: "Pick a document type." };
-  if ((document_type === "po" || document_type === "invoice") && !document_reference) {
-    return { error: `Enter the ${document_type === "po" ? "PO" : "invoice"} number.` };
+  // A PI, quotation or estimate carries a number too, so it is kept and
+  // required like the other two. Listed in one place because the check and
+  // the write below have to agree — disagreeing would take the number from
+  // the user and then throw it away.
+  const numberedDocs = ["po", "invoice", "pi_quote"];
+  if (numberedDocs.includes(document_type) && !document_reference) {
+    const what =
+      document_type === "po" ? "PO" : document_type === "invoice" ? "invoice" : "PI / quote";
+    return { error: `Enter the ${what} number.` };
   }
-  const tentativeRequired = document_type === "po" || document_type === "invoice_pending";
+  // A PI, quotation or estimate is priced but is not the invoice — the real
+  // one is still owed, exactly as with "Invoice Yet to Receive", so it needs
+  // the same expected date to be chased against.
+  const tentativeRequired =
+    document_type === "po" ||
+    document_type === "invoice_pending" ||
+    document_type === "pi_quote";
   if (tentativeRequired && !tentative_invoice_date) {
     return { error: "Tentative invoice date is required for PO / Invoice yet to receive." };
   }
@@ -419,8 +432,7 @@ export async function createThread(
       vendor_id,
       expense_type,
       document_type,
-      document_reference:
-        document_type === "po" || document_type === "invoice" ? document_reference : null,
+      document_reference: numberedDocs.includes(document_type) ? document_reference : null,
       payment_kind,
       purpose,
     })

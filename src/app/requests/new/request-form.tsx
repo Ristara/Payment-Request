@@ -95,7 +95,7 @@ export default function RequestForm({
     () => coaAccounts.filter((a) => a.expense_type === expenseType),
     [coaAccounts, expenseType],
   );
-  const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending">("");
+  const [docType, setDocType] = useState<"" | "po" | "invoice" | "no_invoice" | "invoice_pending" | "pi_quote">("");
   const [docRef, setDocRef] = useState("");
   const [tentativeInvoice, setTentativeInvoice] = useState("");
   // React resets an uncontrolled form when a server action runs, so every
@@ -109,15 +109,29 @@ export default function RequestForm({
   const [ccIds, setCcIds] = useState<string[]>([]);
   const ccPeople = people.filter((p) => ccIds.includes(p.id));
 
-  const refEnabled = docType === "po" || docType === "invoice";
+  const refEnabled = docType === "po" || docType === "invoice" || docType === "pi_quote";
   // "Invoice" says the invoice exists — so it has to be on the request. The
   // other document types are precisely the cases where there isn't one yet.
   const [attachmentCount, setAttachmentCount] = useState(0);
   const invoiceFileMissing = docType === "invoice" && attachmentCount === 0;
-  const refLabel = docType === "po" ? "PO number" : docType === "invoice" ? "Invoice number" : "Document number";
+  const refLabel =
+    docType === "po"
+      ? "PO number"
+      : docType === "invoice"
+        ? "Invoice number"
+        : docType === "pi_quote"
+          ? "PI / quote number"
+          : "Document number";
   const refPlaceholder =
-    docType === "po" ? "PO-2026-045" : docType === "invoice" ? "INV-2026-045" : "";
-  const tentativeEnabled = docType === "po" || docType === "invoice_pending";
+    docType === "po"
+      ? "PO-2026-045"
+      : docType === "invoice"
+        ? "INV-2026-045"
+        : docType === "pi_quote"
+          ? "PI-2026-045"
+          : "";
+  const tentativeEnabled =
+    docType === "po" || docType === "invoice_pending" || docType === "pi_quote";
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
 
@@ -444,7 +458,7 @@ export default function RequestForm({
               const v = e.target.value as typeof docType;
               setDocType(v);
               if (v === "no_invoice" || v === "invoice_pending") setDocRef("");
-              if (v !== "po" && v !== "invoice_pending") setTentativeInvoice("");
+              if (v !== "po" && v !== "invoice_pending" && v !== "pi_quote") setTentativeInvoice("");
             }}
             className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           >
@@ -453,6 +467,7 @@ export default function RequestForm({
             <option value="invoice">Invoice</option>
             <option value="no_invoice">No Invoice</option>
             <option value="invoice_pending">Invoice Yet to Receive</option>
+            <option value="pi_quote">PI / Quotation / Estimate</option>
           </select>
         </div>
         <div>

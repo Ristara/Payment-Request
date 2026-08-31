@@ -18,11 +18,12 @@ import EditLineItems from "./edit-line-items";
 import { deleteAttachment } from "@/app/requests/actions";
 import type { CommentItem, ThreadAttachment } from "./discussion";
 
-const DOC_TYPE_LABEL: Record<"po" | "invoice" | "no_invoice" | "invoice_pending", string> = {
+const DOC_TYPE_LABEL: Record<"po" | "invoice" | "no_invoice" | "invoice_pending" | "pi_quote", string> = {
   po: "PO",
   invoice: "Invoice",
   no_invoice: "No Invoice",
   invoice_pending: "Invoice Yet to Receive",
+  pi_quote: "PI / Quotation / Estimate",
 };
 
 type ThreadRow = {
@@ -31,7 +32,7 @@ type ThreadRow = {
   title: string | null;
   submitter_id: string;
   vendor_id: string;
-  document_type: "po" | "invoice" | "no_invoice" | "invoice_pending" | null;
+  document_type: "po" | "invoice" | "no_invoice" | "invoice_pending" | "pi_quote" | null;
   document_reference: string | null;
   payment_kind: "regular" | "milestone" | null;
   expense_type: "capex" | "opex";
