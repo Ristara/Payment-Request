@@ -63,6 +63,12 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
   const [dragging, setDragging] = useState<FieldKey | null>(null);
   const [adding, setAdding] = useState<Zone | null>(null);
   const [openFilter, setOpenFilter] = useState<FieldKey | null>(null);
+  // Ticking is a DRAFT until Apply, the way a spreadsheet does it. Applying on
+  // every tick makes the table jump under you while you are still choosing,
+  // and there is no way to say "these five" without seeing four wrong tables
+  // on the way there.
+  const [draft, setDraft] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
 
   const placed = new Set([...zones.rows, ...zones.cols, ...zones.filters]);
   const available = FIELDS.filter((f) => !placed.has(f.key));
@@ -198,7 +204,17 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
               {zone === "filters" && (
                 <button
                   type="button"
-                  onClick={() => setOpenFilter(openFilter === f ? null : f)}
+                  onClick={() => {
+                    if (openFilter === f) {
+                      setOpenFilter(null);
+                      return;
+                    }
+                    const vals = [...new Set(rows.map((r) => String(r[f])))].sort();
+                    const off = excluded[f] ?? [];
+                    setDraft(vals.filter((v) => !off.includes(v)));
+                    setSearch("");
+                    setOpenFilter(f);
+                  }}
                   aria-label={`Choose values for ${LABEL[f]}`}
                   className="rounded-full px-1 text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900"
                 >
@@ -225,77 +241,118 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
   /** The chosen filter's values, at full page width under the three zones.
    *
    * Not inside the Filters box: that box is a third of a row, and hunting for
-   * one outlet among nine in a quarter of the width at 11px was the whole
-   * complaint. Out here it gets the full width and normal type. */
+   * one outlet among nine in a quarter of the width was the whole complaint.
+   *
+   * Ticking edits a draft and nothing moves until Apply. Deliberately no
+   * auto-apply: the point of holding the change is that you can pick five
+   * outlets without the table rebuilding four times on the way. */
   function FilterValues() {
     if (!openFilter || !zones.filters.includes(openFilter)) return null;
     const field = openFilter;
     const vals = valuesOf[field] ?? [];
-    const off = excluded[field] ?? [];
-    const on = vals.length - off.length;
+    const q = search.trim().toLowerCase();
+    // Search narrows what is LISTED, never what is selected — typing then
+    // clearing the box must not quietly drop the ticks you cannot see.
+    const shown = q ? vals.filter((v) => v.toLowerCase().includes(q)) : vals;
+    const allShownPicked = shown.length > 0 && shown.every((v) => draft.includes(v));
+    const isFiltered = (excluded[field] ?? []).length > 0;
+    const toggle = (v: string) =>
+      setDraft((d) => (d.includes(v) ? d.filter((x) => x !== v) : [...d, v]));
 
     return (
-      <div className="mt-3 w-full rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mt-3 w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
-          <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-            {LABEL[field]}
-            <span className="ml-2 text-xs font-normal text-zinc-400">
-              {on} of {vals.length} shown
-            </span>
-          </p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setExcluded((ex) => ({ ...ex, [field]: [] }))}
-              className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => setExcluded((ex) => ({ ...ex, [field]: [...vals] }))}
-              className="text-xs font-medium text-zinc-500 hover:underline"
-            >
-              None
-            </button>
-            <button
-              type="button"
-              onClick={() => setOpenFilter(null)}
-              aria-label="Close the value list"
-              className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-            >
-              ✕
-            </button>
-          </div>
+          <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{LABEL[field]}</p>
+          <button
+            type="button"
+            onClick={() => setOpenFilter(null)}
+            aria-label="Close the value list"
+            className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+          >
+            ✕
+          </button>
         </div>
-        {/* Several across once there is room — nine outlets stacked in one
-            column is a scroll for no reason. */}
-        <div className="grid max-h-72 grid-cols-2 gap-x-6 overflow-y-auto p-4 sm:grid-cols-3 lg:grid-cols-4">
-          {vals.map((v) => {
-            const hidden = off.includes(v);
-            return (
+
+        <div className="p-3">
+          <div className="relative">
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search"
+              aria-label={`Search ${LABEL[field]} values`}
+              className="w-full rounded-md border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+
+          <div className="mt-2 max-h-64 overflow-y-auto pr-1">
+            <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:text-zinc-100 dark:hover:bg-zinc-800/60">
+              <input
+                type="checkbox"
+                checked={allShownPicked}
+                // Acts on what the search has left on screen, not the whole
+                // list — that is what makes "search, select all" useful.
+                onChange={() =>
+                  setDraft((d) =>
+                    allShownPicked
+                      ? d.filter((v) => !shown.includes(v))
+                      : [...new Set([...d, ...shown])],
+                  )
+                }
+                className="h-4 w-4 shrink-0"
+              />
+              (Select All)
+            </label>
+
+            {shown.length === 0 && (
+              <p className="px-1 py-2 text-sm text-zinc-400">No values match &ldquo;{search}&rdquo;.</p>
+            )}
+            {shown.map((v) => (
               <label
                 key={v}
                 className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
               >
                 <input
                   type="checkbox"
-                  checked={!hidden}
-                  onChange={() =>
-                    setExcluded((ex) => {
-                      const cur = ex[field] ?? [];
-                      return {
-                        ...ex,
-                        [field]: hidden ? cur.filter((x) => x !== v) : [...cur, v],
-                      };
-                    })
-                  }
+                  checked={draft.includes(v)}
+                  onChange={() => toggle(v)}
                   className="h-4 w-4 shrink-0"
                 />
                 <span className="truncate">{v}</span>
               </label>
-            );
-          })}
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+          <button
+            type="button"
+            disabled={!isFiltered}
+            onClick={() => {
+              setExcluded((ex) => ({ ...ex, [field]: [] }));
+              setOpenFilter(null);
+            }}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Clear Filter
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setExcluded((ex) => ({ ...ex, [field]: vals.filter((v) => !draft.includes(v)) }));
+              setOpenFilter(null);
+            }}
+            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            Apply Filter
+          </button>
         </div>
       </div>
     );
