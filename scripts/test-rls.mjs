@@ -513,6 +513,26 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
   }
 }
 
+// --- Deleting a procurement request -----------------------------------------
+// An admin can now remove one at any stage, matching their reach over payment
+// requests. Everyone else is still limited to something already dead. The rule
+// lives in the action rather than in RLS, so the action is what gets read.
+{
+  const fs = await import("node:fs");
+  const src = fs.readFileSync("src/app/procurement/actions.ts", "utf8");
+  const at = src.indexOf("export async function deleteProcurementRequest");
+  const body = src.slice(at, src.indexOf("\nexport async function", at + 1) + 1 || undefined);
+
+  check("procurement delete: still refuses a stranger", "ALLOWED",
+    /submitter_id !== user\.id && !isAdmin/.test(body) ? "ALLOWED" : "BLOCKED (ownership check gone)");
+  check("procurement delete: non-admins still limited to rejected/withdrawn", "ALLOWED",
+    /!isAdmin && !\["rejected", "cancelled"\]\.includes/.test(body)
+      ? "ALLOWED" : "BLOCKED (status limit gone)");
+  check("procurement delete: files are removed before the row", "ALLOWED",
+    body.indexOf("storage") < body.indexOf('from("procurement_requests").delete()')
+      ? "ALLOWED" : "BLOCKED (row deleted before its files)");
+}
+
 await c.query("rollback");
 // Nothing should be left, but if a future edit strays past the rollback this
 // is what stops it reaching the user list.

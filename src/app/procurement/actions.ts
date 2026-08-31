@@ -477,11 +477,21 @@ export async function deleteProcurementRequest(
       | { submitter_id: string; status: string; request_number: string }
       | null;
     if (!req) return { error: "That request no longer exists." };
-    if (req.submitter_id !== user.id && !roles.has("admin")) {
+    // An admin can remove any of these, at any stage — the same reach they
+    // have over payment requests. Nothing else in the database points at a
+    // procurement request except its own attachments and watchers, so there is
+    // no payment left orphaned by this.
+    const isAdmin = roles.has("admin");
+    if (req.submitter_id !== user.id && !isAdmin) {
       return { error: "Only the person who raised this can delete it." };
     }
-    if (!["rejected", "cancelled"].includes(req.status)) {
-      return { error: "Only rejected or withdrawn requests can be deleted." };
+    // For everyone else it stays what it was: a way to clear away something
+    // already dead, not a way to withdraw a live request by deleting it and
+    // leaving the approver wondering where it went.
+    if (!isAdmin && !["rejected", "cancelled"].includes(req.status)) {
+      return {
+        error: "Only rejected or withdrawn requests can be deleted. Ask an admin to remove this one.",
+      };
     }
 
     const { data: atts } = await admin

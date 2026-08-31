@@ -16,7 +16,16 @@ import { deleteProcurementRequest } from "@/app/procurement/actions";
  * vanishes from is still valid, and the whole class of problem goes away
  * rather than being timed around.
  */
-export default function DeleteProcurement({ id, number }: { id: string; number: string }) {
+export default function DeleteProcurement({
+  id,
+  number,
+  stillLive = false,
+}: {
+  id: string;
+  number: string;
+  /** Not rejected or withdrawn — an admin removing something in flight. */
+  stillLive?: boolean;
+}) {
   const [state, action, pending] = useActionState(deleteProcurementRequest, undefined);
   const [confirming, setConfirming] = useState(false);
 
@@ -39,7 +48,14 @@ export default function DeleteProcurement({ id, number }: { id: string; number: 
   return (
     <form action={action} className="flex items-center gap-2">
       <input type="hidden" name="id" value={id} />
-      <span className="text-xs text-zinc-500">Delete {number}?</span>
+      <span className="text-xs text-zinc-500">
+        Delete {number}?
+        {stillLive && (
+          <span className="block text-amber-700 dark:text-amber-400">
+            Still open — whoever raised it won&rsquo;t be told.
+          </span>
+        )}
+      </span>
       <button
         disabled={pending}
         className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"

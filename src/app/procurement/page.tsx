@@ -44,6 +44,7 @@ export default async function ProcurementPage({
   const { tab: tabRaw } = await searchParams;
   const tab = TAB_STATUSES[tabRaw ?? ""] ? (tabRaw as string) : "open";
   const canRaise = roles.includes("requester") || roles.includes("admin");
+  const isAdmin = roles.includes("admin");
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -114,9 +115,13 @@ export default async function ProcurementPage({
         <ul className="mt-4 space-y-3">
           {rows.map((r) => (
             <li key={r.id} className="relative">
-              {r.submitter_id === userId && ["rejected", "cancelled"].includes(r.status) && (
+              {(isAdmin || (r.submitter_id === userId && ["rejected", "cancelled"].includes(r.status))) && (
                 <div className="absolute bottom-3 right-4 z-10">
-                  <DeleteProcurement id={r.id} number={r.request_number} />
+                  <DeleteProcurement
+                    id={r.id}
+                    number={r.request_number}
+                    stillLive={!["rejected", "cancelled"].includes(r.status)}
+                  />
                 </div>
               )}
               <Link
