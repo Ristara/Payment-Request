@@ -11,6 +11,7 @@ export default function LoginForm({ nextPath }: { nextPath?: string }) {
   const [password, setPassword] = useState("");
   const [googlePending, setGooglePending] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
+  const [forgot, setForgot] = useState(false);
 
   async function signInWithGoogle() {
     setGoogleError(null);
@@ -98,6 +99,45 @@ export default function LoginForm({ nextPath }: { nextPath?: string }) {
           {pending ? "Signing in…" : "Sign in with password"}
         </button>
       </form>
+
+      {/* There is no self-service reset — an admin sets passwords by hand — so
+          this says where to go rather than pretending to send an email that
+          never arrives. */}
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={() => setForgot((v) => !v)}
+          aria-expanded={forgot}
+          className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Forgot password?
+        </button>
+      </div>
+
+      {forgot && (
+        <div
+          role="status"
+          className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-center dark:border-indigo-900 dark:bg-indigo-950/40"
+        >
+          <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+            Ask an admin to reset it
+          </p>
+          <p className="mt-1 text-xs text-indigo-800/80 dark:text-indigo-200/80">
+            Passwords are set by an admin, not by email. They&rsquo;ll set a new
+            one and tell you what it is.
+          </p>
+          {/* Deliberately no names or addresses: this page is public, and a
+              list of admins is a ready-made target. Anyone who works here
+              already knows who to ask. */}
+          <button
+            type="button"
+            onClick={() => setForgot(false)}
+            className="mt-2 text-xs font-medium text-indigo-700 hover:underline dark:text-indigo-300"
+          >
+            Got it
+          </button>
+        </div>
+      )}
 
       <p className="text-center text-[11px] text-zinc-500">
         Google sign-in is restricted to @ristarafoods.com accounts.
