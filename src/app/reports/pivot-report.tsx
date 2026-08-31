@@ -217,35 +217,86 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
           ))}
         </div>
 
-        {zone === "filters" && openFilter && zones.filters.includes(openFilter) && (
-          <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-zinc-200 p-2 dark:border-zinc-700">
-            <p className="mb-1 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
-              {LABEL[openFilter]}
-            </p>
-            {(valuesOf[openFilter] ?? []).map((v) => {
-              const off = (excluded[openFilter] ?? []).includes(v);
-              return (
-                <label key={v} className="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300">
-                  <input
-                    type="checkbox"
-                    checked={!off}
-                    onChange={() =>
-                      setExcluded((ex) => {
-                        const cur = ex[openFilter] ?? [];
-                        return {
-                          ...ex,
-                          [openFilter]: off ? cur.filter((x) => x !== v) : [...cur, v],
-                        };
-                      })
-                    }
-                    className="h-3.5 w-3.5"
-                  />
-                  <span className="truncate">{v}</span>
-                </label>
-              );
-            })}
+      </div>
+    );
+  }
+
+
+  /** The chosen filter's values, at full page width under the three zones.
+   *
+   * Not inside the Filters box: that box is a third of a row, and hunting for
+   * one outlet among nine in a quarter of the width at 11px was the whole
+   * complaint. Out here it gets the full width and normal type. */
+  function FilterValues() {
+    if (!openFilter || !zones.filters.includes(openFilter)) return null;
+    const field = openFilter;
+    const vals = valuesOf[field] ?? [];
+    const off = excluded[field] ?? [];
+    const on = vals.length - off.length;
+
+    return (
+      <div className="mt-3 w-full rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
+          <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+            {LABEL[field]}
+            <span className="ml-2 text-xs font-normal text-zinc-400">
+              {on} of {vals.length} shown
+            </span>
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setExcluded((ex) => ({ ...ex, [field]: [] }))}
+              className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setExcluded((ex) => ({ ...ex, [field]: [...vals] }))}
+              className="text-xs font-medium text-zinc-500 hover:underline"
+            >
+              None
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpenFilter(null)}
+              aria-label="Close the value list"
+              className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+            >
+              ✕
+            </button>
           </div>
-        )}
+        </div>
+        {/* Several across once there is room — nine outlets stacked in one
+            column is a scroll for no reason. */}
+        <div className="grid max-h-72 grid-cols-2 gap-x-6 overflow-y-auto p-4 sm:grid-cols-3 lg:grid-cols-4">
+          {vals.map((v) => {
+            const hidden = off.includes(v);
+            return (
+              <label
+                key={v}
+                className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+              >
+                <input
+                  type="checkbox"
+                  checked={!hidden}
+                  onChange={() =>
+                    setExcluded((ex) => {
+                      const cur = ex[field] ?? [];
+                      return {
+                        ...ex,
+                        [field]: hidden ? cur.filter((x) => x !== v) : [...cur, v],
+                      };
+                    })
+                  }
+                  className="h-4 w-4 shrink-0"
+                />
+                <span className="truncate">{v}</span>
+              </label>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -260,6 +311,8 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
         <DropZone zone="cols" />
         <DropZone zone="filters" />
       </div>
+
+      <FilterValues />
 
       {/* The table */}
       <section className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
