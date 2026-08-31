@@ -29,20 +29,6 @@ const FIELD_LABEL: Record<string, string> = {
   month: "Month",
 };
 
-/** The two reports that were tabs before saved layouts existed. */
-const BUILT_IN = [
-  {
-    href: "/reports/invoice-pending",
-    name: "Invoice pending",
-    hint: "Paid, waiting on the vendor's invoice — oldest first.",
-  },
-  {
-    href: "/reports/cashflow",
-    name: "Cash-flow due",
-    hint: "What is due to go out, by date.",
-  },
-];
-
 export default async function FavouriteReportsPage() {
   const supabase = await createClient();
   // RLS returns only this person's — a saved layout is a working note, not a
@@ -119,25 +105,6 @@ export default async function FavouriteReportsPage() {
         </ul>
       )}
 
-      <div className="mt-10">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Built in</h2>
-        <ul className="mt-2 space-y-2">
-          {BUILT_IN.map((b) => (
-            <li
-              key={b.href}
-              className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <Link
-                href={b.href}
-                className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-              >
-                {b.name}
-              </Link>
-              <p className="mt-0.5 text-xs text-zinc-500">{b.hint}</p>
-            </li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 }
