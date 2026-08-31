@@ -137,3 +137,74 @@ export function deriveThreadStatus(statuses: string[]): string {
   }
   return statuses[statuses.length - 1];
 }
+
+/**
+ * The pipeline stages Accounts actually works, in the order they happen.
+ *
+ * Two of them are not statuses at all. "Approved" and "To upload" share the
+ * status `approved` — what separates them is whether the installment has been
+ * queued into the next bank file. And "Paid · invoice due" and "Paid · to
+ * close" both mean the money has LEFT THE BANK; only the vendor's invoice
+ * differs. So the bucket cannot be read off `status` alone, which is why this
+ * lives in one place instead of being re-derived per screen.
+ */
+export type PipelineBucket =
+  | "pending" | "approved" | "to_upload" | "in_bank"
+  | "invoice_pending" | "paid" | "closed";
+
+export const PIPELINE_ORDER: PipelineBucket[] = [
+  "pending", "approved", "to_upload", "in_bank", "invoice_pending", "paid", "closed",
+];
+
+export const PIPELINE_LABEL: Record<PipelineBucket, string> = {
+  pending: "Pending for approval",
+  approved: "Approved",
+  to_upload: "To upload",
+  in_bank: "In bank",
+  invoice_pending: "Paid · invoice due",
+  paid: "Paid · to close",
+  closed: "Closed",
+};
+
+/** Null for anything not in the pipeline — rejected, cancelled, draft. */
+export function pipelineBucket(
+  status: string,
+  queuedForUploadAt: string | null | undefined,
+): PipelineBucket | null {
+  switch (status) {
+    case "pending_approval":
+    case "clarification_required":
+      return "pending";
+    case "approved":
+      return queuedForUploadAt ? "to_upload" : "approved";
+    case "uploaded_in_bank":
+      return "in_bank";
+    case "invoice_pending":
+      return "invoice_pending";
+    case "payment_processed":
+      return "paid";
+    case "closed":
+      return "closed";
+    default:
+      return null;
+  }
+}
+
+/**
+ * One bucket for a whole request, out of its installments'.
+ *
+ * Takes the EARLIEST stage present, the same way deriveThreadStatus does: a
+ * request with one installment paid and another still awaiting approval has
+ * not finished, and saying "Closed" because its last installment closed would
+ * hide the one still needing a decision.
+ */
+export function threadPipelineBucket(
+  installments: { status: string; queued_for_upload_at?: string | null }[],
+): PipelineBucket | null {
+  const present = new Set(
+    installments
+      .map((i) => pipelineBucket(i.status, i.queued_for_upload_at ?? null))
+      .filter((b): b is PipelineBucket => b !== null),
+  );
+  return PIPELINE_ORDER.find((b) => present.has(b)) ?? null;
+}

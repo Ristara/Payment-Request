@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { STATUS_LABEL, deriveThreadStatus } from "@/lib/types";
+import { PIPELINE_LABEL, threadPipelineBucket } from "@/lib/types";
 import PivotReport, { type PivotRow } from "./pivot-report";
 
 type LineRow = {
@@ -15,7 +15,7 @@ type LineRow = {
     vendor: { name: string } | null;
     submitter: { full_name: string } | null;
     outlets: { outlet: { name: string; stage: string } | null }[];
-    installments: { status: string }[];
+    installments: { status: string; queued_for_upload_at: string | null }[];
   } | null;
 };
 
@@ -45,7 +45,7 @@ export default async function SpendReportPage({
          vendor:vendors(name),
          submitter:profiles!payment_requests_submitter_id_fkey(full_name),
          outlets:request_outlets(outlet:outlets(name, stage)),
-         installments:request_installments(status))`,
+         installments:request_installments(status, queued_for_upload_at))`,
     );
 
   if (from) query = query.gte("request.created_at", from);
@@ -79,13 +79,13 @@ export default async function SpendReportPage({
         expense: l.request!.expense_type === "opex" ? "OpEx" : l.request!.expense_type === "capex" ? "CapEx" : "—",
         kind: l.request!.payment_kind === "milestone" ? "Milestone" : l.request!.payment_kind === "regular" ? "Regular" : "—",
         raisedBy: l.request!.submitter?.full_name ?? "—",
-        // The same single status the request itself shows, from the same
-        // helper — a report that disagreed with the badge on the request
-        // would just make people distrust both.
-        status:
-          STATUS_LABEL[
-            deriveThreadStatus((l.request!.installments ?? []).map((i) => i.status))
-          ] ?? "—",
+        // The dashboard's seven pipeline stages, from the same helper the
+        // dashboard uses. Two screens deriving these separately would sooner
+        // or later disagree about the same money.
+        status: (() => {
+          const b = threadPipelineBucket(l.request!.installments ?? []);
+          return b ? PIPELINE_LABEL[b] : "—";
+        })(),
         month: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`,
       };
     });

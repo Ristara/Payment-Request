@@ -2,7 +2,10 @@ import Link from "next/link";
 import AppLayoutShell from "@/lib/appLayout";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { ROLE_LABEL, STATUS_LABEL, formatINR, shortRequestNumber } from "@/lib/types";
+import {
+  ROLE_LABEL, STATUS_LABEL, formatINR, shortRequestNumber,
+  PIPELINE_ORDER, PIPELINE_LABEL, pipelineBucket, type PipelineBucket,
+} from "@/lib/types";
 
 type Row = {
   id: string;
@@ -99,44 +102,14 @@ export default async function DashboardPage({
   // order they happen. "Approved" and "To upload" share a status — what
   // separates them is whether the installment has been queued into the next
   // bank file — so the bucket is decided here rather than by status alone.
-  const COLUMNS = [
-    { key: "pending", label: "Pending for approval" },
-    { key: "approved", label: "Approved" },
-    { key: "to_upload", label: "To upload" },
-    { key: "in_bank", label: "In bank" },
-    // Both of these mean the money has LEFT THE BANK. What separates them is
-    // only whether the vendor's invoice has arrived: recording a payment sets
-    // payment_processed when an invoice is already attached and
-    // invoice_pending when it is not.
-    //
-    // Labelled "Paid" and "Invoice pending", a row reading "— / ₹4,00,000"
-    // said nothing had been paid at that branch when ₹4,00,000 already had.
-    // Both now carry the word, matching how the Accounts page reads.
-    { key: "invoice_pending", label: "Paid · invoice due" },
-    { key: "paid", label: "Paid · to close" },
-    { key: "closed", label: "Closed" },
-  ] as const;
-  type ColKey = (typeof COLUMNS)[number]["key"];
+  // Shared with the spend report's Status field — see lib/types. Two screens
+  // deriving these buckets separately would drift the first time a stage was
+  // added, and then disagree about the same money.
+  const COLUMNS = PIPELINE_ORDER.map((key) => ({ key, label: PIPELINE_LABEL[key] }));
+  type ColKey = PipelineBucket;
 
-  function bucketOf(r: InstRow): ColKey | null {
-    switch (r.status) {
-      case "pending_approval":
-      case "clarification_required":
-        return "pending";
-      case "approved":
-        return r.queued_for_upload_at ? "to_upload" : "approved";
-      case "uploaded_in_bank":
-        return "in_bank";
-      case "payment_processed":
-        return "paid";
-      case "invoice_pending":
-        return "invoice_pending";
-      case "closed":
-        return "closed";
-      default:
-        return null;
-    }
-  }
+  const bucketOf = (r: InstRow): ColKey | null =>
+    pipelineBucket(r.status, r.queued_for_upload_at);
 
   const emptyRow = (): Record<ColKey, number> =>
     Object.fromEntries(COLUMNS.map((c) => [c.key, 0])) as Record<ColKey, number>;
