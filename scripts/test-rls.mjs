@@ -470,6 +470,25 @@ await c.query("rollback");
 // is what stops it reaching the user list.
 await sweepTestUsers();
 
+// --- Password reset is gated in code, not by RLS ---------------------------
+// setUserPassword drives the Supabase admin API, which RLS does not touch at
+// all — the only thing standing between a requester and every account in the
+// system is the check at the top of that function. So the check itself is what
+// gets asserted.
+{
+  const fs = await import("node:fs");
+  const src = fs.readFileSync("src/app/admin/actions.ts", "utf8");
+  const fn = src.slice(src.indexOf("export async function setUserPassword"));
+  const body = fn.slice(0, fn.indexOf("\nexport async function", 1) + 1 || undefined);
+  check("password reset: the action gates on admin before doing anything", "ALLOWED",
+    /requireAdmin\(\)|adminDenied\(\)/.test(body) ? "ALLOWED" : "BLOCKED (no admin gate found)");
+  // The password must never travel back to the page or into the audit row.
+  check("password reset: the new password is never echoed back", "ALLOWED",
+    /info:[^}]*\bpassword\b\s*[,}]/.test(body) ? "BLOCKED (password in the response)" : "ALLOWED");
+  check("password reset: the audit row records who, not what", "ALLOWED",
+    /new_value:\s*password/.test(body) ? "BLOCKED (password written to audit_log)" : "ALLOWED");
+}
+
 // --- Ria's scoping is a source-level invariant, not an RLS one -------------
 //
 // Every assistant lookup goes through the USER'S client, which is the only

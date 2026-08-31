@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { assignRole, createUser, deactivateUser, reactivateUser, removeRole } from "@/app/admin/actions";
 import { ROLE_LABEL, formatINR } from "@/lib/types";
 import AccessCell, { type Outlet } from "./access-cell";
+import SetPassword from "./set-password";
 import type { ExpenseType } from "@/lib/access-labels";
 
 type UserRow = {
@@ -251,6 +252,12 @@ export default function UsersForm({
                       isAdmin={held.has("admin")}
                     />
                   </div>
+
+                  <SetPassword
+                    userId={u.id}
+                    name={u.full_name}
+                    isSelf={u.id === currentUserId}
+                  />
                 </li>
               );
             })

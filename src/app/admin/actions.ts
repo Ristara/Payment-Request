@@ -805,3 +805,68 @@ export async function deleteVendor(
       : `${vendor.name} deleted.`,
   };
 }
+
+/**
+ * Set a user's password — admin only.
+ *
+ * The admin already chooses the password when inviting someone, so this is the
+ * same power applied to an account that already exists: someone locked out,
+ * or a password that needs changing after a person leaves.
+ *
+ * Two things it deliberately does not do. It never echoes the password back —
+ * a value returned into the page ends up in screenshots, scrollback and
+ * browser history. And it never reads the existing one, because it cannot:
+ * Supabase stores a hash, and "reset" is the only operation available.
+ *
+ * It is logged. Whoever can do this can take over any account in the system,
+ * including another admin's, so the record of who did it to whom is the part
+ * that makes it accountable rather than invisible.
+ */
+export async function setUserPassword(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  // requireAdmin rather than adminDenied: this needs the actor's id for the
+  // audit row as well as the gate, and calling both would check twice.
+  let actor: { id: string };
+  try {
+    ({ user: actor } = await requireAdmin());
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Not allowed." };
+  }
+
+  const userId = String(formData.get("user_id") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirm") ?? "");
+  if (!userId) return { error: "Missing user." };
+  if (password.length < 8) return { error: "Password must be at least 8 characters." };
+  if (password !== confirm) return { error: "The two passwords don't match." };
+
+  const admin = createAdminClient();
+
+  const { data: target } = await admin
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", userId)
+    .maybeSingle();
+  const person = target as { full_name: string | null; email: string | null } | null;
+  if (!person) return { error: "That user no longer exists." };
+
+  const { error } = await admin.auth.admin.updateUserById(userId, { password });
+  if (error) return { error: error.message };
+
+  // The password itself is never written here — only who reset whose, and when.
+  await admin.from("audit_log").insert({
+    actor_id: actor.id,
+    action: "password_reset",
+    field_name: "password",
+    new_value: person.email ?? userId,
+    reason:
+      userId === actor.id ? "Admin reset their own password" : "Admin reset another user's password",
+  });
+
+  revalidatePath("/admin/users");
+  return {
+    info: `Password set for ${person.full_name ?? person.email}. Tell them directly — it isn't emailed.`,
+  };
+}
