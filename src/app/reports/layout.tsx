@@ -11,9 +11,8 @@ export default async function ReportsLayout({ children }: { children: React.Reac
     <AppShell>
       <div className="mb-6 flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
         {[
-          { href: "/reports", label: "Spend" },
-          { href: "/reports/invoice-pending", label: "Invoice pending" },
-          { href: "/reports/cashflow", label: "Cash-flow due" },
+          { href: "/reports", label: "Favourite reports" },
+          { href: "/reports/create", label: "Create report" },
         ].map((t) => (
           <Link
             key={t.href}

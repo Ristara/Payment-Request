@@ -533,6 +533,40 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
       ? "ALLOWED" : "BLOCKED (row deleted before its files)");
 }
 
+// --- Saved reports are private to whoever made them --------------------------
+{
+  const MINE = REQUESTER, THEIRS = ACCOUNTS;
+  const theirId = randomUUID();
+  await c.query(
+    `insert into public.saved_reports (id, owner_id, name, config)
+     values ($1, $2, 'Their private view', '{"rows":["coa"]}'::jsonb)`,
+    [theirId, THEIRS]);
+
+  check("saved reports: you can save your own", "ALLOWED",
+    await as(MINE, `insert into public.saved_reports (owner_id, name, config)
+       values ($1, 'Mine', '{"rows":["coa"]}'::jsonb)`, [MINE]));
+  // The owner comes off the row, so this is the check that stops a crafted
+  // form writing into someone else's list.
+  check("saved reports: you cannot save into someone else's list", "BLOCKED",
+    await as(MINE, `insert into public.saved_reports (owner_id, name, config)
+       values ($1, 'Planted', '{"rows":["coa"]}'::jsonb)`, [THEIRS]));
+  check("saved reports: you cannot read another person's", "BLOCKED",
+    await as(MINE, "select 1 from public.saved_reports where id=$1", [theirId]));
+  check("saved reports: you cannot delete another person's", "BLOCKED",
+    await as(MINE, "delete from public.saved_reports where id=$1", [theirId]));
+  check("saved reports: the owner can delete their own", "ALLOWED",
+    await as(THEIRS, "delete from public.saved_reports where id=$1", [theirId]));
+
+  // Re-saving under a name you already used must update, not silently make a
+  // second "Monthly spend".
+  await c.query(
+    `insert into public.saved_reports (owner_id, name, config)
+     values ($1, 'Dupe', '{"rows":["coa"]}'::jsonb)`, [MINE]);
+  check("saved reports: the same name twice is refused", "BLOCKED",
+    await as(MINE, `insert into public.saved_reports (owner_id, name, config)
+       values ($1, 'Dupe', '{"rows":["vendor"]}'::jsonb)`, [MINE]));
+}
+
 await c.query("rollback");
 // Nothing should be left, but if a future edit strays past the rollback this
 // is what stops it reaching the user list.

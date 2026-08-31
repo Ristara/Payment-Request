@@ -1,159 +1,143 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { PIPELINE_LABEL, pipelineBucket } from "@/lib/types";
-import PivotReport, { type PivotRow } from "./pivot-report";
+import DeleteReport from "./delete-report";
 
-type InstRow = {
+type SavedRow = {
   id: string;
-  requested_amount: number | null;
-  status: string;
-  queued_for_upload_at: string | null;
-  request: {
-    id: string;
-    created_at: string;
-    expense_type: string | null;
-    payment_kind: string | null;
-    vendor: { name: string } | null;
-    submitter: { full_name: string } | null;
-    outlets: { outlet: { name: string; stage: string } | null }[];
-    lines: {
-      amount: number | null;
-      coa_account: { subcategory: string; category: string; coa: string } | null;
-    }[];
-  } | null;
+  name: string;
+  config: {
+    rows?: string[];
+    cols?: string[];
+    filters?: string[];
+    from?: string;
+    to?: string;
+  };
+  updated_at: string;
 };
 
-const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+const FIELD_LABEL: Record<string, string> = {
+  coa: "Category",
+  category: "Sub category",
+  account: "Account",
+  outlet: "Outlet",
+  vendor: "Vendor",
+  expense: "Expense type",
+  stage: "New / existing",
+  kind: "Payment kind",
+  status: "Status",
+  raisedBy: "Raised by",
+  month: "Month",
+};
+
+/** The two reports that were tabs before saved layouts existed. */
+const BUILT_IN = [
+  {
+    href: "/reports/invoice-pending",
+    name: "Invoice pending",
+    hint: "Paid, waiting on the vendor's invoice — oldest first.",
+  },
+  {
+    href: "/reports/cashflow",
+    name: "Cash-flow due",
+    hint: "What is due to go out, by date.",
+  },
 ];
 
-export default async function SpendReportPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ from?: string; to?: string }>;
-}) {
-  const { from, to } = await searchParams;
+export default async function FavouriteReportsPage() {
   const supabase = await createClient();
+  // RLS returns only this person's — a saved layout is a working note, not a
+  // company artefact, so nobody else's clutters the list.
+  const { data } = await supabase
+    .from("saved_reports")
+    .select("id, name, config, updated_at")
+    .order("name");
+  const saved = (data ?? []) as SavedRow[];
 
-  // Grained by INSTALMENT, not by line item, so one request can sit in two
-  // stages at once — an instalment paid while another still awaits approval.
-  // That is what makes all seven pipeline stages reachable, and what lets
-  // these totals reconcile with the dashboard.
-  let query = supabase
-    .from("request_installments")
-    .select(
-      `id, requested_amount, status, queued_for_upload_at,
-       request:payment_requests!inner(id, created_at, expense_type, payment_kind,
-         vendor:vendors(name),
-         submitter:profiles!payment_requests_submitter_id_fkey(full_name),
-         outlets:request_outlets(outlet:outlets(name, stage)),
-         lines:request_line_items(amount, coa_account:coa_accounts(subcategory, category, coa)))`,
-    );
-
-  if (from) query = query.gte("request.created_at", from);
-  if (to) query = query.lte("request.created_at", `${to}T23:59:59`);
-
-  const { data } = await query.order("id");
-  const rawInst = (data ?? []) as unknown as InstRow[];
-
-  const rows: PivotRow[] = [];
-  for (const inst of rawInst) {
-    const req = inst.request;
-    if (!req) continue;
-    // Null for draft, rejected and cancelled — nothing in the pipeline.
-    const bucket = pipelineBucket(inst.status, inst.queued_for_upload_at);
-    if (!bucket) continue;
-
-    const amount = Number(inst.requested_amount ?? 0);
-    const d = new Date(req.created_at);
-    const outlets = req.outlets
-      .map((o) => o.outlet)
-      .filter((o): o is { name: string; stage: string } => !!o);
-    const lines = req.lines ?? [];
-    const lineTotal = lines.reduce((s, l) => s + Number(l.amount ?? 0), 0);
-
-    // An instalment is money against the whole request, not against one line
-    // of it or one branch. Rather than attributing all of it to the first of
-    // each and overstating that one, it is spread: evenly across branches (the
-    // same even split the dashboard describes) and pro-rata by line value.
-    // Every part still sums back to the instalment, so no total moves.
-    const branches = outlets.length > 0 ? outlets : [null];
-    const parts =
-      lines.length > 0 && lineTotal > 0
-        ? lines.map((l) => ({ line: l, share: Number(l.amount ?? 0) / lineTotal }))
-        : [{ line: null as (typeof lines)[number] | null, share: 1 }];
-
-    for (const o of branches) {
-      for (const { line, share } of parts) {
-        rows.push({
-          id: `${inst.id}|${o?.name ?? ""}|${line?.coa_account?.subcategory ?? ""}`,
-          requestId: req.id,
-          amount: (amount / branches.length) * share,
-          coa: line?.coa_account?.coa ?? "—",
-          category: line?.coa_account?.category ?? "—",
-          account: line?.coa_account?.subcategory ?? "—",
-          vendor: req.vendor?.name ?? "—",
-          outlet: o?.name ?? "—",
-          stage:
-            o?.stage === "upcoming"
-              ? "New Store"
-              : o?.stage === "operational"
-                ? "Existing Outlet"
-                : "—",
-          expense:
-            req.expense_type === "opex" ? "OpEx" : req.expense_type === "capex" ? "CapEx" : "—",
-          kind:
-            req.payment_kind === "milestone"
-              ? "Milestone"
-              : req.payment_kind === "regular"
-                ? "Regular"
-                : "—",
-          raisedBy: req.submitter?.full_name ?? "—",
-          status: PIPELINE_LABEL[bucket],
-          month: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`,
-        });
-      }
-    }
-  }
+  const summarise = (c: SavedRow["config"]) => {
+    const bits: string[] = [];
+    const names = (keys?: string[]) => (keys ?? []).map((k) => FIELD_LABEL[k] ?? k).join(", ");
+    if (c.rows?.length) bits.push(`Rows: ${names(c.rows)}`);
+    if (c.cols?.length) bits.push(`Columns: ${names(c.cols)}`);
+    if (c.filters?.length) bits.push(`Filtered by ${names(c.filters)}`);
+    if (c.from || c.to) bits.push(`${c.from || "start"} → ${c.to || "today"}`);
+    return bits.join(" · ");
+  };
 
   return (
     <div>
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Spend report</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Every instalment in the pipeline, by amount requested. Excludes drafts,
-          rejected and cancelled. Split evenly when raised against several branches.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+            Favourite reports
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Layouts you&rsquo;ve saved. Opening one rebuilds it against today&rsquo;s data.
+          </p>
+        </div>
+        <Link
+          href="/reports/create"
+          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          Create report
+        </Link>
       </div>
 
-      <form className="mt-6 flex flex-wrap items-end gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div>
-          <label className="block text-xs text-zinc-500">From</label>
-          <input
-            name="from"
-            type="date"
-            defaultValue={from}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          />
+      {saved.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+            Nothing saved yet.
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Build a report, then save it with a name and it will appear here.
+          </p>
+          <Link
+            href="/reports/create"
+            className="mt-4 inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Create your first report
+          </Link>
         </div>
-        <div>
-          <label className="block text-xs text-zinc-500">To</label>
-          <input
-            name="to"
-            type="date"
-            defaultValue={to}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          />
-        </div>
-        <button className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">
-          Apply
-        </button>
-        <p className="w-full text-xs text-zinc-500 sm:w-auto sm:self-center">
-          The date range is fetched from the server. Everything below it rearranges instantly.
-        </p>
-      </form>
+      ) : (
+        <ul className="mt-6 space-y-2">
+          {saved.map((r) => (
+            <li
+              key={r.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <div className="min-w-0">
+                <Link
+                  href={`/reports/create?saved=${r.id}`}
+                  className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  {r.name}
+                </Link>
+                <p className="mt-0.5 truncate text-xs text-zinc-500">{summarise(r.config)}</p>
+              </div>
+              <DeleteReport id={r.id} name={r.name} />
+            </li>
+          ))}
+        </ul>
+      )}
 
-      <PivotReport rows={rows} />
+      <div className="mt-10">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Built in</h2>
+        <ul className="mt-2 space-y-2">
+          {BUILT_IN.map((b) => (
+            <li
+              key={b.href}
+              className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <Link
+                href={b.href}
+                className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                {b.name}
+              </Link>
+              <p className="mt-0.5 text-xs text-zinc-500">{b.hint}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

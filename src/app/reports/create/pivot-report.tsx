@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
+import { saveReport } from "../actions";
 import { COA_LABEL } from "@/lib/coa-labels";
 import { formatINR } from "@/lib/types";
 
@@ -53,15 +54,33 @@ const ZONE_LABEL: Record<Zone, string> = { rows: "Rows", cols: "Columns", filter
  * the date range goes back to the server, because only the date range changes
  * which rows exist.
  */
-export default function PivotReport({ rows }: { rows: PivotRow[] }) {
+export default function PivotReport({
+  rows,
+  from,
+  to,
+  savedName = null,
+  initial,
+}: {
+  rows: PivotRow[];
+  /** Carried into the saved config so a favourite reopens on its own range. */
+  from?: string;
+  to?: string;
+  savedName?: string | null;
+  initial?: {
+    rows?: FieldKey[];
+    cols?: FieldKey[];
+    filters?: FieldKey[];
+    excluded?: Record<string, string[]>;
+  };
+}) {
   const [zones, setZones] = useState<Record<Zone, FieldKey[]>>({
-    rows: ["coa"],
-    cols: [],
-    filters: [],
+    rows: initial?.rows ?? ["coa"],
+    cols: initial?.cols ?? [],
+    filters: initial?.filters ?? [],
   });
   // Which values of a filter field are excluded. Absent means everything is in
   // — a filter you have just added should not hide anything yet.
-  const [excluded, setExcluded] = useState<Record<string, string[]>>({});
+  const [excluded, setExcluded] = useState<Record<string, string[]>>(initial?.excluded ?? {});
   const [dragging, setDragging] = useState<FieldKey | null>(null);
   const [adding, setAdding] = useState<Zone | null>(null);
   const [openFilter, setOpenFilter] = useState<FieldKey | null>(null);
@@ -383,6 +402,11 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
 
       {filterValues()}
 
+      <SaveBar
+        config={{ ...zones, excluded, from, to }}
+        savedName={savedName}
+      />
+
       {/* The table */}
       <section className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="overflow-x-auto">
@@ -461,5 +485,57 @@ export default function PivotReport({ rows }: { rows: PivotRow[] }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Naming and keeping the current layout.
+ *
+ * The whole arrangement travels as one JSON field rather than a form per zone:
+ * it is one thing conceptually, and splitting it would let half a layout save.
+ */
+function SaveBar({
+  config,
+  savedName,
+}: {
+  config: Record<string, unknown>;
+  savedName: string | null;
+}) {
+  const [state, action, pending] = useActionState(saveReport, undefined);
+
+  return (
+    <form
+      action={action}
+      className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <input type="hidden" name="config" value={JSON.stringify(config)} />
+      <label htmlFor="report-name" className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+        Save as
+      </label>
+      <input
+        id="report-name"
+        name="name"
+        required
+        maxLength={80}
+        // Re-saving under the same name updates that favourite rather than
+        // making a second one, so opening a favourite pre-fills its name.
+        defaultValue={savedName ?? ""}
+        placeholder="e.g. Monthly spend by outlet"
+        className="min-w-[14rem] flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+      />
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+      >
+        {pending ? "Saving…" : savedName ? "Update favourite" : "Save to favourites"}
+      </button>
+      {state?.error && (
+        <p className="w-full text-xs text-red-600 dark:text-red-400">{state.error}</p>
+      )}
+      {state?.info && (
+        <p className="w-full text-xs text-emerald-600 dark:text-emerald-400">{state.info}</p>
+      )}
+    </form>
   );
 }
