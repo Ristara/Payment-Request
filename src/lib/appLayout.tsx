@@ -41,11 +41,19 @@ export default async function AppLayoutShell({
     ? await Promise.all([
         supabase.from("user_branch_access").select("outlet_id", { count: "exact", head: true }).eq("user_id", user!.id),
         supabase.from("user_expense_access").select("expense_type", { count: "exact", head: true }).eq("user_id", user!.id),
+        supabase.from("user_module_access").select("module").eq("user_id", user!.id),
       ])
     : null;
   const canRaise =
     hasRaiseRole &&
     (unrestrictedRaise || ((grants?.[0].count ?? 0) > 0 && (grants?.[1].count ?? 0) > 0));
+  // The two raise paths are now granted separately, so the nav asks about each
+  // rather than showing both whenever raising is possible at all.
+  const grantedModules = new Set(
+    ((grants?.[2].data ?? []) as { module: string }[]).map((r) => r.module),
+  );
+  const canRaisePayment = canRaise && (unrestrictedRaise || grantedModules.has("payment"));
+  const canRaiseProcurement = canRaise && (unrestrictedRaise || grantedModules.has("procurement"));
 
   const [profile, unread, approvalBadge, accountsBadge, vendorBadge, procurementBadge] = await Promise.all([
     user
@@ -85,8 +93,8 @@ export default async function AppLayoutShell({
     // They also say what they are FOR rather than what they are called.
     // Someone holding an invoice knows which one they want without knowing the
     // words "payment request" or "procurement".
-    ...(canRaise ? [{ href: "/requests/new", label: "Pay a vendor", icon: <PlusCircleIcon /> }] : []),
-    ...(canRaise ? [{ href: "/procurement/new", label: "Buy or repair", icon: <WrenchIcon /> }] : []),
+    ...(canRaisePayment ? [{ href: "/requests/new", label: "Pay a vendor", icon: <PlusCircleIcon /> }] : []),
+    ...(canRaiseProcurement ? [{ href: "/procurement/new", label: "Buy or repair", icon: <WrenchIcon /> }] : []),
     ...(isApprover ? [{ href: "/approvals", label: "Approve", icon: <CheckSquareIcon />, badge: approvalBadge.count ?? 0 }] : []),
     ...(isAccounts ? [{ href: "/accounts", label: "Accounts", icon: <WalletIcon />, badge: accountsBadge.count ?? 0 }] : []),
     // Requesters need to look vendors up and add new ones; the pending-vendor

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
 import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
-import { getRaiseAccess, hasUnrestrictedRaise } from "@/lib/access";
+import { getRaiseAccess, hasUnrestrictedRaise, moduleDenied } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import ProcurementForm from "./procurement-form";
 
@@ -22,6 +22,9 @@ export default async function NewProcurementPage() {
     getActiveCoaAccounts(),
     getRaiseAccess(user.id, hasUnrestrictedRaise(roles)),
   ]);
+  if (moduleDenied(access, "procurement")) {
+    redirect("/dashboard?denied=module");
+  }
   const allowed = new Set(access.outletIds);
   const outlets = (allOutlets as { id: string; name: string; stage: string }[]).filter(
     (o) => access.unrestricted || allowed.has(o.id),

@@ -1,10 +1,10 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export { EXPENSE_LABEL, EXPENSE_HINT, hasUnrestrictedRaise } from "@/lib/access-labels";
-import { EXPENSE_LABEL } from "@/lib/access-labels";
-export type { ExpenseType } from "@/lib/access-labels";
-import type { ExpenseType } from "@/lib/access-labels";
+export { EXPENSE_LABEL, EXPENSE_HINT, MODULE_LABEL, MODULE_HINT, hasUnrestrictedRaise } from "@/lib/access-labels";
+import { EXPENSE_LABEL, MODULE_LABEL } from "@/lib/access-labels";
+export type { ExpenseType, RaiseModule } from "@/lib/access-labels";
+import type { ExpenseType, RaiseModule } from "@/lib/access-labels";
 
 /**
  * What a person is allowed to RAISE for.
@@ -21,7 +21,9 @@ import type { ExpenseType } from "@/lib/access-labels";
 export type RaiseAccess = {
   outletIds: string[];
   expenseTypes: ExpenseType[];
-  /** Admins, approvers and accounts bypass both lists. */
+  /** Which raise paths are open to them — "Pay a vendor", "Buy or repair". */
+  modules: RaiseModule[];
+  /** Admins, approvers and accounts bypass all three lists. */
   unrestricted: boolean;
 };
 
@@ -30,17 +32,26 @@ export async function getRaiseAccess(
   /** From hasUnrestrictedRaise(roles) — admin, approver or accounts. */
   unrestricted: boolean,
 ): Promise<RaiseAccess> {
-  if (unrestricted) return { outletIds: [], expenseTypes: ["capex", "opex"], unrestricted: true };
+  if (unrestricted) {
+    return {
+      outletIds: [],
+      expenseTypes: ["capex", "opex"],
+      modules: ["payment", "procurement"],
+      unrestricted: true,
+    };
+  }
 
   const admin = createAdminClient();
-  const [branches, expenses] = await Promise.all([
+  const [branches, expenses, modules] = await Promise.all([
     admin.from("user_branch_access").select("outlet_id").eq("user_id", userId),
     admin.from("user_expense_access").select("expense_type").eq("user_id", userId),
+    admin.from("user_module_access").select("module").eq("user_id", userId),
   ]);
 
   return {
     outletIds: ((branches.data ?? []) as { outlet_id: string }[]).map((r) => r.outlet_id),
     expenseTypes: ((expenses.data ?? []) as { expense_type: ExpenseType }[]).map((r) => r.expense_type),
+    modules: ((modules.data ?? []) as { module: RaiseModule }[]).map((r) => r.module),
     unrestricted: false,
   };
 }
@@ -63,6 +74,22 @@ export function raiseDenied(
   const outside = outletIds.filter((id) => !allowed.has(id));
   if (outside.length > 0) {
     return "One of the branches you picked isn't yours to raise for.";
+  }
+  return null;
+}
+
+/**
+ * May this person use this raise path at all?
+ *
+ * Separate from raiseDenied because it is asked earlier and in more places —
+ * the nav asks it to decide whether to show a tab, and both New pages ask it
+ * before rendering a form. raiseDenied answers the narrower question of
+ * whether a specific branch and expense type are allowed.
+ */
+export function moduleDenied(access: RaiseAccess, module: RaiseModule): string | null {
+  if (access.unrestricted) return null;
+  if (!access.modules.includes(module)) {
+    return `You don't have access to "${MODULE_LABEL[module]}". Ask an admin if you should.`;
   }
   return null;
 }

@@ -870,3 +870,41 @@ export async function setUserPassword(
     info: `Password set for ${person.full_name ?? person.email}. Tell them directly — it isn't emailed.`,
   };
 }
+
+/**
+ * Which raise paths a person may use — "Pay a vendor", "Buy or repair".
+ *
+ * Same shape as setExpenseAccess: replace the whole set rather than toggling
+ * one row, so the saved state is exactly what the admin ticked and there is no
+ * way to end up half-applied.
+ */
+export async function setModuleAccess(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const denied = await adminDenied();
+  if (denied) return { error: denied };
+
+  const userId = String(formData.get("user_id") ?? "");
+  if (!userId) return { error: "Missing user." };
+  const modules = formData
+    .getAll("modules")
+    .map(String)
+    .filter((m) => m === "payment" || m === "procurement");
+
+  const admin = createAdminClient();
+  await admin.from("user_module_access").delete().eq("user_id", userId);
+  if (modules.length > 0) {
+    const { error } = await admin
+      .from("user_module_access")
+      .insert(modules.map((module) => ({ user_id: userId, module })));
+    if (error) return { error: error.message };
+  }
+
+  invalidateMasters();
+  revalidatePath("/admin/users");
+  const names = modules.map((m) => (m === "payment" ? "Pay a vendor" : "Buy or repair"));
+  return {
+    info: names.length ? `Can use ${names.join(" and ")}.` : "No raise paths — they can't raise at all.",
+  };
+}

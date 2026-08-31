@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { setBranchAccess, setExpenseAccess } from "@/app/admin/actions";
-import { EXPENSE_LABEL, type ExpenseType } from "@/lib/access-labels";
+import { setBranchAccess, setExpenseAccess, setModuleAccess } from "@/app/admin/actions";
+import { EXPENSE_LABEL, MODULE_HINT, MODULE_LABEL, type ExpenseType, type RaiseModule } from "@/lib/access-labels";
 
 export type Outlet = { id: string; name: string };
 
@@ -22,17 +22,21 @@ export default function AccessCell({
   outlets,
   branchIds,
   expenseTypes,
+  modules,
   isAdmin,
 }: {
   userId: string;
   outlets: Outlet[];
   branchIds: string[];
   expenseTypes: ExpenseType[];
+  /** Which raise paths are open to them. */
+  modules: RaiseModule[];
   isAdmin: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [branchState, branchAction, branchPending] = useActionState(setBranchAccess, undefined);
   const [expState, expAction, expPending] = useActionState(setExpenseAccess, undefined);
+  const [modState, modAction, modPending] = useActionState(setModuleAccess, undefined);
 
   if (isAdmin) {
     return <span className="text-[11px] text-zinc-400">All (admin)</span>;
@@ -60,6 +64,15 @@ export default function AccessCell({
         </p>
         <p className="text-[11px] text-zinc-500">
           {expenseTypes.length ? expenseTypes.map((t) => EXPENSE_LABEL[t]).join(" · ") : "No expense type"}
+        </p>
+        <p
+          className={`text-[11px] ${
+            modules.length === 0
+              ? "text-amber-700 dark:text-amber-400"
+              : "text-zinc-500"
+          }`}
+        >
+          {modules.length ? modules.map((m) => MODULE_LABEL[m]).join(" · ") : "No raise path"}
         </p>
         <button
           type="button"
@@ -139,6 +152,39 @@ export default function AccessCell({
         </div>
         {expState?.info && <p className="mt-1 text-[11px] text-emerald-700">{expState.info}</p>}
         {expState?.error && <p className="mt-1 text-[11px] text-red-700">{expState.error}</p>}
+      </form>
+
+      <form action={modAction} className="mt-3 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+        <input type="hidden" name="user_id" value={userId} />
+        <p className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+          How they can raise
+        </p>
+        <div className="mt-1 space-y-1">
+          {(["payment", "procurement"] as const).map((m) => (
+            <label key={m} className="flex items-start gap-1.5 text-[11px] text-zinc-700 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                name="modules"
+                value={m}
+                defaultChecked={modules.includes(m)}
+                className="mt-0.5 h-3.5 w-3.5"
+              />
+              <span>
+                {MODULE_LABEL[m]}
+                <span className="block text-[10px] text-zinc-500">{MODULE_HINT[m]}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <button
+          type="submit"
+          disabled={modPending}
+          className="mt-1.5 rounded-md bg-indigo-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+        >
+          {modPending ? "Saving…" : "Save raise paths"}
+        </button>
+        {modState?.info && <p className="mt-1 text-[11px] text-emerald-700">{modState.info}</p>}
+        {modState?.error && <p className="mt-1 text-[11px] text-red-700">{modState.error}</p>}
       </form>
     </div>
   );

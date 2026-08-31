@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser, getCurrentUserRoles } from "@/lib/auth";
-import { getRaiseAccess, hasUnrestrictedRaise } from "@/lib/access";
+import { getRaiseAccess, hasUnrestrictedRaise, moduleDenied } from "@/lib/access";
 import { getActiveOutlets, getActiveCoaAccounts } from "@/lib/masters";
 import RequestForm from "./request-form";
 import { shortRequestNumber } from "@/lib/types";
@@ -23,6 +23,11 @@ export default async function NewRequestPage() {
   // Only offer what they may actually raise for — a branch they can't use
   // has no business being in the dropdown.
   const access = await getRaiseAccess(user.id, hasUnrestrictedRaise(roles));
+  // Not given this raise path at all — the nav hides it, but the URL is still
+  // typeable and the old link still bookmarked.
+  if (moduleDenied(access, "payment")) {
+    redirect("/dashboard?denied=module");
+  }
   // Nothing to raise for means nothing to show — an empty form that can only
   // be rejected wastes the trip.
   if (!access.unrestricted && (access.outletIds.length === 0 || access.expenseTypes.length === 0)) {

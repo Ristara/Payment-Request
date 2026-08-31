@@ -5,7 +5,7 @@ import { assignRole, createUser, deactivateUser, reactivateUser, removeRole } fr
 import { ROLE_LABEL, formatINR } from "@/lib/types";
 import AccessCell, { type Outlet } from "./access-cell";
 import SetPassword from "./set-password";
-import type { ExpenseType } from "@/lib/access-labels";
+import type { ExpenseType, RaiseModule } from "@/lib/access-labels";
 
 type UserRow = {
   id: string;
@@ -32,6 +32,7 @@ export default function UsersForm({
   outlets,
   branchByUser,
   expenseByUser,
+  moduleByUser,
 }: {
   users: UserRow[];
   openByUser: Record<string, OpenRequest[]>;
@@ -39,6 +40,7 @@ export default function UsersForm({
   outlets: Outlet[];
   branchByUser: Record<string, string[]>;
   expenseByUser: Record<string, ExpenseType[]>;
+  moduleByUser: Record<string, RaiseModule[]>;
 }) {
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
   // Kept in state so a failed submit doesn't wipe what was typed.
@@ -249,6 +251,7 @@ export default function UsersForm({
                       outlets={outlets}
                       branchIds={branchByUser[u.id] ?? []}
                       expenseTypes={expenseByUser[u.id] ?? []}
+                      modules={moduleByUser[u.id] ?? []}
                       isAdmin={held.has("admin")}
                     />
                   </div>

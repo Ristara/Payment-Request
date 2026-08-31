@@ -465,6 +465,54 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
     await as(NOBODY, "update public.payment_requests set title='Nope' where id=$1", [pre.rid]));
 }
 
+// --- Module access: which raise paths a person may use ----------------------
+{
+  const MADMIN = await makeUser("moduleadmin", ["admin"]);
+
+  check("module access: everyone signed in can read the grants", "ALLOWED",
+    await as(REQUESTER, "select 1 from public.user_module_access limit 1"));
+  check("module access: a requester cannot grant themselves a path", "BLOCKED",
+    await as(REQUESTER,
+      "insert into public.user_module_access (user_id, module) values ($1,'payment')", [NOBODY]));
+  check("module access: a requester cannot revoke someone else's", "BLOCKED",
+    await as(REQUESTER, "delete from public.user_module_access where user_id=$1", [ACCOUNTS]));
+  check("module access: accounts cannot grant paths either", "BLOCKED",
+    await as(ACCOUNTS,
+      "insert into public.user_module_access (user_id, module) values ($1,'procurement')", [NOBODY]));
+  check("module access: an admin can grant one", "ALLOWED",
+    await as(MADMIN,
+      "insert into public.user_module_access (user_id, module) values ($1,'payment')", [NOBODY]));
+  // makeUser creates its profile after the backfill migration ran, so a fresh
+  // test user genuinely has no grants — give it one to revoke, or the delete
+  // matches nothing and passes for the wrong reason.
+  await c.query(
+    "insert into public.user_module_access (user_id, module) values ($1,'payment') on conflict do nothing",
+    [REQUESTER]);
+  check("module access: an admin can revoke one", "ALLOWED",
+    await as(MADMIN, "delete from public.user_module_access where user_id=$1", [REQUESTER]));
+}
+
+// --- Module access is enforced in code, not by RLS --------------------------
+// There is no policy that stops a requester INSERTing a payment_request just
+// because they lack the "payment" path — the two create actions are the only
+// thing enforcing it, and a server action can be POSTed without ever loading
+// the page that hides the button. So the checks themselves are asserted.
+{
+  const fs = await import("node:fs");
+  for (const [file, fn, mod] of [
+    ["src/app/requests/actions.ts", "createThread", "payment"],
+    ["src/app/procurement/actions.ts", "createProcurementRequest", "procurement"],
+  ]) {
+    const src = fs.readFileSync(file, "utf8");
+    const at = src.indexOf(`export async function ${fn}`);
+    const body = at === -1 ? "" : src.slice(at, src.indexOf("\nexport async function", at + 1) + 1 || undefined);
+    check(`module access: ${fn} checks the "${mod}" path`, "ALLOWED",
+      new RegExp(`moduleDenied\\(\\s*access\\s*,\\s*["']${mod}["']`).test(body)
+        ? "ALLOWED"
+        : "BLOCKED (no moduleDenied check found)");
+  }
+}
+
 await c.query("rollback");
 // Nothing should be left, but if a future edit strays past the rollback this
 // is what stops it reaching the user list.

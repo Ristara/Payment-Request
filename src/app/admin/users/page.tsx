@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles } from "@/lib/auth";
 import { getOpenRequestsFor } from "@/lib/purge-request";
-import type { ExpenseType } from "@/lib/access-labels";
+import type { ExpenseType, RaiseModule } from "@/lib/access-labels";
 import UsersForm, { type OpenRequest } from "./users-form";
 
 type UserRow = {
@@ -27,11 +27,13 @@ export default async function UsersPage() {
 
   // Who may raise for which branch / expense type. Read here so the table can
   // show it without each row fetching its own.
-  const [{ data: outletRows }, { data: branchRows }, { data: expenseRows }] = await Promise.all([
-    supabase.from("outlets").select("id, name").eq("is_active", true).order("name"),
-    supabase.from("user_branch_access").select("user_id, outlet_id"),
-    supabase.from("user_expense_access").select("user_id, expense_type"),
-  ]);
+  const [{ data: outletRows }, { data: branchRows }, { data: expenseRows }, { data: moduleRows }] =
+    await Promise.all([
+      supabase.from("outlets").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("user_branch_access").select("user_id, outlet_id"),
+      supabase.from("user_expense_access").select("user_id, expense_type"),
+      supabase.from("user_module_access").select("user_id, module"),
+    ]);
   const outletList = (outletRows ?? []) as { id: string; name: string }[];
   const branchByUser: Record<string, string[]> = {};
   for (const r of (branchRows ?? []) as { user_id: string; outlet_id: string }[]) {
@@ -40,6 +42,10 @@ export default async function UsersPage() {
   const expenseByUser: Record<string, ExpenseType[]> = {};
   for (const r of (expenseRows ?? []) as { user_id: string; expense_type: ExpenseType }[]) {
     (expenseByUser[r.user_id] ??= []).push(r.expense_type);
+  }
+  const moduleByUser: Record<string, RaiseModule[]> = {};
+  for (const r of (moduleRows ?? []) as { user_id: string; module: RaiseModule }[]) {
+    (moduleByUser[r.user_id] ??= []).push(r.module);
   }
 
   // Loaded up front so the deactivation panel can list exactly what would be
@@ -68,6 +74,7 @@ export default async function UsersPage() {
           outlets={outletList}
           branchByUser={branchByUser}
           expenseByUser={expenseByUser}
+        moduleByUser={moduleByUser}
         />
       </div>
     </div>

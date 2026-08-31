@@ -188,6 +188,12 @@ export default async function DashboardPage({
             to set yours up.
           </p>
         )}
+        {denied === "module" && (
+          <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            You don&rsquo;t have access to that way of raising a request. Ask an
+            admin if you should.
+          </p>
+        )}
         {denied === "raise" && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             You don&apos;t have permission to raise payment requests. Ask an admin to give you the Requester role.

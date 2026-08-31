@@ -4,6 +4,19 @@
  */
 export type ExpenseType = "capex" | "opex";
 
+/** The two ways a request can be started. */
+export type RaiseModule = "payment" | "procurement";
+
+export const MODULE_LABEL: Record<RaiseModule, string> = {
+  payment: "Pay a vendor",
+  procurement: "Buy or repair",
+};
+
+export const MODULE_HINT: Record<RaiseModule, string> = {
+  payment: "Straight to a payment request",
+  procurement: "Needs a PO first",
+};
+
 export const EXPENSE_LABEL: Record<ExpenseType, string> = {
   capex: "CapEx",
   opex: "OpEx",

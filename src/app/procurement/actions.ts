@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getRaiseAccess, hasUnrestrictedRaise, moduleDenied } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push";
@@ -81,6 +82,18 @@ export async function createProcurementRequest(
 ): Promise<ProcurementState> {
   try {
     const { supabase, user } = await requireAnyRole("requester", "admin");
+
+    // First access check this action has ever had. The New page could already
+    // be reached directly, and a server action is dispatched by id — it can be
+    // POSTed without ever loading that page.
+    {
+      const { data: roleRows } = await supabase
+        .from("user_roles").select("role").eq("user_id", user.id);
+      const roleNames = ((roleRows ?? []) as { role: string }[]).map((r) => r.role);
+      const access = await getRaiseAccess(user.id, hasUnrestrictedRaise(roleNames));
+      const noModule = moduleDenied(access, "procurement");
+      if (noModule) return { error: noModule };
+    }
 
     const title = String(formData.get("title") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim();

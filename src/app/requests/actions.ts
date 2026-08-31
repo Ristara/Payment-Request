@@ -11,7 +11,7 @@ import { oversizedFile } from "@/lib/uploads";
 import { formatINR, shortRequestNumber } from "@/lib/types";
 import { notifyVendorOfPayment } from "@/lib/whatsapp";
 import { getDeletionImpact, purgeRequest } from "@/lib/purge-request";
-import { getRaiseAccess, hasUnrestrictedRaise, raiseDenied, type ExpenseType } from "@/lib/access";
+import { getRaiseAccess, hasUnrestrictedRaise, moduleDenied, raiseDenied, type ExpenseType } from "@/lib/access";
 
 export type RequestState = { error?: string; info?: string } | undefined;
 
@@ -403,6 +403,8 @@ export async function createThread(
     const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
     const roleNames = ((roleRows ?? []) as { role: string }[]).map((r) => r.role);
     const access = await getRaiseAccess(user.id, hasUnrestrictedRaise(roleNames));
+    const noModule = moduleDenied(access, "payment");
+    if (noModule) return { error: noModule };
     const noAccess = raiseDenied(access, outlet_ids, expense_type);
     if (noAccess) return { error: noAccess };
   }
