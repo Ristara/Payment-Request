@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, requireUser } from "@/lib/auth";
-import { STATUS_LABEL, formatINR, amountStillToPay, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL } from "@/lib/routing";
+import { STATUS_LABEL, formatINR, amountStillToPay, PAYMENT_MODE_LABEL, VENDOR_STATUS_LABEL, deriveThreadStatus } from "@/lib/routing";
 import { formatDateOnly, formatISTDate, formatISTDateTime, shortRequestNumber } from "@/lib/types";
 import InstallmentActions from "./installment-actions";
 import EditRequestDetails from "./edit-request-details";
@@ -824,28 +824,6 @@ export default async function ThreadDetailPage({
  * then terminal states. Rejected/cancelled only shows when nothing else
  * ever succeeded.
  */
-function deriveThreadStatus(statuses: string[]): string {
-  if (statuses.length === 0) return "draft";
-  const priority = [
-    "clarification_required",
-    "pending_approval",
-    "returned_for_correction",
-    "approved",
-    "uploaded_in_bank",
-    "invoice_pending",
-    "payment_processed",
-    "closed",
-    "rejected",
-    "cancelled",
-    // Last: a recalled draft shouldn't mask a paid or pending sibling.
-    "draft",
-  ];
-  for (const s of priority) {
-    if (statuses.includes(s)) return s;
-  }
-  return statuses[statuses.length - 1];
-}
-
 function Card({
   title,
   children,

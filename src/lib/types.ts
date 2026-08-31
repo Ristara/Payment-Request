@@ -107,3 +107,33 @@ export function amountStillToPay(
   const net = Number(requestedAmount ?? 0) - Number(tdsAmount ?? 0);
   return Math.max(0, net - paidSoFar);
 }
+
+
+/**
+ * The one status a whole request shows, out of its installments'.
+ *
+ * Lives here rather than on the detail page because the spend report groups by
+ * it too, and two versions of "what status is this request" would sooner or
+ * later disagree with the badge on the request itself.
+ */
+export function deriveThreadStatus(statuses: string[]): string {
+  if (statuses.length === 0) return "draft";
+  const priority = [
+    "clarification_required",
+    "pending_approval",
+    "returned_for_correction",
+    "approved",
+    "uploaded_in_bank",
+    "invoice_pending",
+    "payment_processed",
+    "closed",
+    "rejected",
+    "cancelled",
+    // Last: a recalled draft shouldn't mask a paid or pending sibling.
+    "draft",
+  ];
+  for (const s of priority) {
+    if (statuses.includes(s)) return s;
+  }
+  return statuses[statuses.length - 1];
+}

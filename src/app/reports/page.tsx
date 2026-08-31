@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { STATUS_LABEL, deriveThreadStatus } from "@/lib/types";
 import PivotReport, { type PivotRow } from "./pivot-report";
 
 type LineRow = {
@@ -78,6 +79,13 @@ export default async function SpendReportPage({
         expense: l.request!.expense_type === "opex" ? "OpEx" : l.request!.expense_type === "capex" ? "CapEx" : "—",
         kind: l.request!.payment_kind === "milestone" ? "Milestone" : l.request!.payment_kind === "regular" ? "Regular" : "—",
         raisedBy: l.request!.submitter?.full_name ?? "—",
+        // The same single status the request itself shows, from the same
+        // helper — a report that disagreed with the badge on the request
+        // would just make people distrust both.
+        status:
+          STATUS_LABEL[
+            deriveThreadStatus((l.request!.installments ?? []).map((i) => i.status))
+          ] ?? "—",
         month: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`,
       };
     });

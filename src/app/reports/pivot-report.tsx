@@ -18,6 +18,7 @@ export type PivotRow = {
   kind: string;
   raisedBy: string;
   month: string;
+  status: string;
 };
 
 /** Every field that can be dragged onto rows, columns or filters. */
@@ -32,6 +33,7 @@ const FIELDS: { key: FieldKey; label: string }[] = [
   { key: "expense", label: "Expense type" },
   { key: "stage", label: "New / existing" },
   { key: "kind", label: "Payment kind" },
+  { key: "status", label: "Status" },
   { key: "raisedBy", label: "Raised by" },
   { key: "month", label: "Month" },
 ];
