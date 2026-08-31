@@ -107,23 +107,43 @@ export default function PivotReport({
       if (zone) stripped[zone] = [...stripped[zone], field];
       return stripped;
     });
+    // Taking a field off the board drops its value choices with it. Keeping
+    // them would leave an invisible filter that reappears the moment the field
+    // is dragged back, and would ride along into a saved report.
+    if (!zone) {
+      setExcluded((ex) => {
+        const { [field]: _gone, ...rest } = ex;
+        return rest;
+      });
+      if (openFilter === field) setOpenFilter(null);
+    }
   }
 
-  /** Distinct values of a field, for the filter checkboxes. */
+  /** Every field currently in play, wherever it sits. */
+  const placedFields = useMemo(
+    () => [...zones.rows, ...zones.cols, ...zones.filters],
+    [zones],
+  );
+
+  /** Distinct values of a field, for its value list. */
   const valuesOf = useMemo(() => {
     const out: Partial<Record<FieldKey, string[]>> = {};
-    for (const f of zones.filters) {
+    for (const f of placedFields) {
       out[f] = [...new Set(rows.map((r) => String(r[f])))].sort();
     }
     return out;
-  }, [rows, zones.filters]);
+  }, [rows, placedFields]);
 
+  // A field filters wherever it sits. Excel lets you narrow a row or column
+  // field without also having to drop a copy into Filters, and the exclusions
+  // are keyed by field rather than by zone, so moving a chip between zones
+  // carries its choices with it.
   const visible = useMemo(
     () =>
       rows.filter((r) =>
-        zones.filters.every((f) => !(excluded[f] ?? []).includes(String(r[f]))),
+        placedFields.every((f) => !(excluded[f] ?? []).includes(String(r[f]))),
       ),
-    [rows, zones.filters, excluded],
+    [rows, placedFields, excluded],
   );
 
   // ---- The pivot itself ----------------------------------------------------
@@ -235,26 +255,35 @@ export default function PivotReport({
               className={`${CHIP} cursor-grab active:cursor-grabbing`}
             >
               {LABEL[f]}
-              {zone === "filters" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (openFilter === f) {
-                      setOpenFilter(null);
-                      return;
-                    }
-                    const vals = [...new Set(rows.map((r) => String(r[f])))].sort();
-                    const off = excluded[f] ?? [];
-                    setDraft(vals.filter((v) => !off.includes(v)));
-                    setSearch("");
-                    setOpenFilter(f);
-                  }}
-                  aria-label={`Choose values for ${LABEL[f]}`}
-                  className="rounded-full px-1 text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900"
+              {/* Says out loud that this field is hiding something. A row
+                  field quietly excluding four outlets is a wrong total nobody
+                  can see the cause of. */}
+              {(excluded[f] ?? []).length > 0 && (
+                <span
+                  title={`${(excluded[f] ?? []).length} value(s) hidden`}
+                  className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-100"
                 >
-                  ▾
-                </button>
+                  −{(excluded[f] ?? []).length}
+                </span>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (openFilter === f) {
+                    setOpenFilter(null);
+                    return;
+                  }
+                  const vals = [...new Set(rows.map((r) => String(r[f])))].sort();
+                  const off = excluded[f] ?? [];
+                  setDraft(vals.filter((v) => !off.includes(v)));
+                  setSearch("");
+                  setOpenFilter(f);
+                }}
+                aria-label={`Choose values for ${LABEL[f]}`}
+                className="rounded-full px-1 text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900"
+              >
+                ▾
+              </button>
               <button
                 type="button"
                 onClick={() => moveTo(f, null)}
@@ -281,7 +310,7 @@ export default function PivotReport({
    * auto-apply: the point of holding the change is that you can pick five
    * outlets without the table rebuilding four times on the way. */
   function filterValues() {
-    if (!openFilter || !zones.filters.includes(openFilter)) return null;
+    if (!openFilter || !placedFields.includes(openFilter)) return null;
     const field = openFilter;
     const vals = valuesOf[field] ?? [];
     const q = search.trim().toLowerCase();
