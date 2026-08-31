@@ -77,3 +77,38 @@ export async function deleteReport(_prev: ReportState, formData: FormData): Prom
   revalidatePath("/reports");
   return { info: "Removed." };
 }
+
+/**
+ * Rename a saved report, leaving its layout alone.
+ *
+ * Separate from saveReport because they are different intentions. Renaming
+ * from the list means "call this something else"; saving from the builder
+ * means "keep what is on screen". Folding them together would let a rename
+ * quietly overwrite a layout with whatever the builder last had.
+ */
+export async function renameReport(_prev: ReportState, formData: FormData): Promise<ReportState> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const id = String(formData.get("id") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  if (!id) return { error: "Missing report." };
+  if (!name) return { error: "Give the report a name." };
+  if (name.length > 80) return { error: "That name is too long." };
+
+  // No owner check in the query — the policy is the check, and it cannot be
+  // talked out of it by a crafted id the way a forgotten `if` can.
+  const { error } = await supabase
+    .from("saved_reports")
+    .update({ name, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    return error.code === "23505"
+      ? { error: `You already have a report called "${name}".` }
+      : { error: error.message };
+  }
+
+  revalidatePath("/reports");
+  return { info: `Renamed to "${name}".` };
+}

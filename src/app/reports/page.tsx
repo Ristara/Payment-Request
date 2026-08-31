@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import DeleteReport from "./delete-report";
+import ReportActions from "./report-actions";
 
 type SavedRow = {
   id: string;
@@ -99,7 +99,7 @@ export default async function FavouriteReportsPage() {
                 </Link>
                 <p className="mt-0.5 truncate text-xs text-zinc-500">{summarise(r.config)}</p>
               </div>
-              <DeleteReport id={r.id} name={r.name} />
+              <ReportActions id={r.id} name={r.name} />
             </li>
           ))}
         </ul>

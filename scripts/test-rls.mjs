@@ -557,14 +557,31 @@ check("user: edit their own name", "ALLOWED", await as(NOBODY,
   check("saved reports: the owner can delete their own", "ALLOWED",
     await as(THEIRS, "delete from public.saved_reports where id=$1", [theirId]));
 
+  const theirId2 = randomUUID();
+  await c.query(
+    `insert into public.saved_reports (id, owner_id, name, config)
+     values ($1, $2, 'Their second view', '{"rows":["coa"]}'::jsonb)`,
+    [theirId2, THEIRS]);
+
   // Re-saving under a name you already used must update, not silently make a
   // second "Monthly spend".
   await c.query(
     `insert into public.saved_reports (owner_id, name, config)
      values ($1, 'Dupe', '{"rows":["coa"]}'::jsonb)`, [MINE]);
+  check("saved reports: you cannot rename another person's", "BLOCKED",
+    await as(MINE, "update public.saved_reports set name='Stolen' where id=$1", [theirId2]));
+  check("saved reports: the owner can rename their own", "ALLOWED",
+    await as(THEIRS, "update public.saved_reports set name='Renamed' where id=$1", [theirId2]));
+
   check("saved reports: the same name twice is refused", "BLOCKED",
     await as(MINE, `insert into public.saved_reports (owner_id, name, config)
        values ($1, 'Dupe', '{"rows":["vendor"]}'::jsonb)`, [MINE]));
+  const mineId = randomUUID();
+  await c.query(
+    `insert into public.saved_reports (id, owner_id, name, config)
+     values ($1, $2, 'Another of mine', '{"rows":["coa"]}'::jsonb)`, [mineId, MINE]);
+  check("saved reports: renaming onto a name you already have is refused", "BLOCKED",
+    await as(MINE, "update public.saved_reports set name='Dupe' where id=$1", [mineId]));
 }
 
 await c.query("rollback");

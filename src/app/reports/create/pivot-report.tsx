@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { saveReport } from "../actions";
 import { COA_LABEL } from "@/lib/coa-labels";
 import { formatINR } from "@/lib/types";
@@ -391,6 +391,8 @@ export default function PivotReport({
 
   return (
     <div className="mt-6">
+      <SaveBar config={{ ...zones, excluded, from, to }} savedName={savedName} />
+
       {/* The three zones, full width and below the date range — no separate
           field palette. Every field is one + away, and a list of chips that
           only existed to be dragged out of was a box earning no space. */}
@@ -401,11 +403,6 @@ export default function PivotReport({
       </div>
 
       {filterValues()}
-
-      <SaveBar
-        config={{ ...zones, excluded, from, to }}
-        savedName={savedName}
-      />
 
       {/* The table */}
       <section className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -502,21 +499,49 @@ function SaveBar({
   savedName: string | null;
 }) {
   const [state, action, pending] = useActionState(saveReport, undefined);
+  const [naming, setNaming] = useState(false);
+
+  useEffect(() => {
+    if (state?.info) setNaming(false);
+  }, [state?.info]);
+
+  // A name box sitting open on every visit is a question nobody asked: most
+  // trips here are to look at something, not to keep it. Ask only once Save
+  // has been pressed.
+  if (!naming) {
+    return (
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setNaming(true)}
+          className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          {savedName ? "Save changes" : "Save report"}
+        </button>
+        {state?.info && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">{state.info}</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <form
       action={action}
-      className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+      className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {/* The whole arrangement travels as one JSON field: it is one thing
+          conceptually, and a form per zone would let half a layout save. */}
       <input type="hidden" name="config" value={JSON.stringify(config)} />
       <label htmlFor="report-name" className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
-        Save as
+        Name
       </label>
       <input
         id="report-name"
         name="name"
         required
         maxLength={80}
+        autoFocus
         // Re-saving under the same name updates that favourite rather than
         // making a second one, so opening a favourite pre-fills its name.
         defaultValue={savedName ?? ""}
@@ -528,13 +553,17 @@ function SaveBar({
         disabled={pending}
         className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
       >
-        {pending ? "Saving…" : savedName ? "Update favourite" : "Save to favourites"}
+        {pending ? "Saving…" : "Save to favourites"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setNaming(false)}
+        className="text-xs font-medium text-zinc-500 hover:underline"
+      >
+        Cancel
       </button>
       {state?.error && (
         <p className="w-full text-xs text-red-600 dark:text-red-400">{state.error}</p>
-      )}
-      {state?.info && (
-        <p className="w-full text-xs text-emerald-600 dark:text-emerald-400">{state.info}</p>
       )}
     </form>
   );
